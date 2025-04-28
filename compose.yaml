@@ -1,0 +1,19 @@
+services:
+  fedora:
+    container_name: fedora
+    build: container/development
+    environment:
+      TZ: 'Asia/Tokyo'
+    privileged: true
+    tty: true
+    restart: always
+    volumes:
+      - type: bind
+        source: .
+        target: /home/fedora/go_project
+    working_dir: /home/fedora
+    networks:
+      - fedora-network
+networks:
+  fedora-network:
+    driver: bridge

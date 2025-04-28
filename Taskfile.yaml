@@ -1,0 +1,76 @@
+# https://taskfile.dev
+
+#version: '3'
+#
+#vars:
+#  GREETING: Hello, World!
+#
+#tasks:
+#  default:
+#    cmds:
+#      - echo "{{.GREETING}}"
+#    silent: true
+#  build:
+#    desc: Build the go binary.
+#    cmds:
+#      - go build -o ../../dist/hello{{exeExt}} .
+#    dir: src/hello
+#    sources:
+#      - '**/*.go'
+#    generates:
+#      - ../../dist{{exeExt}}
+#  test:
+#    desc: Run all the go tests.
+#    dir: src/test
+#    cmds:
+#      - go test -race -v
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+
+  default:
+    cmds:
+      - echo "{{.GREETING}}"
+    silent: true
+
+  build:
+    desc: Build the Go application
+    cmds:
+      - mkdir -p dist
+      - go build -o dist/myapp ./cmd/myapp/main.go
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./src/test/go/internal/...
+
+  run:
+    desc: Run the Go application
+    cmds:
+      - ./dist/myapp
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run Go code analysis
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint (if installed)
+    cmds:
+      - command -v golangci-lint &> /dev/null && golangci-lint run ./... || echo "golangci-lint not installed"
+
+  clean:
+    desc: Clean up build artifacts
+    cmds:
+      - rm -rf dist
+
+default: build
