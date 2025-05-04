@@ -1,76 +1,42 @@
 # https://taskfile.dev
 
-#version: '3'
-#
-#vars:
-#  GREETING: Hello, World!
-#
-#tasks:
-#  default:
-#    cmds:
-#      - echo "{{.GREETING}}"
-#    silent: true
-#  build:
-#    desc: Build the go binary.
-#    cmds:
-#      - go build -o ../../dist/hello{{exeExt}} .
-#    dir: src/hello
-#    sources:
-#      - '**/*.go'
-#    generates:
-#      - ../../dist{{exeExt}}
-#  test:
-#    desc: Run all the go tests.
-#    dir: src/test
-#    cmds:
-#      - go test -race -v
-
 version: '3'
 
 vars:
-  GREETING: Hello, World!
+  MODULE_NAME: sample
+  SRC_DIR: ./src/main/go/batch
+  TEST_DIR: ./src/test/go/batch
+  BINARY_NAME: batch
+  BUILD_OUTPUT_DIR: dist
 
 tasks:
-
-  default:
+  test:
+    desc: "Run test for the batch package."
     cmds:
-      - echo "{{.GREETING}}"
-    silent: true
+      - go test {{.MODULE_NAME}}/src/test/go/batch/config -v
 
   build:
-    desc: Build the Go application
+    desc: "Build the fetcher executable to {{.BUILD_OUTPUT_DIR}}/"
+    ensures:
+      - dir: [".{{BUILD_OUTPUT_DIR}}"]
     cmds:
-      - mkdir -p dist
-      - go build -o dist/myapp ./cmd/myapp/main.go
-
-  test:
-    desc: Run all tests
-    cmds:
-      - go test ./src/test/go/internal/...
+      - cp src/main/resources/application.yaml src/main/go/batch/config
+      - go build -v -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.SRC_DIR}}
+      - rm src/main/go/batch/config/application.yaml
+      - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
+    generates:
+      - "{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
+    sources:
+      - "{{.SRC_DIR}}/*.go"
 
   run:
-    desc: Run the Go application
+    desc: "Build and run the application."
+    deps: [build]
     cmds:
-      - ./dist/myapp
-
-  fmt:
-    desc: Format Go code
-    cmds:
-      - go fmt ./...
-
-  vet:
-    desc: Run Go code analysis
-    cmds:
-      - go vet ./...
-
-  lint:
-    desc: Run golangci-lint (if installed)
-    cmds:
-      - command -v golangci-lint &> /dev/null && golangci-lint run ./... || echo "golangci-lint not installed"
+      - ./{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}
 
   clean:
-    desc: Clean up build artifacts
+    desc: "Remove build artifacts."
     cmds:
-      - rm -rf dist
-
-default: build
+      - rm -rf ./{{.BUILD_OUTPUT_DIR}}
+      - go clean -cache -testcache

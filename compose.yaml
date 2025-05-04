@@ -14,6 +14,37 @@ services:
     working_dir: /home/fedora
     networks:
       - fedora-network
+  mysql:
+    container_name: mysql
+    image: "mysql:8.0.28-debian"
+    platform: linux/amd64
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_DATABASE: weather
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      TZ: 'Asia/Tokyo'
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    networks:
+      - fedora-network
+
+  postgres:
+    container_name: postgres
+    image: "postgres:14-alpine"
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DATABASE: weather
+      POSTGRES_USER: weather
+      POSTGRES_PASSWORD: weather
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_SSLMODE: disable
+      TZ: 'Asia/Tokyo'
+    restart: always
+    networks:
+      - fedora-network
+
 networks:
   fedora-network:
     driver: bridge
