@@ -56,12 +56,17 @@ func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
     f.config,
   )
   logger.Debugf("Registering LoggingListener")
-  loggingListener := listener.NewLoggingListener()
+  retryListener := listener.NewRetryListener(f.config) // RetryListener を生成
+  weatherJob.RegisterListener("Reader", retryListener)   // Reader に登録
+  weatherJob.RegisterListener("Processor", retryListener) // Processor に登録
+  weatherJob.RegisterListener("Writer", retryListener)   // Writer に登録
+  loggingListener := listener.NewLoggingListener()       // LoggingListener も登録
+
   weatherJob.RegisterListener("Reader", loggingListener)
   weatherJob.RegisterListener("Processor", loggingListener)
   weatherJob.RegisterListener("Writer", loggingListener)
-
   logger.Debugf("WeatherJob created successfully")
+
   return weatherJob, nil
 }
 

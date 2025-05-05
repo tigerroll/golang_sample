@@ -48,13 +48,8 @@ func (j *WeatherJob) RegisterListener(stepName string, l listener.StepExecutionL
 }
 
 func (j *WeatherJob) Run(ctx context.Context) error {
-  var (
-    forecastData  interface{}
-    processedData interface{}
-    err           error
-    startTime     time.Time
-    elapsed       time.Duration
-  )
+  retryConfig := j.config.Batch.Retry // リトライ設定を取得
+  var err error
 
   logger.Infof("Weather Job を開始します。")
 
@@ -66,43 +61,77 @@ func (j *WeatherJob) Run(ctx context.Context) error {
     }
   }()
 
-  // Reader
-  j.notifyBeforeStep(ctx, "Reader", nil)
-  startTime = time.Now()
-  forecastData, err = j.reader.Read(ctx)
-  elapsed = time.Since(startTime)
-  j.notifyAfterStep(ctx, "Reader", forecastData, err, elapsed)
-  if err != nil {
-    return fmt.Errorf("データの読み込みに失敗しました: %w", err)
-  }
-  logger.Debugf("リーダーからデータを読み込みました: %+v", forecastData)
+  for attempt := 0; attempt < retryConfig.MaxAttempts; attempt++ {
+    var forecastData interface{}
+    var processedData interface{}
+    var startTime time.Time
+    var elapsed time.Duration
+    var readerErr bool
 
-  // Processor
-  j.notifyBeforeStep(ctx, "Processor", forecastData)
-  startTime = time.Now()
-  // 型アサーション
-  forecast, ok := forecastData.(*entity.OpenMeteoForecast)
-  if !ok {
-    return fmt.Errorf("forecastData の型が *entity.OpenMeteoForecast ではありません: %T", forecastData)
-  }
-  processedData, err = j.processor.Process(ctx, forecast)
-  elapsed = time.Since(startTime)
-  j.notifyAfterStep(ctx, "Processor", processedData, err, elapsed)
-  if err != nil {
-    return fmt.Errorf("データの加工に失敗しました: %w", err)
-  }
-  logger.Debugf("プロセッサーでデータを加工しました: %+v", processedData)
+    // Reader
+    j.notifyBeforeStep(ctx, "Reader", nil)
+    startTime = time.Now()
+    forecastData, err = j.reader.Read(ctx)
+    elapsed = time.Since(startTime)
+    j.notifyAfterStep(ctx, "Reader", forecastData, err, elapsed)
+    if err != nil {
+      logger.Errorf("データの読み込みに失敗しました (リトライ %d): %v", attempt+1, err)
+      readerErr = true
+    } else {
+      logger.Debugf("リーダーからデータを読み込みました: %+v", forecastData)
+    }
 
-  // Writer
-  j.notifyBeforeStep(ctx, "Writer", processedData)
-  startTime = time.Now()
-  err = j.writer.Write(ctx, processedData.([]*entity.WeatherDataToStore))
-  elapsed = time.Since(startTime)
-  j.notifyAfterStep(ctx, "Writer", processedData, err, elapsed)
-  if err != nil {
-    return fmt.Errorf("データの書き込みに失敗しました: %w", err)
+    if readerErr {
+      if attempt < retryConfig.MaxAttempts-1 {
+        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        continue // リトライ
+      } else {
+        return fmt.Errorf("データの読み込みに最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, err)
+      }
+    }
+
+    // Processor
+    j.notifyBeforeStep(ctx, "Processor", forecastData)
+    startTime = time.Now()
+    forecast, ok := forecastData.(*entity.OpenMeteoForecast)
+    if !ok {
+      err = fmt.Errorf("forecastData の型が *entity.OpenMeteoForecast ではありません: %T", forecastData)
+    } else {
+      processedData, err = j.processor.Process(ctx, forecast)
+    }
+    elapsed = time.Since(startTime)
+    j.notifyAfterStep(ctx, "Processor", processedData, err, elapsed)
+    if err != nil {
+      logger.Errorf("データの加工に失敗しました (リトライ %d): %v", attempt+1, err)
+      if attempt < retryConfig.MaxAttempts-1 {
+        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        continue // リトライ
+      } else {
+        return fmt.Errorf("データの加工に最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, err)
+      }
+    } else {
+      logger.Debugf("プロセッサーでデータを加工しました: %+v", processedData)
+    }
+
+    // Writer
+    j.notifyBeforeStep(ctx, "Writer", processedData)
+    startTime = time.Now()
+    err = j.writer.Write(ctx, processedData.([]*entity.WeatherDataToStore))
+    elapsed = time.Since(startTime)
+    j.notifyAfterStep(ctx, "Writer", processedData, err, elapsed)
+    if err != nil {
+      logger.Errorf("データの書き込みに失敗しました (リトライ %d): %v", attempt+1, err)
+      if attempt < retryConfig.MaxAttempts-1 {
+        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        continue // リトライ
+      } else {
+        return fmt.Errorf("データの書き込みに最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, err)
+      }
+    } else {
+      logger.Infof("ライターでデータを書き込みました。")
+      break // Success!
+    }
   }
-  logger.Infof("ライターでデータを書き込みました。")
 
   logger.Infof("Weather Job を完了しました。")
   return nil

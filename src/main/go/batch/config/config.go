@@ -31,11 +31,21 @@ func (c DatabaseConfig) ConnectionString() string {
   }
 }
 
+type RetryConfig struct {
+  MaxAttempts            int `yaml:"max_attempts"`
+  InitialInterval        int `yaml:"initial_interval"`
+  MaxInterval            int `yaml:"max_interval"`
+  Factor                 float64 `yaml:"factor"`
+  CircuitBreakerThreshold int `yaml:"circuit_breaker_threshold"`
+  CircuitBreakerResetInterval int `yaml:"circuit_breaker_reset_interval"`
+}
+
 type BatchConfig struct {
   PollingIntervalSeconds int    `yaml:"polling_interval_seconds"`
   APIEndpoint            string `yaml:"api_endpoint"`
   APIKey                 string `yaml:"api_key"`
-  JobName                string `yaml:"job_name"` // yaml タグを追加
+  JobName                string `yaml:"job_name"`
+  Retry                  RetryConfig `yaml:"retry"`
 }
 
 type LoggingConfig struct {

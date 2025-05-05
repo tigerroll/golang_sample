@@ -12,6 +12,13 @@ batch:
   api_endpoint: "https://api.open-meteo.com/v1/forecast"
   api_key: "your_api_key"
   job_name: "weather"
+  retry: # リトライ設定
+    max_attempts: 3
+    initial_interval: 1
+    max_interval: 10
+    factor: 2
+    circuit_breaker_threshold: 3
+    circuit_breaker_reset_interval: 60
 
 system:
   timezone: "Asia/Tokyo"
