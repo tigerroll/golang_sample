@@ -11,6 +11,7 @@ batch:
   polling_interval_seconds: 3600
   api_endpoint: "https://api.open-meteo.com/v1/forecast"
   api_key: "your_api_key"
+  job_name: "weather"
 
 system:
   timezone: "Asia/Tokyo"

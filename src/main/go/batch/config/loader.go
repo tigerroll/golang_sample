@@ -15,35 +15,41 @@ var embeddedConfig []byte
 // LoadConfig は application.yaml ファイルを読み込み、環境変数で上書きした Config 構造体を返します。
 func LoadConfig() (*Config, error) {
   cfg := NewConfig()
-  
+
   configPath := os.Getenv("CONFIG_PATH")
+  var yamlCfg Config
+  var err error
+
   if configPath != "" {
     // 環境変数で指定されたパスのファイルを読み込む
     yamlFile, err := os.ReadFile(configPath)
     if err != nil {
       return nil, fmt.Errorf("設定ファイルの読み込みに失敗しました (%s): %w", configPath, err)
     }
-    yamlCfg, err := loadYamlConfig(yamlFile)
+    yamlCfg, err = loadYamlConfig(yamlFile)
     if err != nil {
       return nil, err
     }
-    cfg.Database = yamlCfg.Database
-    cfg.Batch = yamlCfg.Batch
-    cfg.System = yamlCfg.System
   } else {
     // 埋め込みファイルからロード
-    yamlCfg, err := loadYamlConfig(embeddedConfig)
+    yamlCfg, err = loadYamlConfig(embeddedConfig)
     if err != nil {
       return nil, err
     }
-    cfg.Database = yamlCfg.Database
-    cfg.Batch = yamlCfg.Batch
-    cfg.System = yamlCfg.System
   }
-  
+
+  cfg.Database = yamlCfg.Database
+  cfg.Batch = yamlCfg.Batch
+  cfg.System = yamlCfg.System
+
   // 環境変数で個別の設定値を上書き
   loadEnvVars(cfg)
-  
+
+  // BATCH_JOB_NAME 環境変数をロード (存在すれば設定ファイルの設定を上書き)
+  if jobName := os.Getenv("BATCH_JOB_NAME"); jobName != "" {
+    cfg.Batch.JobName = jobName
+  }
+
   return cfg, nil
 }
 
@@ -101,4 +107,5 @@ func loadEnvVars(cfg *Config) {
   if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
     cfg.System.Logging.Level = logLevel
   }
+  // JobName は個別に処理されるため、ここではロードしない
 }

@@ -32,9 +32,10 @@ func (c DatabaseConfig) ConnectionString() string {
 }
 
 type BatchConfig struct {
-  PollingIntervalSeconds int  `yaml:"polling_interval_seconds"`
-  APIEndpoint          string `yaml:"api_endpoint"`
-  APIKey               string `yaml:"api_key"`
+  PollingIntervalSeconds int    `yaml:"polling_interval_seconds"`
+  APIEndpoint            string `yaml:"api_endpoint"`
+  APIKey                 string `yaml:"api_key"`
+  JobName                string `yaml:"job_name"` // yaml タグを追加
 }
 
 type LoggingConfig struct {
@@ -58,6 +59,9 @@ func NewConfig() *Config {
     System: SystemConfig{
       Timezone: "UTC", // デフォルト値を UTC に設定
       Logging:  LoggingConfig{Level: "INFO"},
+    },
+    Batch: BatchConfig{
+      JobName: "weather", // デフォルトの Job 名を設定
     },
   }
 }
