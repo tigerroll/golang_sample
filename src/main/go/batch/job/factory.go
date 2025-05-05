@@ -1,3 +1,4 @@
+// src/main/go/batch/job/factory.go
 package job
 
 import (
@@ -46,7 +47,6 @@ func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
   processor := processor.NewWeatherProcessor()
   logger.Debugf("Creating WeatherWriter")
   writer := writer.NewWeatherWriter(f.repo) // writer のみを受け取る
-  // エラーが発生しない NewWeatherWriter の場合、err は常に nil になります。
 
   weatherJob := NewWeatherJob(
     f.repo,
@@ -55,20 +55,21 @@ func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
     writer,
     f.config,
   )
-  logger.Debugf("Registering LoggingListener")
-  retryListener := listener.NewRetryListener(f.config) // RetryListener を生成
-  weatherJob.RegisterListener("Reader", retryListener)   // Reader に登録
-  weatherJob.RegisterListener("Processor", retryListener) // Processor に登録
-  weatherJob.RegisterListener("Writer", retryListener)   // Writer に登録
-  loggingListener := listener.NewLoggingListener()       // LoggingListener も登録
 
-  weatherJob.RegisterListener("Reader", loggingListener)
-  weatherJob.RegisterListener("Processor", loggingListener)
-  weatherJob.RegisterListener("Writer", loggingListener)
+  logger.Debugf("Registering Step Listeners") // ログメッセージも修正
+  retryListener := listener.NewRetryListener(f.config)
+  // RegisterListener を RegisterStepListener に修正
+  weatherJob.RegisterStepListener("Reader", retryListener)
+  weatherJob.RegisterStepListener("Processor", retryListener)
+  weatherJob.RegisterStepListener("Writer", retryListener)
+
+  loggingListener := listener.NewLoggingListener()
+  // RegisterListener を RegisterStepListener に修正
+  weatherJob.RegisterStepListener("Reader", loggingListener)
+  weatherJob.RegisterStepListener("Processor", loggingListener)
+  weatherJob.RegisterStepListener("Writer", loggingListener)
+
   logger.Debugf("WeatherJob created successfully")
 
   return weatherJob, nil
 }
-
-// WeatherJob に Run メソッドを実装させるため、ここに空の Run メソッドを定義しておくか、
-// WeatherJob の型を Job インターフェースとして扱う
