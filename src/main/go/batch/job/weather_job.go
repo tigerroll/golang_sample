@@ -6,8 +6,8 @@ import (
   "fmt"
   "sample/src/main/go/batch/config"
   "sample/src/main/go/batch/domain/entity"
-  "sample/src/main/go/batch/step/listener"    // step/listener パッケージをインポート
-  joblistener "sample/src/main/go/batch/job/listener" // job/listener パッケージをインポートし、別名をつける
+  stepListener "sample/src/main/go/batch/step/listener"    // step/listener パッケージをインポート
+  jobListener "sample/src/main/go/batch/job/listener" // job/listener パッケージをインポートし、別名をつける
   "sample/src/main/go/batch/step/processor"
   "sample/src/main/go/batch/step/reader"
   "sample/src/main/go/batch/step/writer"
@@ -17,13 +17,13 @@ import (
 )
 
 type WeatherJob struct {
-  repo         repository.WeatherRepository
-  reader       *reader.WeatherReader
-  processor    *processor.WeatherProcessor
-  writer       *writer.WeatherWriter
-  config       *config.Config
-  listeners    map[string][]listener.StepExecutionListener // ステップリスナー
-  jobListeners []joblistener.JobExecutionListener      // ジョブリスナーを追加
+  repo             repository.WeatherRepository
+  reader           *reader.WeatherReader
+  processor        *processor.WeatherProcessor
+  writer           *writer.WeatherWriter
+  config           *config.Config
+  stepListeners    map[string][]stepListener.StepExecutionListener // ステップリスナー
+  jobListeners     []jobListener.JobExecutionListener      // ジョブリスナーを追加
 }
 
 func NewWeatherJob(
@@ -34,26 +34,26 @@ func NewWeatherJob(
   cfg *config.Config,
 ) *WeatherJob {
   return &WeatherJob{
-    repo:         repo,
-    reader:       reader,
-    processor:    processor,
-    writer:       writer,
-    config:       cfg,
-    listeners:    make(map[string][]listener.StepExecutionListener),
-    jobListeners: make([]joblistener.JobExecutionListener, 0), // 初期化
+    repo:             repo,
+    reader:           reader,
+    processor:        processor,
+    writer:           writer,
+    config:           cfg,
+    stepListeners:    make(map[string][]stepListener.StepExecutionListener),
+    jobListeners:     make([]jobListener.JobExecutionListener, 0), // 初期化
   }
 }
 
 // RegisterStepListener は特定のステップに StepExecutionListener を登録します。 (既存メソッド名を変更)
-func (j *WeatherJob) RegisterStepListener(stepName string, l listener.StepExecutionListener) {
-  if _, ok := j.listeners[stepName]; !ok {
-    j.listeners[stepName] = make([]listener.StepExecutionListener, 0)
+func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepExecutionListener) {
+  if _, ok := j.stepListeners[stepName]; !ok {
+    j.stepListeners[stepName] = make([]stepListener.StepExecutionListener, 0)
   }
-  j.listeners[stepName] = append(j.listeners[stepName], l)
+  j.stepListeners[stepName] = append(j.stepListeners[stepName], l)
 }
 
 // RegisterJobListener は JobExecutionListener を登録します。(新規追加)
-func (j *WeatherJob) RegisterJobListener(l joblistener.JobExecutionListener) {
+func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) {
   j.jobListeners = append(j.jobListeners, l)
 }
 
@@ -196,8 +196,8 @@ func (j *WeatherJob) Run(ctx context.Context) error {
 
 // ステップリスナーへの通知メソッド (既存)
 func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data interface{}) {
-  if listeners, ok := j.listeners[stepName]; ok {
-    for _, l := range listeners {
+  if stepListeners, ok := j.stepListeners[stepName]; ok {
+    for _, l := range stepListeners {
       l.BeforeStep(ctx, stepName, data)
     }
   }
@@ -205,10 +205,10 @@ func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data
 
 // ステップリスナーへの通知メソッド (既存)
 func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data interface{}, err error, duration time.Duration) {
-  if listeners, ok := j.listeners[stepName]; ok {
-    for _, l := range listeners {
+  if stepListeners, ok := j.stepListeners[stepName]; ok {
+    for _, l := range stepListeners {
       // LoggingListener の AfterStepWithDuration を特別に呼び出す場合
-      if loggingListener, ok := l.(*listener.LoggingListener); ok {
+      if loggingListener, ok := l.(*stepListener.LoggingListener); ok {
         loggingListener.AfterStepWithDuration(ctx, stepName, data, err, duration)
       } else {
         l.AfterStep(ctx, stepName, data, err)

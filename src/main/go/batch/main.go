@@ -5,8 +5,8 @@ import (
   "sample/src/main/go/batch/config"
   "sample/src/main/go/batch/repository"
   "sample/src/main/go/batch/job"
-  joblistener "sample/src/main/go/batch/job/listener" // job/listener パッケージをインポート
-  "sample/src/main/go/batch/step/listener" // step/listener パッケージをインポート (ステップリスナーも引き続き使用する場合)
+  jobListener "sample/src/main/go/batch/job/listener" // job/listener パッケージをインポート
+  stepListener "sample/src/main/go/batch/step/listener" // step/listener パッケージをインポート (ステップリスナーも引き続き使用する場合)
   "sample/src/main/go/batch/util/logger"
 )
 
@@ -41,7 +41,7 @@ func main() {
   }
 
   // JobExecutionListener を作成し、ジョブに登録 (新規追加)
-  loggingJobListener := joblistener.NewLoggingJobListener()
+  loggingJobListener := jobListener.NewLoggingJobListener()
   // Job インターフェースに RegisterJobListener がないため、WeatherJob にキャストして登録
   if weatherJob, ok := batchJob.(*job.WeatherJob); ok {
     weatherJob.RegisterJobListener(loggingJobListener)
@@ -50,12 +50,12 @@ func main() {
     // weatherJob.RegisterJobListener(metricsJobListener)
 
     // ステップリスナーも引き続き登録
-    retryListener := listener.NewRetryListener(cfg)
+    retryListener := stepListener.NewRetryListener(cfg)
     weatherJob.RegisterStepListener("Reader", retryListener)
     weatherJob.RegisterStepListener("Processor", retryListener)
     weatherJob.RegisterStepListener("Writer", retryListener)
 
-    loggingStepListener := listener.NewLoggingListener()
+    loggingStepListener := stepListener.NewLoggingListener()
     weatherJob.RegisterStepListener("Reader", loggingStepListener)
     weatherJob.RegisterStepListener("Processor", loggingStepListener)
     weatherJob.RegisterStepListener("Writer", loggingStepListener)

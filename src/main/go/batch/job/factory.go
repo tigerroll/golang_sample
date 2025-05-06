@@ -6,7 +6,7 @@ import (
   "fmt"
   "sample/src/main/go/batch/config"
   "sample/src/main/go/batch/repository"
-  "sample/src/main/go/batch/step/listener"
+  stepListener "sample/src/main/go/batch/step/listener"
   "sample/src/main/go/batch/step/processor"
   "sample/src/main/go/batch/step/reader"
   "sample/src/main/go/batch/step/writer"
@@ -57,13 +57,13 @@ func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
   )
 
   logger.Debugf("Registering Step Listeners") // ログメッセージも修正
-  retryListener := listener.NewRetryListener(f.config)
+  retryListener := stepListener.NewRetryListener(f.config)
   // RegisterListener を RegisterStepListener に修正
   weatherJob.RegisterStepListener("Reader", retryListener)
   weatherJob.RegisterStepListener("Processor", retryListener)
   weatherJob.RegisterStepListener("Writer", retryListener)
 
-  loggingListener := listener.NewLoggingListener()
+  loggingListener := stepListener.NewLoggingListener()
   // RegisterListener を RegisterStepListener に修正
   weatherJob.RegisterStepListener("Reader", loggingListener)
   weatherJob.RegisterStepListener("Processor", loggingListener)
