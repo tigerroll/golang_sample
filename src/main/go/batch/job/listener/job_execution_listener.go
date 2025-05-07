@@ -1,4 +1,3 @@
-// src/main/go/batch/job/listener/job_execution_listener.go
 package listener
 
 import "context"

@@ -1,4 +1,3 @@
-// src/main/go/batch/job/factory.go
 package job
 
 import (
@@ -22,13 +21,13 @@ type Job interface {
 
 type JobFactory struct {
   config *config.Config
-  repo   repository.WeatherRepository
 }
 
-func NewJobFactory(cfg *config.Config, repo repository.WeatherRepository) *JobFactory {
+// NewJobFactory は JobFactory の新しいインスタンスを作成します。
+// repo 引数を削除
+func NewJobFactory(cfg *config.Config) *JobFactory {
   return &JobFactory{
     config: cfg,
-    repo:   repo,
   }
 }
 
@@ -44,14 +43,24 @@ func (f *JobFactory) CreateJob(jobName string) (Job, error) {
 }
 
 func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
-  logger.Debugf("Creating WeatherJob components")
+  logger.Debugf("Creating WeatherJob components and dependencies")
+
+  // リポジトリを JobFactory の内部で生成する
+  repo, err := repository.NewWeatherRepository(context.Background(), *f.config)
+  if err != nil {
+    // リポジトリの生成に失敗した場合はエラーを返す
+    return nil, fmt.Errorf("WeatherRepository の生成に失敗しました: %w", err)
+  }
+  // Note: リポジトリの Close は Job の Run メソッド内で defer されるため、ここでは不要
 
   reader := reader.NewWeatherReader(f.config)
   processor := processor.NewWeatherProcessor()
-  writer := writer.NewWeatherWriter(f.repo)
+  // writer の生成時に生成した repo を渡す
+  writer := writer.NewWeatherWriter(repo)
 
+  // Job の生成時に生成した repo を渡す
   weatherJob := NewWeatherJob(
-    f.repo,
+    repo,
     reader,
     processor,
     writer,
@@ -75,9 +84,6 @@ func (f *JobFactory) createWeatherJob() (*WeatherJob, error) {
   loggingJobListener := jobListener.NewLoggingJobListener()
   weatherJob.RegisterJobListener(loggingJobListener)
   // 必要に応じて他の JobExecutionListener もここで生成・登録
-  // metricsJobListener := jobListener.NewMetricsJobListener(...)
-  // weatherJob.RegisterJobListener(metricsJobListener)
-
 
   logger.Debugf("WeatherJob created and configured successfully")
 

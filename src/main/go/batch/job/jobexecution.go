@@ -1,4 +1,3 @@
-// src/main/go/batch/job/jobexecution.go
 package job
 
 import (

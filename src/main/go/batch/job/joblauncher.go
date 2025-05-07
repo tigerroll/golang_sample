@@ -1,4 +1,3 @@
-// src/main/go/batch/job/joblauncher.go
 package job
 
 import (

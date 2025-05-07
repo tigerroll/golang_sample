@@ -1,13 +1,11 @@
-// src/main/go/batch/main.go
 package main
 
 import (
   "context"
 
-  config      "sample/src/main/go/batch/config"
-  job         "sample/src/main/go/batch/job"
-  repository  "sample/src/main/go/batch/repository"
-  logger      "sample/src/main/go/batch/util/logger"
+  config  "sample/src/main/go/batch/config"
+  job     "sample/src/main/go/batch/job"
+  logger  "sample/src/main/go/batch/util/logger"
 )
 
 func main() {
@@ -25,24 +23,20 @@ func main() {
 
   ctx := context.Background()
 
-  repo, err := repository.NewWeatherRepository(ctx, *cfg)
-  if err != nil {
-    logger.Fatalf("リポジトリの初期化に失敗しました: %v", err)
-  }
-  // リポジトリのクローズは Job の defer で JobExecution が完了した後に行われます。
-  jobFactory := job.NewJobFactory(cfg, repo)
+  // JobFactory のコンストラクタから repo を削除
+  jobFactory := job.NewJobFactory(cfg)
 
   jobName := cfg.Batch.JobName
   logger.Infof("実行する Job: '%s'", jobName)
 
-  // JobFactory で JobExecutionListener も登録された Job オブジェクトが返される
+  // JobFactory で JobExecutionListener も登録され、リポジトリも生成された Job オブジェクトが返される
   batchJob, err := jobFactory.CreateJob(jobName)
   if err != nil {
     logger.Fatalf("Job '%s' の作成に失敗しました: %v", jobName, err)
   }
 
   // JobLauncher を作成 (必要であれば依存関係を渡す)
-  jobLauncher := job.NewSimpleJobLauncher() // JobLauncher は JobFactory に依存しない
+  jobLauncher := job.NewSimpleJobLauncher()
 
   // JobParameters を作成 (必要に応じてパラメータを設定)
   jobParams := job.NewJobParameters()

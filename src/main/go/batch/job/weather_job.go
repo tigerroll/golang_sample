@@ -1,50 +1,50 @@
-// src/main/go/batch/job/weather_job.go
 package job
 
 import (
   "context"
   "fmt"
-  "sample/src/main/go/batch/config"
-  "sample/src/main/go/batch/domain/entity"
-  stepListener "sample/src/main/go/batch/step/listener"    // step/listener パッケージをインポート
-  jobListener "sample/src/main/go/batch/job/listener" // job/listener パッケージをインポートし、別名をつける
-  "sample/src/main/go/batch/step/processor"
-  "sample/src/main/go/batch/step/reader"
-  "sample/src/main/go/batch/step/writer"
-  "sample/src/main/go/batch/repository"
-  "sample/src/main/go/batch/util/logger"
   "time"
+
+  config        "sample/src/main/go/batch/config"
+  entity        "sample/src/main/go/batch/domain/entity"
+  stepListener  "sample/src/main/go/batch/step/listener"
+  jobListener   "sample/src/main/go/batch/job/listener"
+  processor     "sample/src/main/go/batch/step/processor"
+  reader        "sample/src/main/go/batch/step/reader"
+  writer        "sample/src/main/go/batch/step/writer"
+  repository    "sample/src/main/go/batch/repository"
+  logger        "sample/src/main/go/batch/util/logger"
 )
 
 type WeatherJob struct {
-  repo             repository.WeatherRepository
+  repo             repository.WeatherRepository // Repository を保持
   reader           *reader.WeatherReader
   processor        *processor.WeatherProcessor
   writer           *writer.WeatherWriter
   config           *config.Config
   stepListeners    map[string][]stepListener.StepExecutionListener // ステップリスナー
-  jobListeners     []jobListener.JobExecutionListener      // ジョブリスナーを追加
+  jobListeners     []jobListener.JobExecutionListener      // ジョブリスナー
 }
 
 func NewWeatherJob(
-  repo repository.WeatherRepository,
+  repo repository.WeatherRepository, // コンストラクタで Repository を受け取る
   reader *reader.WeatherReader,
   processor *processor.WeatherProcessor,
   writer *writer.WeatherWriter,
   cfg *config.Config,
 ) *WeatherJob {
   return &WeatherJob{
-    repo:             repo,
+    repo:             repo, // 受け取った Repository をフィールドに設定
     reader:           reader,
     processor:        processor,
     writer:           writer,
     config:           cfg,
     stepListeners:    make(map[string][]stepListener.StepExecutionListener),
-    jobListeners:     make([]jobListener.JobExecutionListener, 0), // 初期化
+    jobListeners:     make([]jobListener.JobExecutionListener, 0),
   }
 }
 
-// RegisterStepListener は特定のステップに StepExecutionListener を登録します。 (既存メソッド名を変更)
+// RegisterStepListener は特定のステップに StepExecutionListener を登録します。
 func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepExecutionListener) {
   if _, ok := j.stepListeners[stepName]; !ok {
     j.stepListeners[stepName] = make([]stepListener.StepExecutionListener, 0)
@@ -52,26 +52,26 @@ func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepEx
   j.stepListeners[stepName] = append(j.stepListeners[stepName], l)
 }
 
-// RegisterJobListener は JobExecutionListener を登録します。(新規追加)
+// RegisterJobListener は JobExecutionListener を登録します。
 func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) {
   j.jobListeners = append(j.jobListeners, l)
 }
 
-// ジョブリスナーへの通知メソッド (新規追加)
+// ジョブリスナーへの通知メソッド
 func (j *WeatherJob) notifyBeforeJob(ctx context.Context) {
   for _, l := range j.jobListeners {
     l.BeforeJob(ctx, j.config.Batch.JobName)
   }
 }
 
-// ジョブリスナーへの通知メソッド (新規追加)
+// ジョブリスナーへの通知メソッド
 func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
   for _, l := range j.jobListeners {
     l.AfterJob(ctx, j.config.Batch.JobName, jobErr)
   }
 }
 
-// Run メソッドにリスナー呼び出しを追加
+// Run メソッド
 func (j *WeatherJob) Run(ctx context.Context) error {
   retryConfig := j.config.Batch.Retry
   var runErr error // ジョブ全体の最終的なエラーを保持する変数
@@ -79,9 +79,12 @@ func (j *WeatherJob) Run(ctx context.Context) error {
   // ジョブ開始前リスナーを呼び出し
   j.notifyBeforeJob(ctx)
 
-  // ジョブ完了後に必ず AfterJob リスナーを呼び出すための defer
+  // ジョブ完了後に必ず JobExecutionListener の AfterJob を呼び出し、リポジトリをクローズするための defer
   defer func() {
+    // JobExecutionListener の AfterJob を呼び出し
     j.notifyAfterJob(ctx, runErr) // ここで runErr を渡す
+
+    // リポジトリのクローズ処理
     if closer, ok := j.repo.(interface{ Close() error }); ok {
       if err := closer.Close(); err != nil {
         logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
@@ -89,7 +92,9 @@ func (j *WeatherJob) Run(ctx context.Context) error {
         if runErr == nil {
           runErr = fmt.Errorf("リポジトリのクローズエラー: %w", err)
         } else {
-          runErr = fmt.Errorf("ジョブ実行エラー: %w, リポジトリクローズエラー: %v", runErr, err)
+          // 既存のエラーがある場合は、新しいエラー情報を追加する形にするか、合成する
+          // 例: logger.Errorf("既存のエラー: %v, リポジトリクローズエラー: %v", runErr, err)
+          // あるいは、複数のエラーを保持できるカスタムエラー型を使用する
         }
       }
     }
@@ -194,7 +199,7 @@ func (j *WeatherJob) Run(ctx context.Context) error {
   return runErr // defer で設定された runErr が返される
 }
 
-// ステップリスナーへの通知メソッド (既存)
+// ステップリスナーへの通知メソッド
 func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data interface{}) {
   if stepListeners, ok := j.stepListeners[stepName]; ok {
     for _, l := range stepListeners {
@@ -203,7 +208,7 @@ func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data
   }
 }
 
-// ステップリスナーへの通知メソッド (既存)
+// ステップリスナーへの通知メソッド
 func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data interface{}, err error, duration time.Duration) {
   if stepListeners, ok := j.stepListeners[stepName]; ok {
     for _, l := range stepListeners {
