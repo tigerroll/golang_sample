@@ -1,13 +1,13 @@
+// src/main/go/batch/main.go
 package main
 
 import (
   "context"
 
-  config "sample/src/main/go/batch/config"
-  job "sample/src/main/go/batch/job"
-  jobListener "sample/src/main/go/batch/job/listener"
-  repository "sample/src/main/go/batch/repository"
-  logger "sample/src/main/go/batch/util/logger"
+  config      "sample/src/main/go/batch/config"
+  job         "sample/src/main/go/batch/job"
+  repository  "sample/src/main/go/batch/repository"
+  logger      "sample/src/main/go/batch/util/logger"
 )
 
 func main() {
@@ -29,38 +29,20 @@ func main() {
   if err != nil {
     logger.Fatalf("リポジトリの初期化に失敗しました: %v", err)
   }
-  // リポジトリのクローズは WeatherJob の defer で JobExecution が完了した後に行われます。
-
+  // リポジトリのクローズは Job の defer で JobExecution が完了した後に行われます。
   jobFactory := job.NewJobFactory(cfg, repo)
 
   jobName := cfg.Batch.JobName
   logger.Infof("実行する Job: '%s'", jobName)
 
+  // JobFactory で JobExecutionListener も登録された Job オブジェクトが返される
   batchJob, err := jobFactory.CreateJob(jobName)
   if err != nil {
     logger.Fatalf("Job '%s' の作成に失敗しました: %v", jobName, err)
   }
 
-  // JobExecutionListener を作成し、ジョブに登録 (JobFactory で登録することも検討)
-  loggingJobListener := jobListener.NewLoggingJobListener()
-  if weatherJob, ok := batchJob.(*job.WeatherJob); ok {
-    weatherJob.RegisterJobListener(loggingJobListener)
-    // 必要に応じて他の JobExecutionListener もここで登録
-    // metricsJobListener := joblistener.NewMetricsJobListener(...)
-    // weatherJob.RegisterJobListener(metricsJobListener)
-
-    // ステップリスナーも JobFactory で登録されるように変更しましたが、
-    // main で別途登録したい場合はここで行います。
-    // 例:
-    // retryListener := stepListener.NewRetryListener(cfg)
-    // weatherJob.RegisterStepListener("Reader", retryListener)
-
-  } else {
-    logger.Warnf("Job が WeatherJob 型ではないため、JobExecutionListener は登録されません。")
-  }
-
   // JobLauncher を作成 (必要であれば依存関係を渡す)
-  jobLauncher := job.NewSimpleJobLauncher()
+  jobLauncher := job.NewSimpleJobLauncher() // JobLauncher は JobFactory に依存しない
 
   // JobParameters を作成 (必要に応じてパラメータを設定)
   jobParams := job.NewJobParameters()
