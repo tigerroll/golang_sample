@@ -13,7 +13,9 @@ import (
 var embeddedConfig []byte
 
 // LoadConfig は application.yaml ファイルを読み込み、環境変数で上書きした Config 構造体を返します。
+// 失敗した場合はエラーを返します。
 func LoadConfig() (*Config, error) {
+  // Config, NewConfig は config.go で定義されているものを使用
   cfg := NewConfig()
 
   configPath := os.Getenv("CONFIG_PATH")
@@ -24,20 +26,26 @@ func LoadConfig() (*Config, error) {
     // 環境変数で指定されたパスのファイルを読み込む
     yamlFile, err := os.ReadFile(configPath)
     if err != nil {
+      // Fatalf を削除し、エラーを返します。
       return nil, fmt.Errorf("設定ファイルの読み込みに失敗しました (%s): %w", configPath, err)
     }
+    // loadYamlConfig でパース
     yamlCfg, err = loadYamlConfig(yamlFile)
     if err != nil {
-      return nil, err
+      // loadYamlConfig からのエラーをそのまま返す
+      return nil, fmt.Errorf("YAML設定のパースに失敗しました: %w", err)
     }
   } else {
     // 埋め込みファイルからロード
+    // loadYamlConfig でパース
     yamlCfg, err = loadYamlConfig(embeddedConfig)
     if err != nil {
-      return nil, err
+      // loadYamlConfig からのエラーをそのまま返す
+      return nil, fmt.Errorf("埋め込みYAML設定のパースに失敗しました: %w", err)
     }
   }
 
+  // ロードした設定をベース Config にコピー
   cfg.Database = yamlCfg.Database
   cfg.Batch = yamlCfg.Batch
   cfg.System = yamlCfg.System
@@ -50,19 +58,23 @@ func LoadConfig() (*Config, error) {
     cfg.Batch.JobName = jobName
   }
 
+  // ここではエラーが発生しない前提ですが、検証などが必要であればここでもエラーを返すように修正します。
   return cfg, nil
 }
 
-func loadYamlConfig(yamlFile []byte) (Config, error) {
-  cfg := NewConfig()
-  err := yaml.Unmarshal(yamlFile, cfg)
+// YAMLデータを Config 構造体にパースする関数
+func loadYamlConfig(data []byte) (Config, error) {
+  var cfg Config
+  err := yaml.Unmarshal(data, &cfg)
   if err != nil {
-    return Config{}, fmt.Errorf("YAML のパースに失敗しました: %w", err)
+    return Config{}, err // yaml.Unmarshal が返すエラーをそのまま返す
   }
-  return *cfg, nil
+  return cfg, nil
 }
 
+// 環境変数で個別の設定値を上書きする関数
 func loadEnvVars(cfg *Config) {
+  // Database 設定
   if dbType := os.Getenv("DATABASE_TYPE"); dbType != "" {
     cfg.Database.Type = dbType
   }
@@ -74,7 +86,7 @@ func loadEnvVars(cfg *Config) {
       cfg.Database.Port = dbPort
     }
   }
-  if dbName := os.Getenv("DATABASE_NAME"); dbName != "" {
+  if dbName := os.Getenv("DATABASE_DATABASE"); dbName != "" {
     cfg.Database.Database = dbName
   }
   if dbUser := os.Getenv("DATABASE_USER"); dbUser != "" {
@@ -83,19 +95,15 @@ func loadEnvVars(cfg *Config) {
   if dbPassword := os.Getenv("DATABASE_PASSWORD"); dbPassword != "" {
     cfg.Database.Password = dbPassword
   }
-  if projectID := os.Getenv("PROJECT_ID"); projectID != "" {
-    cfg.Database.ProjectID = projectID
+  if dbSSLMode := os.Getenv("DATABASE_SSLMODE"); dbSSLMode != "" {
+    // フィールド名を Sslmode に修正
+    cfg.Database.Sslmode = dbSSLMode
   }
-  if datasetID := os.Getenv("DATASET_ID"); datasetID != "" {
-    cfg.Database.DatasetID = datasetID
-  }
-  if tableID := os.Getenv("TABLE_ID"); tableID != "" {
-    cfg.Database.TableID = tableID
-  }
-  // 他の環境変数も同様にロード
-  if batchIntervalStr := os.Getenv("BATCH_POLLING_INTERVAL_SECONDS"); batchIntervalStr != "" {
-    if interval, err := strconv.Atoi(batchIntervalStr); err == nil {
-      cfg.Batch.PollingIntervalSeconds = interval
+
+  // Batch 設定
+  if pollingIntervalStr := os.Getenv("BATCH_POLLING_INTERVAL_SECONDS"); pollingIntervalStr != "" {
+    if pollingInterval, err := strconv.Atoi(pollingIntervalStr); err == nil {
+      cfg.Batch.PollingIntervalSeconds = pollingInterval
     }
   }
   if apiEndpoint := os.Getenv("BATCH_API_ENDPOINT"); apiEndpoint != "" {
@@ -104,8 +112,13 @@ func loadEnvVars(cfg *Config) {
   if apiKey := os.Getenv("BATCH_API_KEY"); apiKey != "" {
     cfg.Batch.APIKey = apiKey
   }
-  if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+
+  // System 設定
+  if logLevel := os.Getenv("SYSTEM_LOGGING_LEVEL"); logLevel != "" {
     cfg.System.Logging.Level = logLevel
   }
-  // JobName は個別に処理されるため、ここではロードしない
 }
+
+// Config, NewConfig, DatabaseConfig, BatchConfig, RetryConfig, SystemConfig, LoggingConfig
+// の型定義は src/main/go/batch/config/config.go にのみ存在するようにしてください。
+// このファイルからは削除します。
