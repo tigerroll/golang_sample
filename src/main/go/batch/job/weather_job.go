@@ -7,34 +7,38 @@ import (
 
   config        "sample/src/main/go/batch/config"
   entity        "sample/src/main/go/batch/domain/entity"
-  stepListener  "sample/src/main/go/batch/step/listener"
+  core          "sample/src/main/go/batch/job/core"
   jobListener   "sample/src/main/go/batch/job/listener"
+  repository    "sample/src/main/go/batch/repository"
+  stepListener  "sample/src/main/go/batch/step/listener"
   processor     "sample/src/main/go/batch/step/processor"
   reader        "sample/src/main/go/batch/step/reader"
   writer        "sample/src/main/go/batch/step/writer"
-  repository    "sample/src/main/go/batch/repository"
   logger        "sample/src/main/go/batch/util/logger"
 )
 
 type WeatherJob struct {
-  repo             repository.WeatherRepository // Repository を保持
+  repo             repository.WeatherRepository
   reader           *reader.WeatherReader
   processor        *processor.WeatherProcessor
   writer           *writer.WeatherWriter
   config           *config.Config
-  stepListeners    map[string][]stepListener.StepExecutionListener // ステップリスナー
-  jobListeners     []jobListener.JobExecutionListener      // ジョブリスナー
+  stepListeners    map[string][]stepListener.StepExecutionListener
+  jobListeners     []jobListener.JobExecutionListener
 }
 
+// WeatherJob が core.Job インターフェースを満たすことを宣言 (明示的な実装宣言は不要だが意図を示す)
+var _ core.Job = (*WeatherJob)(nil)
+
 func NewWeatherJob(
-  repo repository.WeatherRepository, // コンストラクタで Repository を受け取る
+  repo repository.WeatherRepository,
   reader *reader.WeatherReader,
   processor *processor.WeatherProcessor,
   writer *writer.WeatherWriter,
   cfg *config.Config,
 ) *WeatherJob {
   return &WeatherJob{
-    repo:             repo, // 受け取った Repository をフィールドに設定
+    repo:             repo,
     reader:           reader,
     processor:        processor,
     writer:           writer,
@@ -71,7 +75,7 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
   }
 }
 
-// Run メソッド
+// Run メソッド (core.Job インターフェースの実装)
 func (j *WeatherJob) Run(ctx context.Context) error {
   retryConfig := j.config.Batch.Retry
   var runErr error // ジョブ全体の最終的なエラーを保持する変数
@@ -85,6 +89,7 @@ func (j *WeatherJob) Run(ctx context.Context) error {
     j.notifyAfterJob(ctx, runErr) // ここで runErr を渡す
 
     // リポジトリのクローズ処理
+    // JobFactory で生成された repo は Job 構造体に保持されており、ここでクローズされる
     if closer, ok := j.repo.(interface{ Close() error }); ok {
       if err := closer.Close(); err != nil {
         logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
@@ -220,4 +225,10 @@ func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data 
       }
     }
   }
+}
+
+// JobName メソッドを追加 (SimpleJobLauncher でジョブ名を取得するために使用)
+// core.Job インターフェースに JobName() string を追加した場合に実装
+func (j *WeatherJob) JobName() string {
+  return j.config.Batch.JobName
 }
