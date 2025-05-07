@@ -4,8 +4,8 @@ import (
   "context"
   "time"
 
-  "sample/src/main/go/batch/config"
-  "sample/src/main/go/batch/util/logger"
+  config  "sample/src/main/go/batch/config"
+  logger  "sample/src/main/go/batch/util/logger"
 )
 
 type RetryListener struct {

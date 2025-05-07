@@ -2,12 +2,13 @@ package reader
 
 import (
   "context"
-  "encoding/json"
   "fmt"
+  "encoding/json"
   "net/http"
-  "sample/src/main/go/batch/config"
-  "sample/src/main/go/batch/domain/entity"
-  "sample/src/main/go/batch/util/logger"
+
+  config  "sample/src/main/go/batch/config"
+  entity  "sample/src/main/go/batch/domain/entity"
+  logger  "sample/src/main/go/batch/util/logger"
 )
 
 type WeatherReader struct {

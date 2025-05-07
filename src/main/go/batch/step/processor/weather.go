@@ -3,8 +3,9 @@ package processor
 import (
   "context"
   "fmt"
-  "sample/src/main/go/batch/domain/entity"
   "time"
+
+  entity  "sample/src/main/go/batch/domain/entity"
 )
 
 type WeatherProcessor struct {

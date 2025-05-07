@@ -3,7 +3,8 @@ package listener
 import (
   "context"
   "time"
-  "sample/src/main/go/batch/util/logger"
+
+  logger  "sample/src/main/go/batch/util/logger"
 )
 
 type LoggingListener struct{}

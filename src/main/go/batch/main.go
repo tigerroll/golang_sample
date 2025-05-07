@@ -1,4 +1,3 @@
-// src/main/go/batch/main.go
 package main
 
 import (
@@ -25,12 +24,7 @@ func main() {
   logger.Debugf("Batch API Endpoint: %s", cfg.Batch.APIEndpoint)
 
   ctx := context.Background()
-
-  // リポジトリの生成は JobFactory/weather_factory に移動したため削除
-
-  // JobFactory のコンストラクタは cfg のみを受け取るように変更
-  // インポートパスとコンストラクタ名も変更
-  jobFactory := factory.NewJobFactory(cfg) // factory.NewJobFactory を呼び出し
+  jobFactory := factory.NewJobFactory(cfg)
 
   jobName := cfg.Batch.JobName
   logger.Infof("実行する Job: '%s'", jobName)

@@ -3,9 +3,10 @@ package writer
 import (
   "context"
   "fmt"
-  "sample/src/main/go/batch/domain/entity"
-  "sample/src/main/go/batch/repository"
   "time"
+
+  entity      "sample/src/main/go/batch/domain/entity"
+  repository  "sample/src/main/go/batch/repository"
 )
 
 type WeatherWriter struct {
