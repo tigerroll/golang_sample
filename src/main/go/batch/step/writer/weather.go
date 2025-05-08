@@ -11,16 +11,18 @@ import (
 
 type WeatherWriter struct {
   repo repository.WeatherRepository
+  // config *config.WeatherWriterConfig // 必要に応じて追加
 }
 
+// NewWeatherWriter が Repository を受け取るように修正 (ここでは修正なし)
 func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
   return &WeatherWriter{
     repo: repo,
+    // config: cfg, // 必要に応じて初期化
   }
 }
 
 // Write メソッドが Writer インターフェースを満たすように修正
-// items は interface{} で受け取り、想定する型にアサーション
 func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   select {
   case <-ctx.Done():
@@ -28,7 +30,6 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   default:
   }
 
-  // items を想定する型 ([]*entity.WeatherDataToStore) に型アサーション
   dataToStore, ok := items.([]*entity.WeatherDataToStore)
   if !ok {
     return fmt.Errorf("予期しない入力型です: %T", items)
@@ -50,7 +51,7 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
         Temperature2M: []float64{item.Temperature2M},
       },
     }
-    // リポジトリのメソッドに Context を渡す
+    // リポジトリのメソッドに Context を渡す (Repository は既に Config を受け取っている)
     if err := w.repo.SaveWeatherData(ctx, forecast); err != nil {
       return fmt.Errorf("データの保存に失敗しました: %w", err)
     }
@@ -58,5 +59,5 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   return nil
 }
 
-// WeatherWriter が Writer インターフェースを満たすことを確認 (明示的な宣言は任意)
+// WeatherWriter が Writer インターフェースを満たすことを確認
 var _ Writer = (*WeatherWriter)(nil)

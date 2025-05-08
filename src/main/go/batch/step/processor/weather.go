@@ -10,17 +10,18 @@ import (
 
 type WeatherProcessor struct {
   // 設定などの依存があれば
+  // config *config.WeatherProcessorConfig // 必要に応じて追加
 }
 
-func NewWeatherProcessor(/* 依存 */) *WeatherProcessor {
+// NewWeatherProcessor が引数なし、または WeatherProcessorConfig を受け取るように修正 (ここでは引数なしのまま)
+func NewWeatherProcessor(/* cfg *config.WeatherProcessorConfig */) *WeatherProcessor {
   return &WeatherProcessor{
     // 初期化
+    // config: cfg, // 必要に応じて初期化
   }
 }
 
 // Process メソッドが Processor インターフェースを満たすように修正
-// item は interface{} で受け取り、想定する型にアサーション
-// 戻り値も interface{} として返す
 func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (interface{}, error) {
   select {
   case <-ctx.Done():
@@ -28,13 +29,13 @@ func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (inter
   default:
   }
 
-  // item を想定する型 (*entity.OpenMeteoForecast) に型アサーション
   forecast, ok := item.(*entity.OpenMeteoForecast)
   if !ok {
     return nil, fmt.Errorf("予期しない入力型です: %T", item)
   }
 
   var dataToStore []*entity.WeatherDataToStore
+  // CollectedAt は現在時刻を使用しているため、設定は不要
   collectedAt := time.Now().In(time.FixedZone("Asia/Tokyo", 9*60*60))
 
   for i := range forecast.Hourly.Time {
@@ -62,8 +63,8 @@ func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (inter
     dataToStore = append(dataToStore, data)
   }
 
-  return dataToStore, nil // interface{} 型として返す (ここでは []*entity.WeatherDataToStore)
+  return dataToStore, nil
 }
 
-// WeatherProcessor が Processor インターフェースを満たすことを確認 (明示的な宣言は任意)
+// WeatherProcessor が Processor インターフェースを満たすことを確認
 var _ Processor = (*WeatherProcessor)(nil)
