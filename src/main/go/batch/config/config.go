@@ -31,6 +31,7 @@ func (c DatabaseConfig) ConnectionString() string {
   }
 }
 
+// RetryConfig は既に存在し、RetryListener に渡すのに適しています。
 type RetryConfig struct {
   MaxAttempts            int `yaml:"max_attempts"`
   InitialInterval        int `yaml:"initial_interval"`
@@ -48,8 +49,14 @@ type BatchConfig struct {
   Retry                  RetryConfig `yaml:"retry"`
 }
 
+// LoggingConfig は既に存在し、LoggingListener に渡すのに適しています。
 type LoggingConfig struct {
   Level string `yaml:"level"`
+}
+
+type SystemConfig struct {
+  Timezone string        `yaml:"timezone"`
+  Logging  LoggingConfig `yaml:"logging"`
 }
 
 type Config struct {
@@ -58,10 +65,18 @@ type Config struct {
   System   SystemConfig   `yaml:"system"`
 }
 
-type SystemConfig struct {
-  Timezone string        `yaml:"timezone"`
-  Logging  LoggingConfig `yaml:"logging"`
+// WeatherReader に必要な設定のみを持つ構造体
+type WeatherReaderConfig struct {
+  APIEndpoint string
+  APIKey      string
 }
+
+// WeatherProcessor に必要な設定のみを持つ構造体 (現時点ではなし、必要に応じて追加)
+// type WeatherProcessorConfig struct {}
+
+// WeatherWriter に必要な設定のみを持つ構造体 (現時点ではなし、Repository に依存)
+// type WeatherWriterConfig struct {}
+
 
 // NewConfig は Config の新しいインスタンスを返します。
 func NewConfig() *Config {
@@ -75,3 +90,7 @@ func NewConfig() *Config {
     },
   }
 }
+
+// LoadConfig は loader.go で定義されているものを使用します。
+// loadYamlConfig は loader.go で定義されているものを使用します。
+// loadEnvVars は loader.go で定義されているものを使用します。
