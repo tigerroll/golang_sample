@@ -1,40 +1,43 @@
 package job
 
 import (
-  "context" // context パッケージをインポート
+  "context"
   "fmt"
   "time"
 
-  config        "sample/src/main/go/batch/config"
-  entity        "sample/src/main/go/batch/domain/entity"
-  core          "sample/src/main/go/batch/job/core"
-  jobListener   "sample/src/main/go/batch/job/listener"
-  repository    "sample/src/main/go/batch/repository"
-  stepListener  "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
-  processor     "sample/src/main/go/batch/step/processor"
-  reader        "sample/src/main/go/batch/step/reader"
-  writer        "sample/src/main/go/batch/step/writer"
-  logger        "sample/src/main/go/batch/util/logger"
+  config         "sample/src/main/go/batch/config"
+  core           "sample/src/main/go/batch/job/core"
+  jobListener    "sample/src/main/go/batch/job/listener"
+  repository     "sample/src/main/go/batch/repository"
+  // step パッケージのインターフェースをインポート
+  stepReader     "sample/src/main/go/batch/step/reader"
+  stepProcessor  "sample/src/main/go/batch/step/processor"
+  stepWriter     "sample/src/main/go/batch/step/writer"
+  stepListener   "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
+  logger         "sample/src/main/go/batch/util/logger"
 )
 
 type WeatherJob struct {
   repo             repository.WeatherRepository
-  reader           *reader.WeatherReader
-  processor        *processor.WeatherProcessor
-  writer           *writer.WeatherWriter
+  // 具体的な構造体ではなく、インターフェース型を使用
+  reader           stepReader.Reader
+  processor        stepProcessor.Processor
+  writer           stepWriter.Writer
   config           *config.Config
+  // stepExecutionListener を stepListener に修正
   stepListeners    map[string][]stepListener.StepExecutionListener
   jobListeners     []jobListener.JobExecutionListener
 }
 
-// WeatherJob が core.Job インターフェースを満たすことを宣言
+// WeatherJob が core.Job インターフェースを満たすことを宣言 (明示的な実装宣言は不要だが意図を示す)
 var _ core.Job = (*WeatherJob)(nil)
 
+// NewWeatherJob 関数がインターフェース型を引数として受け取るように修正
 func NewWeatherJob(
   repo repository.WeatherRepository,
-  reader *reader.WeatherReader,
-  processor *processor.WeatherProcessor,
-  writer *writer.WeatherWriter,
+  reader stepReader.Reader, // インターフェース型
+  processor stepProcessor.Processor, // インターフェース型
+  writer stepWriter.Writer, // インターフェース型
   cfg *config.Config,
 ) *WeatherJob {
   return &WeatherJob{
@@ -43,14 +46,17 @@ func NewWeatherJob(
     processor:        processor,
     writer:           writer,
     config:           cfg,
+    // stepExecutionListener を stepListener に修正
     stepListeners:    make(map[string][]stepListener.StepExecutionListener),
     jobListeners:     make([]jobListener.JobExecutionListener, 0),
   }
 }
 
 // RegisterStepListener は特定のステップに StepExecutionListener を登録します。
+// stepExecutionListener を stepListener に修正
 func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepExecutionListener) {
   if _, ok := j.stepListeners[stepName]; !ok {
+    // stepExecutionListener を stepListener に修正
     j.stepListeners[stepName] = make([]stepListener.StepExecutionListener, 0)
   }
   j.stepListeners[stepName] = append(j.stepListeners[stepName], l)
@@ -62,7 +68,6 @@ func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) {
 }
 
 // ジョブリスナーへの通知メソッド
-// BeforeJob に ctx context.Context を追加
 func (j *WeatherJob) notifyBeforeJob(ctx context.Context) {
   for _, l := range j.jobListeners {
     l.BeforeJob(ctx, j.config.Batch.JobName)
@@ -70,7 +75,6 @@ func (j *WeatherJob) notifyBeforeJob(ctx context.Context) {
 }
 
 // ジョブリスナーへの通知メソッド
-// AfterJob に ctx context.Context を追加
 func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
   for _, l := range j.jobListeners {
     l.AfterJob(ctx, j.config.Batch.JobName, jobErr)
@@ -78,7 +82,6 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
 }
 
 // Run メソッド (core.Job インターフェースの実装)
-// Context を引数として受け取る
 func (j *WeatherJob) Run(ctx context.Context) error {
   retryConfig := j.config.Batch.Retry
   var runErr error // ジョブ全体の最終的なエラーを保持する変数
@@ -92,12 +95,9 @@ func (j *WeatherJob) Run(ctx context.Context) error {
     j.notifyAfterJob(ctx, runErr) // ここで runErr を渡す
 
     // リポジトリのクローズ処理
-    // JobFactory で生成された repo は Job 構造体に保持されており、ここでクローズされる
-    // Context を Close メソッドに渡す場合は、WeatherRepository インターフェースと実装を修正
     if closer, ok := j.repo.(interface{ Close() error }); ok {
       if err := closer.Close(); err != nil {
         logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
-        // クローズのエラーも重要であれば、runErr に合成することも検討
         if runErr == nil {
           runErr = fmt.Errorf("リポジトリのクローズエラー: %w", err)
         } else {
@@ -119,36 +119,31 @@ func (j *WeatherJob) Run(ctx context.Context) error {
     default:
     }
 
-    var forecastData interface{}
-    var processedData interface{}
+    var readItem interface{} // Reader から読み込んだアイテム (interface{})
+    var processedItem interface{} // Processor で処理したアイテム (interface{})
     var startTime time.Time
     var elapsed time.Duration
     var stepErr error // 各ステップでのエラーを保持
 
     // Reader
-    // notifyBeforeStep に Context を渡す
     j.notifyBeforeStep(ctx, "Reader", nil)
     startTime = time.Now()
-    // Reader の Read メソッドに Context を渡す
-    forecastData, stepErr = j.reader.Read(ctx)
+    // Reader の Read メソッドを呼び出し (インターフェース経由)
+    readItem, stepErr = j.reader.Read(ctx)
     elapsed = time.Since(startTime)
-    // notifyAfterStep に Context を渡す
-    j.notifyAfterStep(ctx, "Reader", forecastData, stepErr, elapsed)
+    j.notifyAfterStep(ctx, "Reader", readItem, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの読み込みに失敗しました (リトライ %d): %v", attempt+1, stepErr)
-      // Context キャンセルによるエラーの場合は即座に中断
       if ctx.Err() != nil {
         runErr = ctx.Err()
         goto endJob // Context キャンセルで中断
       }
       if attempt < retryConfig.MaxAttempts-1 {
-        // Context に対応した Sleep を使用することも検討
         select {
         case <-time.After(time.Duration(retryConfig.InitialInterval) * time.Second):
           // スリープ完了
         case <-ctx.Done():
-          // スリープ中に Context がキャンセルされた場合
           runErr = ctx.Err()
           goto endJob // ジョブ全体を中断
         }
@@ -158,31 +153,24 @@ func (j *WeatherJob) Run(ctx context.Context) error {
         break // リトライ上限に達したらループを抜ける
       }
     } else {
-      logger.Debugf("リーダーからデータを読み込みました: %+v", forecastData)
+      logger.Debugf("リーダーからデータを読み込みました: %+v", readItem)
     }
 
-    if runErr != nil { // Readerでエラーが発生し、リトライ上限に達した場合、または Context キャンセル
+    if runErr != nil {
       break // 後続のステップは実行しない
     }
 
     // Processor
-    // notifyBeforeStep に Context を渡す
-    j.notifyBeforeStep(ctx, "Processor", forecastData)
+    j.notifyBeforeStep(ctx, "Processor", readItem)
     startTime = time.Now()
-    forecast, ok := forecastData.(*entity.OpenMeteoForecast)
-    if !ok {
-      stepErr = fmt.Errorf("forecastData の型が *entity.OpenMeteoForecast ではありません: %T", forecastData)
-    } else {
-      // Processor の Process メソッドに Context を渡す
-      processedData, stepErr = j.processor.Process(ctx, forecast)
-    }
+    // Processor の Process メソッドを呼び出し (インターフェース経由)
+    // 読み込んだアイテム (readItem) を Processor に渡す
+    processedItem, stepErr = j.processor.Process(ctx, readItem)
     elapsed = time.Since(startTime)
-    // notifyAfterStep に Context を渡す
-    j.notifyAfterStep(ctx, "Processor", processedData, stepErr, elapsed)
+    j.notifyAfterStep(ctx, "Processor", processedItem, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの加工に失敗しました (リトライ %d): %v", attempt+1, stepErr)
-      // Context キャンセルによるエラーの場合は即座に中断
       if ctx.Err() != nil {
         runErr = ctx.Err()
         goto endJob // Context キャンセルで中断
@@ -201,31 +189,24 @@ func (j *WeatherJob) Run(ctx context.Context) error {
         break // リトライ上限に達したらループを抜ける
       }
     } else {
-      logger.Debugf("プロセッサーでデータを加工しました: %+v", processedData)
+      logger.Debugf("プロセッサーでデータを加工しました: %+v", processedItem)
     }
 
-    if runErr != nil { // Processorでエラーが発生し、リトライ上限に達した場合、または Context キャンセル
+    if runErr != nil {
       break // 後続のステップは実行しない
     }
 
     // Writer
-    // notifyBeforeStep に Context を渡す
-    j.notifyBeforeStep(ctx, "Writer", processedData)
+    j.notifyBeforeStep(ctx, "Writer", processedItem)
     startTime = time.Now()
-    // processedData が []*entity.WeatherDataToStore であることを確認してから渡す
-    if dataToStore, ok := processedData.([]*entity.WeatherDataToStore); ok {
-      // Writer の Write メソッドに Context を渡す
-      stepErr = j.writer.Write(ctx, dataToStore)
-    } else {
-      stepErr = fmt.Errorf("processedData の型が []*entity.WeatherDataToStore ではありません: %T", processedData)
-    }
+    // Writer の Write メソッドを呼び出し (インターフェース経由)
+    // 処理済みアイテム (processedItem) を Writer に渡す
+    stepErr = j.writer.Write(ctx, processedItem)
     elapsed = time.Since(startTime)
-    // notifyAfterStep に Context を渡す
-    j.notifyAfterStep(ctx, "Writer", processedData, stepErr, elapsed)
+    j.notifyAfterStep(ctx, "Writer", processedItem, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの書き込みに失敗しました (リトライ %d): %v", attempt+1, stepErr)
-      // Context キャンセルによるエラーの場合は即座に中断
       if ctx.Err() != nil {
         runErr = ctx.Err()
         goto endJob // Context キャンセルで中断
@@ -278,11 +259,11 @@ func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data 
   if stepListeners, ok := j.stepListeners[stepName]; ok {
     for _, l := range stepListeners {
       // LoggingListener の AfterStepWithDuration を特別に呼び出す場合
+      // stepExecutionListener を stepListener に修正
       if loggingListener, ok := l.(*stepListener.LoggingListener); ok {
         loggingListener.AfterStepWithDuration(ctx, stepName, data, err, duration)
       } else {
         // StepExecutionListener インターフェースの AfterStep メソッドに Context を渡して呼び出し
-        // StepExecutionListener インターフェースの AfterStep メソッドが Context を受け取るように修正されている前提です
         l.AfterStep(ctx, stepName, data, err)
       }
     }
