@@ -1,7 +1,8 @@
+// src/main/go/batch/repository/mysql.go
 package repository
 
 import (
-  "context"
+  "context" // context パッケージをインポート
   "database/sql"
   "fmt"
   "time"
@@ -29,6 +30,7 @@ func NewMySQLRepositoryFromConfig(cfg config.DatabaseConfig) (*MySQLRepository, 
     return nil, exception.NewBatchError("repository", "MySQL への接続に失敗しました", err)
   }
 
+  // Ping に Context を渡す場合は db.PingContext を使用
   err = db.Ping()
   if err != nil {
     return nil, exception.NewBatchError("repository", "MySQL への Ping に失敗しました", err)
@@ -39,13 +41,23 @@ func NewMySQLRepositoryFromConfig(cfg config.DatabaseConfig) (*MySQLRepository, 
 }
 
 // SaveWeatherData は加工済みの Open Meteo の天気予報データを MySQL に保存します。
+// ctx context.Context を引数に追加
 func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.OpenMeteoForecast) error {
+  // Context の完了をチェック
+  select {
+  case <-ctx.Done():
+    return ctx.Err() // Context が完了していたら即座に中断
+  default:
+  }
+
+  // BeginTx に Context を渡す
   tx, err := r.db.BeginTx(ctx, nil)
   if err != nil {
     return fmt.Errorf("failed to begin transaction: %w", err)
   }
   defer tx.Rollback()
 
+  // PrepareContext に Context を渡す
   stmt, err := tx.PrepareContext(ctx, `
     CREATE TABLE IF NOT EXISTS hourly_forecast (
       time TIMESTAMP,
@@ -61,11 +73,13 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
   }
   defer stmt.Close()
 
+  // ExecContext に Context を渡す
   _, err = stmt.ExecContext(ctx)
   if err != nil {
     return fmt.Errorf("failed to create table: %w", err)
   }
 
+  // PrepareContext に Context を渡す
   insertStmt, err := tx.PrepareContext(ctx, `
     INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
     VALUES (?, ?, ?, ?, ?, ?);
@@ -75,18 +89,28 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
   }
   defer insertStmt.Close()
 
-  cfg, err := config.LoadConfig() // 設定をロード
+  // 設定のロードとタイムゾーン処理（この部分は Context と直接関連しませんが、既存コードに合わせて残します）
+  cfg, err := config.LoadConfig()
   if err != nil {
     return fmt.Errorf("設定のロードに失敗しました: %w", err)
   }
-  loc, err := time.LoadLocation(cfg.System.Timezone) // タイムゾーンを取得
+  loc, err := time.LoadLocation(cfg.System.Timezone)
   if err != nil {
     return fmt.Errorf("タイムゾーン '%s' のロードに失敗しました: %w", cfg.System.Timezone, err)
   }
 
-  collectedAt := time.Now().In(loc).Format(time.RFC3339) // 現在時刻を取得し、指定されたタイムゾーンに変換
+  collectedAt := time.Now().In(loc).Format(time.RFC3339)
 
   for i := range forecast.Hourly.Time {
+    // ループ内でも Context の完了を定期的にチェック
+    select {
+    case <-ctx.Done():
+      // Context が完了したら、トランザクションをロールバックして中断
+      tx.Rollback()
+      return ctx.Err()
+    default:
+    }
+
     parsedTime, err := time.Parse(time.RFC3339, forecast.Hourly.Time[i])
     if err != nil {
       parsedTime, err = time.Parse("2006-01-02T15:04", forecast.Hourly.Time[i])
@@ -95,6 +119,7 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
       }
     }
 
+    // ExecContext に Context を渡す
     _, err = insertStmt.ExecContext(
       ctx,
       parsedTime,
@@ -109,6 +134,7 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
     }
   }
 
+  // Commit に Context を渡す (Go 1.15 以降)
   if err := tx.Commit(); err != nil {
     return fmt.Errorf("failed to commit transaction: %w", err)
   }

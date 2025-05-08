@@ -1,7 +1,7 @@
 package job
 
 import (
-  "context"
+  "context" // context パッケージをインポート
   "fmt"
   "time"
 
@@ -10,7 +10,7 @@ import (
   core          "sample/src/main/go/batch/job/core"
   jobListener   "sample/src/main/go/batch/job/listener"
   repository    "sample/src/main/go/batch/repository"
-  stepListener  "sample/src/main/go/batch/step/listener"
+  stepListener  "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
   processor     "sample/src/main/go/batch/step/processor"
   reader        "sample/src/main/go/batch/step/reader"
   writer        "sample/src/main/go/batch/step/writer"
@@ -27,7 +27,7 @@ type WeatherJob struct {
   jobListeners     []jobListener.JobExecutionListener
 }
 
-// WeatherJob が core.Job インターフェースを満たすことを宣言 (明示的な実装宣言は不要だが意図を示す)
+// WeatherJob が core.Job インターフェースを満たすことを宣言
 var _ core.Job = (*WeatherJob)(nil)
 
 func NewWeatherJob(
@@ -62,6 +62,7 @@ func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) {
 }
 
 // ジョブリスナーへの通知メソッド
+// BeforeJob に ctx context.Context を追加
 func (j *WeatherJob) notifyBeforeJob(ctx context.Context) {
   for _, l := range j.jobListeners {
     l.BeforeJob(ctx, j.config.Batch.JobName)
@@ -69,6 +70,7 @@ func (j *WeatherJob) notifyBeforeJob(ctx context.Context) {
 }
 
 // ジョブリスナーへの通知メソッド
+// AfterJob に ctx context.Context を追加
 func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
   for _, l := range j.jobListeners {
     l.AfterJob(ctx, j.config.Batch.JobName, jobErr)
@@ -76,6 +78,7 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobErr error) {
 }
 
 // Run メソッド (core.Job インターフェースの実装)
+// Context を引数として受け取る
 func (j *WeatherJob) Run(ctx context.Context) error {
   retryConfig := j.config.Batch.Retry
   var runErr error // ジョブ全体の最終的なエラーを保持する変数
@@ -90,6 +93,7 @@ func (j *WeatherJob) Run(ctx context.Context) error {
 
     // リポジトリのクローズ処理
     // JobFactory で生成された repo は Job 構造体に保持されており、ここでクローズされる
+    // Context を Close メソッドに渡す場合は、WeatherRepository インターフェースと実装を修正
     if closer, ok := j.repo.(interface{ Close() error }); ok {
       if err := closer.Close(); err != nil {
         logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
@@ -98,8 +102,6 @@ func (j *WeatherJob) Run(ctx context.Context) error {
           runErr = fmt.Errorf("リポジトリのクローズエラー: %w", err)
         } else {
           // 既存のエラーがある場合は、新しいエラー情報を追加する形にするか、合成する
-          // 例: logger.Errorf("既存のエラー: %v, リポジトリクローズエラー: %v", runErr, err)
-          // あるいは、複数のエラーを保持できるカスタムエラー型を使用する
         }
       }
     }
@@ -108,6 +110,15 @@ func (j *WeatherJob) Run(ctx context.Context) error {
   logger.Infof("Weather Job を開始します。")
 
   for attempt := 0; attempt < retryConfig.MaxAttempts; attempt++ {
+    // ループ全体でも Context の完了をチェック
+    select {
+    case <-ctx.Done():
+      runErr = ctx.Err()
+      logger.Warnf("Context がキャンセルされたため、ジョブの実行を中断します: %v", runErr)
+      goto endJob // ジョブ全体を中断するためラベル付き break の代わりに goto を使用
+    default:
+    }
+
     var forecastData interface{}
     var processedData interface{}
     var startTime time.Time
@@ -115,16 +126,32 @@ func (j *WeatherJob) Run(ctx context.Context) error {
     var stepErr error // 各ステップでのエラーを保持
 
     // Reader
+    // notifyBeforeStep に Context を渡す
     j.notifyBeforeStep(ctx, "Reader", nil)
     startTime = time.Now()
+    // Reader の Read メソッドに Context を渡す
     forecastData, stepErr = j.reader.Read(ctx)
     elapsed = time.Since(startTime)
+    // notifyAfterStep に Context を渡す
     j.notifyAfterStep(ctx, "Reader", forecastData, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの読み込みに失敗しました (リトライ %d): %v", attempt+1, stepErr)
+      // Context キャンセルによるエラーの場合は即座に中断
+      if ctx.Err() != nil {
+        runErr = ctx.Err()
+        goto endJob // Context キャンセルで中断
+      }
       if attempt < retryConfig.MaxAttempts-1 {
-        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        // Context に対応した Sleep を使用することも検討
+        select {
+        case <-time.After(time.Duration(retryConfig.InitialInterval) * time.Second):
+          // スリープ完了
+        case <-ctx.Done():
+          // スリープ中に Context がキャンセルされた場合
+          runErr = ctx.Err()
+          goto endJob // ジョブ全体を中断
+        }
         continue // リトライ
       } else {
         runErr = fmt.Errorf("データの読み込みに最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, stepErr)
@@ -134,26 +161,40 @@ func (j *WeatherJob) Run(ctx context.Context) error {
       logger.Debugf("リーダーからデータを読み込みました: %+v", forecastData)
     }
 
-    if runErr != nil { // Readerでエラーが発生し、リトライ上限に達した場合
+    if runErr != nil { // Readerでエラーが発生し、リトライ上限に達した場合、または Context キャンセル
       break // 後続のステップは実行しない
     }
 
     // Processor
+    // notifyBeforeStep に Context を渡す
     j.notifyBeforeStep(ctx, "Processor", forecastData)
     startTime = time.Now()
     forecast, ok := forecastData.(*entity.OpenMeteoForecast)
     if !ok {
       stepErr = fmt.Errorf("forecastData の型が *entity.OpenMeteoForecast ではありません: %T", forecastData)
     } else {
+      // Processor の Process メソッドに Context を渡す
       processedData, stepErr = j.processor.Process(ctx, forecast)
     }
     elapsed = time.Since(startTime)
+    // notifyAfterStep に Context を渡す
     j.notifyAfterStep(ctx, "Processor", processedData, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの加工に失敗しました (リトライ %d): %v", attempt+1, stepErr)
+      // Context キャンセルによるエラーの場合は即座に中断
+      if ctx.Err() != nil {
+        runErr = ctx.Err()
+        goto endJob // Context キャンセルで中断
+      }
       if attempt < retryConfig.MaxAttempts-1 {
-        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        select {
+        case <-time.After(time.Duration(retryConfig.InitialInterval) * time.Second):
+          // スリープ完了
+        case <-ctx.Done():
+          runErr = ctx.Err()
+          goto endJob // ジョブ全体を中断
+        }
         continue // リトライ
       } else {
         runErr = fmt.Errorf("データの加工に最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, stepErr)
@@ -163,26 +204,40 @@ func (j *WeatherJob) Run(ctx context.Context) error {
       logger.Debugf("プロセッサーでデータを加工しました: %+v", processedData)
     }
 
-    if runErr != nil { // Processorでエラーが発生し、リトライ上限に達した場合
+    if runErr != nil { // Processorでエラーが発生し、リトライ上限に達した場合、または Context キャンセル
       break // 後続のステップは実行しない
     }
 
     // Writer
+    // notifyBeforeStep に Context を渡す
     j.notifyBeforeStep(ctx, "Writer", processedData)
     startTime = time.Now()
     // processedData が []*entity.WeatherDataToStore であることを確認してから渡す
     if dataToStore, ok := processedData.([]*entity.WeatherDataToStore); ok {
+      // Writer の Write メソッドに Context を渡す
       stepErr = j.writer.Write(ctx, dataToStore)
     } else {
       stepErr = fmt.Errorf("processedData の型が []*entity.WeatherDataToStore ではありません: %T", processedData)
     }
     elapsed = time.Since(startTime)
+    // notifyAfterStep に Context を渡す
     j.notifyAfterStep(ctx, "Writer", processedData, stepErr, elapsed)
 
     if stepErr != nil {
       logger.Errorf("データの書き込みに失敗しました (リトライ %d): %v", attempt+1, stepErr)
+      // Context キャンセルによるエラーの場合は即座に中断
+      if ctx.Err() != nil {
+        runErr = ctx.Err()
+        goto endJob // Context キャンセルで中断
+      }
       if attempt < retryConfig.MaxAttempts-1 {
-        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+        select {
+        case <-time.After(time.Duration(retryConfig.InitialInterval) * time.Second):
+          // スリープ完了
+        case <-ctx.Done():
+          runErr = ctx.Err()
+          goto endJob // ジョブ全体を中断
+        }
         continue // リトライ
       } else {
         runErr = fmt.Errorf("データの書き込みに最大リトライ回数 (%d) 失敗しました: %w", retryConfig.MaxAttempts, stepErr)
@@ -193,6 +248,8 @@ func (j *WeatherJob) Run(ctx context.Context) error {
       break // Success! ループを抜ける
     }
   }
+
+endJob: // Context キャンセル時などにジャンプするラベル
 
   // defer で AfterJob が呼ばれるため、ここではログ出力のみ
   if runErr != nil {
@@ -205,6 +262,7 @@ func (j *WeatherJob) Run(ctx context.Context) error {
 }
 
 // ステップリスナーへの通知メソッド
+// BeforeStep に ctx context.Context を追加
 func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data interface{}) {
   if stepListeners, ok := j.stepListeners[stepName]; ok {
     for _, l := range stepListeners {
@@ -214,6 +272,8 @@ func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepName string, data
 }
 
 // ステップリスナーへの通知メソッド
+// AfterStepWithDuration に ctx context.Context を追加
+// StepExecutionListener インターフェースの AfterStep メソッドにも Context を渡すように修正
 func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data interface{}, err error, duration time.Duration) {
   if stepListeners, ok := j.stepListeners[stepName]; ok {
     for _, l := range stepListeners {
@@ -221,6 +281,8 @@ func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepName string, data 
       if loggingListener, ok := l.(*stepListener.LoggingListener); ok {
         loggingListener.AfterStepWithDuration(ctx, stepName, data, err, duration)
       } else {
+        // StepExecutionListener インターフェースの AfterStep メソッドに Context を渡して呼び出し
+        // StepExecutionListener インターフェースの AfterStep メソッドが Context を受け取るように修正されている前提です
         l.AfterStep(ctx, stepName, data, err)
       }
     }

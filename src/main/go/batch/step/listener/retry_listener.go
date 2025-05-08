@@ -1,7 +1,7 @@
 package listener
 
 import (
-  "context"
+  "context" // context パッケージをインポート
   "time"
 
   config  "sample/src/main/go/batch/config"
@@ -21,6 +21,7 @@ func NewRetryListener(cfg *config.Config) *RetryListener {
   }
 }
 
+// BeforeStep メソッドに ctx context.Context を追加
 func (l *RetryListener) BeforeStep(ctx context.Context, stepName string, data interface{}) {
   l.attempt++
   if l.attempt == 1 {
@@ -32,10 +33,12 @@ func (l *RetryListener) BeforeStep(ctx context.Context, stepName string, data in
   logger.Debugf("ステップ '%s' 開始時のデータ: %+v", stepName, data)
 }
 
+// AfterStep メソッドに ctx context.Context を追加
 func (l *RetryListener) AfterStep(ctx context.Context, stepName string, data interface{}, err error) {
   duration := time.Since(l.startTime)
   if err != nil {
     logger.Errorf("ステップ '%s' (リトライ試行 %d) でエラーが発生しました: %v (処理時間: %s)", stepName, l.attempt, err, duration.String())
+    // Context キャンセルによるエラーか確認することも検討
     if l.attempt >= l.config.Batch.Retry.MaxAttempts {
       logger.Errorf("ステップ '%s' は最大リトライ回数に達しました。", stepName)
     }

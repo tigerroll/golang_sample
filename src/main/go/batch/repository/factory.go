@@ -20,6 +20,7 @@ func NewWeatherRepository(ctx context.Context, cfg config.Config) (WeatherReposi
     if err != nil {
       return nil, fmt.Errorf("failed to open redshift connection: %w", err)
     }
+    // NewRedshiftRepository を正しく呼び出し
     return NewRedshiftRepository(db), nil
   case "postgres":
     db, err := sql.Open("postgres", cfg.Database.ConnectionString())
@@ -47,5 +48,4 @@ func NewWeatherRepository(ctx context.Context, cfg config.Config) (WeatherReposi
   default:
     return nil, fmt.Errorf("unsupported database type: %s", cfg.Database.Type)
   }
- 
 }
