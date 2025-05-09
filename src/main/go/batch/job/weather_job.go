@@ -216,6 +216,14 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
       // ステップ実行成功、状態を更新
       readerStepExecution.MarkAsCompleted() // ステップ実行を完了としてマーク
       logger.Debugf("リーダーからデータを読み込みました: %+v", readItem)
+
+      // Reader ステップの実行コンテキストに読み込み件数を記録する例
+      // 実際の ItemReader は読み込んだ件数を返すように修正が必要
+      // ここではダミー値を使用
+      readerStepExecution.ExecutionContext.Put("readCount", 100)
+      // JobExecution のコンテキストに読み込み件数を昇格させる例
+      jobExecution.ExecutionContext.Put("totalReadCount", 100) // Jobレベルで共有
+
       j.notifyAfterStep(ctx, readerStepExecution) // 成功した StepExecution を渡す
       break // Reader ステップ成功、ループを抜ける
     }
@@ -278,6 +286,19 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
       // ステップ実行成功、状態を更新
       processorStepExecution.MarkAsCompleted() // ステップ実行を完了としてマーク
       logger.Debugf("プロセッサーでデータを加工しました: %+v", processedItem)
+
+      // Processor ステップの実行コンテキストに加工件数を記録する例
+      // 実際の ItemProcessor は加工したアイテム数を返すように修正が必要
+      // ここではダミー値を使用
+      processorStepExecution.ExecutionContext.Put("processedCount", 100)
+      // JobExecution のコンテキストに加工件数を昇格させる例
+      jobExecution.ExecutionContext.Put("totalProcessedCount", 100) // Jobレベルで共有
+
+      // JobExecution のコンテキストから情報を読み取る例
+      if totalReadCount, ok := jobExecution.ExecutionContext.GetInt("totalReadCount"); ok {
+        logger.Debugf("JobExecution から読み込み件数 (totalReadCount): %d を取得しました。", totalReadCount)
+      }
+
       j.notifyAfterStep(ctx, processorStepExecution) // 成功した StepExecution を渡す
       break // Processor ステップ成功、ループを抜ける
     }
@@ -340,6 +361,20 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
       // ステップ実行成功、状態を更新
       writerStepExecution.MarkAsCompleted() // ステップ実行を完了としてマーク
       logger.Infof("ライターでデータを書き込みました。")
+
+      // Writer ステップの実行コンテキストに書き込み件数を記録する例
+      // 実際の ItemWriter は書き込んだアイテム数を返すように修正が必要
+      // ここではダミー値を使用
+      writerStepExecution.ExecutionContext.Put("writeCount", 100)
+      // JobExecution のコンテキストに書き込み件数を昇格させる例
+      jobExecution.ExecutionContext.Put("totalWriteCount", 100) // Jobレベルで共有
+
+      // JobExecution のコンテキストから情報を読み取る例
+      if totalProcessedCount, ok := jobExecution.ExecutionContext.GetInt("totalProcessedCount"); ok {
+        logger.Debugf("JobExecution から加工件数 (totalProcessedCount): %d を取得しました。", totalProcessedCount)
+      }
+
+
       j.notifyAfterStep(ctx, writerStepExecution) // 成功した StepExecution を渡す
       break // Writer ステップ成功、ループを抜ける
     }
@@ -358,6 +393,16 @@ endJobSteps: // Context キャンセル時などにジャンプするラベル
     logger.Errorf("Weather Job がエラーで終了しました (最終状態: %s): %v", jobExecution.Status, jobExecution.Failureliye)
   } else {
      logger.Infof("Weather Job を完了しました (最終状態: %s)。", jobExecution.Status)
+     // ジョブが成功した場合、ExecutionContext に格納された最終情報をログ出力する例
+     if totalRead, ok := jobExecution.ExecutionContext.GetInt("totalReadCount"); ok {
+         logger.Infof("JobExecutionContext: Total Read Items: %d", totalRead)
+     }
+     if totalProcessed, ok := jobExecution.ExecutionContext.GetInt("totalProcessedCount"); ok {
+         logger.Infof("JobExecutionContext: Total Processed Items: %d", totalProcessed)
+     }
+     if totalWritten, ok := jobExecution.ExecutionContext.GetInt("totalWriteCount"); ok {
+         logger.Infof("JobExecutionContext: Total Written Items: %d", totalWritten)
+     }
   }
 
 

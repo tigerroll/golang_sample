@@ -3,8 +3,7 @@ package core
 import (
   "context"
   "time"
-  // uuidパッケージが必要になる可能性がありますが、ここでは単純化のためコメントアウト
-  //"github.com/google/uuid"
+  "github.com/google/uuid" // ID生成のためにuuidパッケージをインポート
 )
 
 // Job は実行可能なバッチジョブのインターフェースです。
@@ -40,6 +39,46 @@ const (
   ExitStatusNoOp      ExitStatus = "NO_OP" // 処理なし
 )
 
+// ExecutionContext はジョブやステップの状態を共有するためのキー-値ストアです。
+// 任意の値 (interface{}) を格納できるように map[string]interface{} とします。
+type ExecutionContext map[string]interface{}
+
+// NewExecutionContext は新しい空の ExecutionContext を作成します。
+func NewExecutionContext() ExecutionContext {
+  return make(ExecutionContext)
+}
+
+// Put は指定されたキーと値で ExecutionContext に値を設定します。
+func (ec ExecutionContext) Put(key string, value interface{}) {
+  ec[key] = value
+}
+
+// Get は指定されたキーの値を取得します。値が存在しない場合は nil を返します。
+func (ec ExecutionContext) Get(key string) interface{} {
+  return ec[key]
+}
+
+// GetString は指定されたキーの値を文字列として取得します。
+// 存在しない場合や型が異なる場合は空文字列と false を返します。
+func (ec ExecutionContext) GetString(key string) (string, bool) {
+  val, ok := ec[key]
+  if !ok {
+    return "", false
+  }
+  str, ok := val.(string)
+  return str, ok
+}
+
+// GetInt は指定されたキーの値をintとして取得します。
+// 存在しない場合や型が異なる場合は0と false を返します。
+func (ec ExecutionContext) GetInt(key string) (int, bool) {
+  val, ok := ec[key]
+  if !ok {
+    return 0, false
+  }
+  i, ok := val.(int)
+  return i, ok
+}
 
 // JobParameters はジョブ実行時のパラメータを保持する構造体です。
 type JobParameters struct {
@@ -56,37 +95,37 @@ func NewJobParameters() JobParameters {
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
 // JobExecution は BatchStatus と ExitStatus を持ちます。
 type JobExecution struct {
-  ID           string // 実行を一意に識別するID (通常、永続化層で生成)
-  JobName      string
-  Parameters   JobParameters
-  StartTime    time.Time
-  EndTime      time.Time
-  Status       JobStatus    // BatchStatus に相当
-  ExitStatus   ExitStatus   // 終了時の詳細ステータス
-  ExitCode     int          // 終了コード (ここでは単純化のため未使用)
-  Failureliye  []error      // 発生したエラー (複数保持できるようにスライスとする)
-  Version      int          // バージョン (ここでは単純化のため未使用)
-  CreateTime   time.Time
-  LastUpdated  time.Time
+  ID             string         // 実行を一意に識別するID (通常、永続化層で生成)
+  JobName        string
+  Parameters     JobParameters
+  StartTime      time.Time
+  EndTime        time.Time
+  Status         JobStatus      // BatchStatus に相当
+  ExitStatus     ExitStatus     // 終了時の詳細ステータス
+  ExitCode       int            // 終了コード (ここでは単純化のため未使用)
+  Failureliye    []error        // 発生したエラー (複数保持できるようにスライスとする)
+  Version        int            // バージョン (ここでは単純化のため未使用)
+  CreateTime     time.Time
+  LastUpdated    time.Time
   StepExecutions []*StepExecution // このジョブ実行に関連するステップ実行
-  // ExecutionContext など、他の属性が必要であれば追加
+  ExecutionContext ExecutionContext // ジョブレベルのコンテキスト
 }
 
 // NewJobExecution は新しい JobExecution のインスタンスを作成します。
 func NewJobExecution(jobName string, params JobParameters) *JobExecution {
   now := time.Now()
   return &JobExecution{
-    // ID は通常、永続化層で生成されますが、ここでは単純化します。
-    // ID:          uuid.New().String(), // 例: uuid パッケージを使用
-    JobName:      jobName,
-    Parameters:   params,
-    StartTime:    now,
-    Status:       JobStatusStarting, // 開始時は Starting または Started
-    ExitStatus:   ExitStatusUnknown,
-    CreateTime:   now,
-    LastUpdated:  now,
-    Failureliye:  make([]error, 0),
+    ID:             uuid.New().String(), // 例: uuid パッケージを使用
+    JobName:        jobName,
+    Parameters:     params,
+    StartTime:      now,
+    Status:         JobStatusStarting, // 開始時は Starting または Started
+    ExitStatus:     ExitStatusUnknown,
+    CreateTime:     now,
+    LastUpdated:    now,
+    Failureliye:    make([]error, 0),
     StepExecutions: make([]*StepExecution, 0),
+    ExecutionContext: NewExecutionContext(), // ここで初期化
   }
 }
 
@@ -126,33 +165,33 @@ func (je *JobExecution) AddFailureException(err error) {
 // StepExecution はステップの単一の実行インスタンスを表す構造体です。
 // StepExecution は BatchStatus と ExitStatus を持ちます。
 type StepExecution struct {
-  ID          string // 実行を一意に識別するID (ここでは単純化のため未使用)
-  StepName    string
-  JobExecution *JobExecution // 所属するジョブ実行への参照
-  StartTime   time.Time
-  EndTime     time.Time
-  Status      JobStatus  // BatchStatus に相当 (JobStatus を流用)
-  ExitStatus  ExitStatus // 終了時の詳細ステータス
-  Failureliye []error    // 発生したエラー (複数保持できるようにスライスとする)
-  ReadCount   int
-  WriteCount  int
-  CommitCount int
-  RollbackCount int
-  // ExecutionContext など、他の属性が必要であれば追加
+  ID             string         // 実行を一意に識別するID (ここでは単純化のため未使用)
+  StepName       string
+  JobExecution   *JobExecution  // 所属するジョブ実行への参照
+  StartTime      time.Time
+  EndTime        time.Time
+  Status         JobStatus      // BatchStatus に相当 (JobStatus を流用)
+  ExitStatus     ExitStatus     // 終了時の詳細ステータス
+  Failureliye    []error        // 発生したエラー (複数保持できるようにスライスとする)
+  ReadCount      int
+  WriteCount     int
+  CommitCount    int
+  RollbackCount  int
+  ExecutionContext ExecutionContext // ステップレベルのコンテキスト
 }
 
 // NewStepExecution は新しい StepExecution のインスタンスを作成します。
 func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecution {
   now := time.Now()
   se := &StepExecution{
-    // ID は通常、永続化層で生成されますが、ここでは単純化します。
-    // ID:          uuid.New().String(), // 例: uuid パッケージを使用
-    StepName:    stepName,
-    JobExecution: jobExecution, // JobExecution への参照を設定
-    StartTime:   now,
-    Status:      JobStatusStarting, // 開始時は Starting または Started
-    ExitStatus:  ExitStatusUnknown,
-    Failureliye: make([]error, 0),
+    ID:             uuid.New().String(), // 例: uuid パッケージを使用
+    StepName:       stepName,
+    JobExecution:   jobExecution, // JobExecution への参照を設定
+    StartTime:      now,
+    Status:         JobStatusStarting, // 開始時は Starting または Started
+    ExitStatus:     ExitStatusUnknown,
+    Failureliye:    make([]error, 0),
+    ExecutionContext: NewExecutionContext(), // ここで初期化
   }
   // JobExecution にこの StepExecution を追加
   if jobExecution != nil {
