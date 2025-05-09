@@ -2,11 +2,25 @@ package job
 
 import (
   "context"
-  //"fmt"
+  //"fmt" // 必要に応じてコメントを外す
 
-  core   "sample/src/main/go/batch/job/core"
+  core "sample/src/main/go/batch/job/core"
   logger "sample/src/main/go/batch/util/logger"
 )
+
+// JobLauncher は Job を JobParameters とともに起動するためのインターフェースです。
+// Spring Batchの JobLauncher に相当します。
+// NOTE: このインターフェース定義は src/main/go/batch/job/joblauncher.go に移動または統合されました。
+// このファイルからは削除します。
+/*
+type JobLauncher interface {
+  // Launch は指定された Job を JobParameters とともに起動します。
+  // 起動された JobExecution インスタンスを返します。
+  // ここで返されるエラーは、ジョブ自体の実行エラーではなく、起動処理自体のエラーです。
+  // 型を core パッケージから参照するように変更
+  Launch(ctx context.Context, job core.Job, params core.JobParameters) (*core.JobExecution, error)
+}
+*/
 
 // SimpleJobLauncher は JobLauncher インターフェースのシンプルな実装です。
 // JobExecution の基本的なライフサイクル管理を行います。
@@ -24,22 +38,17 @@ func NewSimpleJobLauncher(/* JobRepository などの依存関係 */) *SimpleJobL
 
 // Launch は指定された Job を JobParameters とともに起動し、JobExecution を管理します。
 // job 引数の型を core.Job に、params を core.JobParameters に、戻り値を *core.JobExecution に変更
+// JobLauncher インターフェースを満たすようにメソッドシグネチャを維持
 func (l *SimpleJobLauncher) Launch(ctx context.Context, job core.Job, params core.JobParameters) (*core.JobExecution, error) {
-  // ジョブ名を取得 (core.Job インターフェースに名前取得メソッドを追加するか、別の方法で取得する必要があります)
-  // 例として、core.Job を実装する構造体が JobName() string メソッドを持つと仮定
-  jobName := "UnknownJob" // デフォルト値
-  // 型アサーションは job.(...) のままでOK。WeatherJob は job パッケージにいるので参照可能。
-  if namedJob, ok := job.(interface{ JobName() string }); ok {
-    jobName = namedJob.JobName()
-  } else if weatherJob, ok := job.(*WeatherJob); ok { // WeatherJob 専用の対応 (WeatherJob は job パッケージにいる)
-    // WeatherJob が core.Job を実装していることを前提とする
-    jobName = weatherJob.config.Batch.JobName
-  }
+  // core.Job インターフェースに JobName() string メソッドを追加した前提で取得
+  jobName := job.JobName()
 
   // JobExecution の作成と状態更新 (STARTED 前)
   // core.NewJobExecution を呼び出し
   jobExecution := core.NewJobExecution(jobName, params)
-  jobExecution.Status = core.JobStatusStarting // 起動処理中 (core.JobStatusStarting を参照)
+  // JobExecution は NewJobExecution 時点では JobStatusStarting になっているので、ここでは不要
+  // jobExecution.Status = core.JobStatusStarting // 起動処理中 (core.JobStatusStarting を参照)
+
 
   logger.Infof("Job '%s' (Execution ID: %s) の起動処理を開始します。", jobName, jobExecution.ID)
 
@@ -55,16 +64,23 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, job core.Job, params cor
   jobExecution.MarkAsStarted() // core.JobExecution のメソッドを呼び出し
   logger.Infof("Job '%s' (Execution ID: %s) を実行します。", jobName, jobExecution.ID)
 
-  // core.Job の Run メソッドを実行
-  runErr := job.Run(ctx) // ここで Job 自体のロジックが実行されます
+  // core.Job の Run メソッドを実行し、JobExecution を渡す
+  // Run メソッド内で JobExecution の最終状態が設定されることを期待
+  runErr := job.Run(ctx, jobExecution) // JobExecution を渡すように変更
 
-  // Run メソッドの実行結果に応じて JobExecution の状態を更新
+  // Run メソッドの実行結果に関わらず、JobExecution の最終状態は Run メソッド内で設定されているはず
+  // ここでは JobExecution の状態を確認し、JobLauncher としてのエラーを返すかどうかを判断
   if runErr != nil {
-    jobExecution.MarkAsFailed(runErr) // core.JobExecution のメソッドを呼び出し
-    logger.Errorf("Job '%s' (Execution ID: %s) がエラーで完了しました: %v", jobName, jobExecution.ID, runErr)
+    // ジョブ自体の実行でエラーが発生した場合、そのエラーを JobLauncher の戻り値として返す
+    // JobExecution の状態更新 (MarkAsFailed) は Run メソッド内で既に実行されている
+    // logger.Errorf("Job '%s' (Execution ID: %s) の実行でエラーが発生しました: %v", jobName, jobExecution.ID, runErr)
+    // JobExecution は成功しても失敗しても返される
+    return jobExecution, runErr
   } else {
-    jobExecution.MarkAsCompleted() // core.JobExecution のメソッドを呼び出し
-    logger.Infof("Job '%s' (Execution ID: %s) が正常に完了しました。", jobName, jobExecution.ID)
+     // ジョブがエラーなく完了した場合
+     // JobExecution の状態更新 (MarkAsCompleted) は Run メソッド内で既に実行されている
+     // logger.Infof("Job '%s' (Execution ID: %s) の実行が正常に完了しました。", jobName, jobExecution.ID)
+     return jobExecution, nil
   }
 
   // ここで通常、JobRepository を使用して JobExecution の最終状態を永続化します (ここではスキップ)
@@ -73,17 +89,15 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, job core.Job, params cor
   //   logger.Errorf("JobExecution の最終状態の永続化に失敗しました: %v", saveErr)
   //   // 永続化エラーを JobExecution に追加することも検討
   //   // jobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態の永続化エラー: %w", saveErr))
+  //   // JobLauncher の起動処理自体のエラーとするか検討
+  //   // return jobExecution, fmt.Errorf("JobExecution 最終状態の永続化エラー: %w", saveErr)
   // }
 
   // 起動処理自体は成功し、JobExecution の実行結果を返します。
   // Job 自体のエラーは JobExecution に含まれています。
-  return jobExecution, nil
-}
+  // JobLauncher.Launch は起動処理自体のエラーを返すインターフェース定義なので、
+  // ジョブ実行エラー runErr をそのまま返すように修正しました。
 
-// Job インターフェースに JobName() string を追加するのが適切ですが、
-// 例として WeatherJob 専用の JobName 取得を追加しました。
-// より汎用的にするには core.Job インターフェースを修正してください。
-// type Job interface {
-//   Run(ctx context.Context) error
-//   JobName() string // core.Job インターフェースに追加する場合
-// }
+  // return jobExecution, nil // JobLauncher 処理自体にエラーがなければ nil を返す
+
+}

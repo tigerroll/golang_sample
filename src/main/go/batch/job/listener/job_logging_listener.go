@@ -2,31 +2,36 @@ package listener
 
 import (
   "context"
-  config "sample/src/main/go/batch/config" // config パッケージをインポート
+  config "sample/src/main/go/batch/config"
+  core "sample/src/main/go/batch/job/core" // core パッケージをインポート
   "sample/src/main/go/batch/util/logger"
 )
 
 type LoggingJobListener struct{
-  config *config.LoggingConfig // 小さい設定構造体を使用
+  config *config.LoggingConfig
 }
 
 // NewLoggingJobListener が LoggingConfig を受け取るように修正
 func NewLoggingJobListener(cfg *config.LoggingConfig) *LoggingJobListener {
   return &LoggingJobListener{
-    config: cfg, // 設定を保持
+    config: cfg,
   }
 }
 
-func (l *LoggingJobListener) BeforeJob(ctx context.Context, jobName string) {
-  // Context や config の Level を使ってログレベルを動的に制御することも可能ですが、ここでは既存の logger を使用
-  logger.Infof("Job '%s' の実行を開始します。", jobName)
+// BeforeJob メソッドシグネチャを変更し、JobExecution を受け取るようにします。
+func (l *LoggingJobListener) BeforeJob(ctx context.Context, jobExecution *core.JobExecution) {
+  // JobExecution から必要な情報を取得してログ出力
+  logger.Infof("Job '%s' (Execution ID: %s) の実行を開始します。", jobExecution.JobName, jobExecution.ID)
 }
 
-func (l *LoggingJobListener) AfterJob(ctx context.Context, jobName string, err error) {
-  // Context や config の Level を使ってログレベルを動的に制御することも可能ですが、ここでは既存の logger を使用
-  if err != nil {
-    logger.Errorf("Job '%s' がエラーで完了しました: %v", jobName, err)
+// AfterJob メソッドシグネチャを変更し、JobExecution を受け取るようにします。
+func (l *LoggingJobListener) AfterJob(ctx context.Context, jobExecution *core.JobExecution) {
+  // JobExecution から最終状態やエラー情報を取得してログ出力
+  if jobExecution.Status == core.JobStatusFailed {
+    logger.Errorf("Job '%s' (Execution ID: %s) がエラーで完了しました: %v",
+      jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
   } else {
-    logger.Infof("Job '%s' の実行が正常に完了しました。", jobName)
+    logger.Infof("Job '%s' (Execution ID: %s) の実行が正常に完了しました。最終状態: %s",
+      jobExecution.JobName, jobExecution.ID, jobExecution.Status)
   }
 }

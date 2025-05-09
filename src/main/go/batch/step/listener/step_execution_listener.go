@@ -1,10 +1,11 @@
 package listener
 
-import "context" // context パッケージをインポート
+import "context"
+import core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 
 type StepExecutionListener interface {
-  // BeforeStep メソッドに ctx context.Context を追加
-  BeforeStep(ctx context.Context, stepName string, data interface{})
-  // AfterStep メソッドに ctx context.Context を追加
-  AfterStep(ctx context.Context, stepName string, data interface{}, err error)
+  // BeforeStep メソッドシグネチャを変更し、StepExecution を追加
+  BeforeStep(ctx context.Context, stepExecution *core.StepExecution)
+  // AfterStep メソッドシグネチャを変更し、StepExecution を追加
+  AfterStep(ctx context.Context, stepExecution *core.StepExecution)
 }
