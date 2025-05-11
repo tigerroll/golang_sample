@@ -47,6 +47,7 @@ type BatchConfig struct {
   APIKey                 string `yaml:"api_key"`
   JobName                string `yaml:"job_name"`
   Retry                  RetryConfig `yaml:"retry"`
+  ChunkSize              int    `yaml:"chunk_size"` // ★ 追加
 }
 
 // LoggingConfig は既に存在し、LoggingListener に渡すのに適しています。
@@ -87,6 +88,7 @@ func NewConfig() *Config {
     },
     Batch: BatchConfig{
       JobName: "weather", // デフォルトの Job 名を設定
+      ChunkSize: 10, // ★ デフォルトのチャンクサイズ
     },
   }
 }

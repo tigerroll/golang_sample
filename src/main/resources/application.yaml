@@ -19,6 +19,7 @@ batch:
     factor: 2
     circuit_breaker_threshold: 3
     circuit_breaker_reset_interval: 60
+  chunk_size: 50 # ★ 追加
 
 system:
   timezone: "Asia/Tokyo"

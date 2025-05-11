@@ -57,6 +57,16 @@ func LoadConfig() (*Config, error) {
   if jobName := os.Getenv("BATCH_JOB_NAME"); jobName != "" {
     cfg.Batch.JobName = jobName
   }
+  // BATCH_CHUNK_SIZE 環境変数をロード (存在すれば設定ファイルの設定を上書き) ★ 追加
+  if chunkSizeStr := os.Getenv("BATCH_CHUNK_SIZE"); chunkSizeStr != "" {
+    if chunkSize, err := strconv.Atoi(chunkSizeStr); err == nil {
+      cfg.Batch.ChunkSize = chunkSize
+    } else {
+        // エラーハンドリングを強化する場合はここに記述
+        fmt.Printf("警告: BATCH_CHUNK_SIZE の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。\n", chunkSizeStr)
+    }
+  }
+
 
   // ここではエラーが発生しない前提ですが、検証などが必要であればここでもエラーを返すように修正します。
   return cfg, nil
@@ -112,6 +122,7 @@ func loadEnvVars(cfg *Config) {
   if apiKey := os.Getenv("BATCH_API_KEY"); apiKey != "" {
     cfg.Batch.APIKey = apiKey
   }
+  // BATCH_CHUNK_SIZE の読み込みは LoadConfig に移動しました。
 
   // System 設定
   if logLevel := os.Getenv("SYSTEM_LOGGING_LEVEL"); logLevel != "" {
