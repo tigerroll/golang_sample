@@ -2,37 +2,27 @@ package job
 
 import (
   "context"
-  //"fmt" // 必要に応じてコメントを外す
+  "fmt" // fmt パッケージをインポート (エラーメッセージで使用)
 
   core "sample/src/main/go/batch/job/core"
+  "sample/src/main/go/batch/repository" // repository パッケージをインポート
   logger "sample/src/main/go/batch/util/logger"
 )
 
 // JobLauncher は Job を JobParameters とともに起動するためのインターフェースです。
-// Spring Batchの JobLauncher に相当します。
-// NOTE: このインターフェース定義は src/main/go/batch/job/joblauncher.go に移動または統合されました。
-// このファイルからは削除します。
-/*
-type JobLauncher interface {
-  // Launch は指定された Job を JobParameters とともに起動します。
-  // 起動された JobExecution インスタンスを返します。
-  // ここで返されるエラーは、ジョブ自体の実行エラーではなく、起動処理自体のエラーです。
-  // 型を core パッケージから参照するように変更
-  Launch(ctx context.Context, job core.Job, params core.JobParameters) (*core.JobExecution, error)
-}
-*/
+// ... (既存の JobLauncher インターフェース定義は削除されているはずです) ...
 
 // SimpleJobLauncher は JobLauncher インターフェースのシンプルな実装です。
-// JobExecution の基本的なライフサイクル管理を行います。
+// JobExecution の基本的なライフサイクル管理と JobRepository を使用した永続化を行います。
 type SimpleJobLauncher struct {
-  // 必要に応じて JobRepository などの依存関係を追加
-  // jobRepository JobRepository
+  jobRepository repository.JobRepository // JobRepository を依存として追加
 }
 
 // NewSimpleJobLauncher は新しい SimpleJobLauncher のインスタンスを作成します。
-func NewSimpleJobLauncher(/* JobRepository などの依存関係 */) *SimpleJobLauncher {
+// JobRepository の実装を受け取るように変更します。
+func NewSimpleJobLauncher(jobRepository repository.JobRepository) *SimpleJobLauncher {
   return &SimpleJobLauncher{
-    // jobRepository: jobRepository
+    jobRepository: jobRepository, // JobRepository を初期化
   }
 }
 
@@ -40,64 +30,71 @@ func NewSimpleJobLauncher(/* JobRepository などの依存関係 */) *SimpleJobL
 // job 引数の型を core.Job に、params を core.JobParameters に、戻り値を *core.JobExecution に変更
 // JobLauncher インターフェースを満たすようにメソッドシグネチャを維持
 func (l *SimpleJobLauncher) Launch(ctx context.Context, job core.Job, params core.JobParameters) (*core.JobExecution, error) {
-  // core.Job インターフェースに JobName() string メソッドを追加した前提で取得
   jobName := job.JobName()
 
-  // JobExecution の作成と状態更新 (STARTED 前)
-  // core.NewJobExecution を呼び出し
+  // JobExecution の作成 (まだ永続化されていない状態)
   jobExecution := core.NewJobExecution(jobName, params)
-  // JobExecution は NewJobExecution 時点では JobStatusStarting になっているので、ここでは不要
-  // jobExecution.Status = core.JobStatusStarting // 起動処理中 (core.JobStatusStarting を参照)
-
+    // NewJobExecution 時点では Status は JobStatusStarting です
 
   logger.Infof("Job '%s' (Execution ID: %s) の起動処理を開始します。", jobName, jobExecution.ID)
 
-  // ここで通常、JobRepository を使用して JobExecution を永続化します (ここではスキップ)
-  // err := l.jobRepository.Save(ctx, jobExecution)
-  // if err != nil {
-  //   jobExecution.MarkAsFailed(fmt.Errorf("JobExecution の永続化に失敗しました: %w", err))
-  //   logger.Errorf("Job '%s' の起動処理が失敗しました: %v", jobName, jobExecution.Failureliye)
-  //   return jobExecution, fmt.Errorf("起動処理エラー: %w", err)
-  // }
+  // Step 1: JobExecution を JobRepository に保存 (Initial Save)
+  // JobExecution の作成直後に永続化します。ステータスは STARTING です。
+  err := l.jobRepository.SaveJobExecution(ctx, jobExecution)
+  if err != nil {
+    // 保存に失敗した場合は、ジョブ実行を開始せずにエラーを返します。
+    logger.Errorf("JobExecution (ID: %s) の初期永続化に失敗しました: %v", jobExecution.ID, err)
+    return jobExecution, fmt.Errorf("起動処理エラー: JobExecution の初期保存に失敗しました: %w", err)
+  }
+    logger.Debugf("JobExecution (ID: %s) を JobRepository に初期保存しました。", jobExecution.ID)
 
-  // JobExecution の状態を Started に更新
-  jobExecution.MarkAsStarted() // core.JobExecution のメソッドを呼び出し
+
+  // Step 2: JobExecution の状態を Started に更新し、永続化
+  jobExecution.MarkAsStarted() // StartTime, LastUpdated, Status を更新
+  err = l.jobRepository.UpdateJobExecution(ctx, jobExecution)
+  if err != nil {
+    // 更新に失敗した場合、ジョブ実行を開始したものの、状態を正しく記録できなかったことになります。
+        // これは深刻な問題ですが、ジョブ自体は実行を開始したとみなします。
+        // エラーを記録し、ジョブ実行自体は進めますが、最終的な JobExecution を返す際にエラー情報を含めるべきです。
+    logger.Errorf("JobExecution (ID: %s) の Started 状態への更新に失敗しました: %v", jobExecution.ID, err)
+        // JobExecution に永続化エラーを追加することも検討
+        jobExecution.AddFailureException(fmt.Errorf("JobExecution 状態更新エラー (Started): %w", err))
+    // エラーはログ出力に留め、ジョブの Run 処理に進みます。
+  } else {
+        logger.Debugf("JobExecution (ID: %s) を JobRepository で Started に更新しました。", jobExecution.ID)
+    }
+
+
   logger.Infof("Job '%s' (Execution ID: %s) を実行します。", jobName, jobExecution.ID)
 
   // core.Job の Run メソッドを実行し、JobExecution を渡す
   // Run メソッド内で JobExecution の最終状態が設定されることを期待
-  runErr := job.Run(ctx, jobExecution) // JobExecution を渡すように変更
+  // Run メソッドはジョブ自体の実行エラーを返します
+  runErr := job.Run(ctx, jobExecution)
 
-  // Run メソッドの実行結果に関わらず、JobExecution の最終状態は Run メソッド内で設定されているはず
-  // ここでは JobExecution の状態を確認し、JobLauncher としてのエラーを返すかどうかを判断
-  if runErr != nil {
-    // ジョブ自体の実行でエラーが発生した場合、そのエラーを JobLauncher の戻り値として返す
-    // JobExecution の状態更新 (MarkAsFailed) は Run メソッド内で既に実行されている
-    // logger.Errorf("Job '%s' (Execution ID: %s) の実行でエラーが発生しました: %v", jobName, jobExecution.ID, runErr)
-    // JobExecution は成功しても失敗しても返される
-    return jobExecution, runErr
+  // Step 3: ジョブ実行完了後の JobExecution の状態を永続化
+  // Run メソッド内で JobExecution の最終状態 (Completed or Failed) は既に設定されています。
+  // ここではその最終状態を JobRepository に保存します。
+  updateErr := l.jobRepository.UpdateJobExecution(ctx, jobExecution)
+  if updateErr != nil {
+    // 最終状態の永続化に失敗した場合
+    logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", jobExecution.ID, updateErr)
+        // このエラーを JobExecution に追加
+        jobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー: %w", updateErr))
+        // もし Run メソッドが成功していたとしても、永続化エラーがあれば JobLauncher レベルではエラーとみなす
+        if runErr == nil {
+            runErr = fmt.Errorf("JobExecution 最終状態の永続化に失敗しました: %w", updateErr)
+        } else {
+            // Run エラーと永続化エラーをラップすることも検討
+            runErr = fmt.Errorf("Job実行エラー (%w), 永続化エラー (%w)", runErr, updateErr)
+        }
   } else {
-     // ジョブがエラーなく完了した場合
-     // JobExecution の状態更新 (MarkAsCompleted) は Run メソッド内で既に実行されている
-     // logger.Infof("Job '%s' (Execution ID: %s) の実行が正常に完了しました。", jobName, jobExecution.ID)
-     return jobExecution, nil
-  }
+        logger.Debugf("JobExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", jobExecution.ID, jobExecution.Status)
+    }
 
-  // ここで通常、JobRepository を使用して JobExecution の最終状態を永続化します (ここではスキップ)
-  // saveErr := l.jobRepository.Update(ctx, jobExecution)
-  // if saveErr != nil {
-  //   logger.Errorf("JobExecution の最終状態の永続化に失敗しました: %v", saveErr)
-  //   // 永続化エラーを JobExecution に追加することも検討
-  //   // jobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態の永続化エラー: %w", saveErr))
-  //   // JobLauncher の起動処理自体のエラーとするか検討
-  //   // return jobExecution, fmt.Errorf("JobExecution 最終状態の永続化エラー: %w", saveErr)
-  // }
 
-  // 起動処理自体は成功し、JobExecution の実行結果を返します。
-  // Job 自体のエラーは JobExecution に含まれています。
-  // JobLauncher.Launch は起動処理自体のエラーを返すインターフェース定義なので、
-  // ジョブ実行エラー runErr をそのまま返すように修正しました。
-
-  // return jobExecution, nil // JobLauncher 処理自体にエラーがなければ nil を返す
-
+  // JobLauncher の Launch メソッドは、起動処理自体のエラーを返すインターフェース定義ですが、
+    // ここではジョブ自体の実行エラー (runErr) と最終状態の永続化エラー (updateErr) を含めて返します。
+  // JobExecution オブジェクトは常に返します。
+  return jobExecution, runErr
 }
