@@ -1,3 +1,4 @@
+// src/main/go/batch/repository/sql_job_repository.go
 package repository
 
 import (
@@ -313,7 +314,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
       logger.Errorf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました: %v", jobExecution.ID, err)
       // リスタート時に ExecutionContext が取得できないと問題になる可能性が高い
       // エラーを返すか、ログレベルを上げて警告するなど検討
-      // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", jobExecution.ID), err)
+      // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", executionID), err)
     }
   } else {
     // カラムが NULL の場合は空の ExecutionContext を設定 (NewJobExecution で既に設定済みだが念のため)
@@ -337,18 +338,18 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
 
 // SaveStepExecution は新しい StepExecution をデータベースに保存します。
 func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution *core.StepExecution) error {
-  // TODO: Failureliye, ExecutionContext をデータベースの形式に合わせて変換 (例: JSON)
+  // TODO: Failureliye をデータベースの形式に合わせて変換 (例: JSON)
   failuresJSON, err := json.Marshal(stepExecution.Failureliye) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
 
-  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
-  // contextJSONBytes, err := marshalExecutionContext(stepExecution.ExecutionContext) // ヘルパー関数を使用
-  // if err != nil { ... }
-  // contextJSON := string(contextJSONBytes)
-  // 現時点ではダミーデータまたは空の JSON を使用
-  contextJSON := "{}" // ダミーデータ
+  // ★ 第5段階: ExecutionContext を JSON にシリアライズ
+  contextJSONBytes, err := marshalExecutionContext(stepExecution.ExecutionContext)
+  if err != nil {
+    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err)
+  }
+  contextJSON := string(contextJSONBytes)
 
 
   query := `
@@ -380,7 +381,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
     stepExecution.CommitCount,
     stepExecution.RollbackCount,
     string(failuresJSON),
-    contextJSON, // ★ execution_context カラムにバインド
+    contextJSON, // ★ シリアライズした execution_context カラムにバインド
   )
   if err != nil {
     return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err)
@@ -398,12 +399,12 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
 
-  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
-  // contextJSONBytes, err := marshalExecutionContext(stepExecution.ExecutionContext) // ヘルパー関数を使用
-  // if err != nil { ... }
-  // contextJSON := string(contextJSONBytes)
-  // 現時点では空のJSON文字列を使用
-  contextJSON := "{}" // ダミーデータ
+  // ★ 第5段階: ExecutionContext を JSON にシリアライズ
+  contextJSONBytes, err := marshalExecutionContext(stepExecution.ExecutionContext)
+  if err != nil {
+    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err)
+  }
+  contextJSON := string(contextJSONBytes)
 
 
   // ★ スキーマ変更の意図を示すコメントを追加
@@ -424,7 +425,7 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
     stepExecution.CommitCount,
     stepExecution.RollbackCount,
     string(failuresJSON),
-    contextJSON, // ★ execution_context カラムにバインド
+    contextJSON, // ★ シリアライズした execution_context カラムにバインド
     stepExecution.ID,
   )
   if err != nil {
@@ -696,3 +697,4 @@ func unmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error {
 // error 型は Marshal/Unmarshal が標準でサポートしていないため、エラーメッセージの文字列リストとして保存するなどの工夫が必要
 // func marshalErrors(errs []error) ([]byte, error) { ... }
 // func unmarshalErrors(data []byte) ([]error, error) { ... }
+
