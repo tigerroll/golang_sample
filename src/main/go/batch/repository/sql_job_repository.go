@@ -1,4 +1,3 @@
-// src/main/go/batch/repository/sql_job_repository.go
 package repository
 
 import (
@@ -182,7 +181,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     jobExecution.ExitCode = int(exitCode.Int64)
   }
 
-  // TODO: job_parameters, failure_exceptions を JSON から構造体に戻す (次のステップで実装)
+  // TODO: job_parameters, failure_exceptions を JSON から構造体に戻す
   if paramsJSON.Valid {
     err = json.Unmarshal([]byte(paramsJSON.String), &jobExecution.Parameters)
     if err != nil {
@@ -234,7 +233,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
   jobExecution.StepExecutions = stepExecutions
 
 
-  logger.Debugf("JobExecution (ID: %s) をデータベースから取得しました。", jobExecution.ID)
+  logger.Debugf("JobExecution (ID: %s) をデータベースから取得しました。", executionID) // ここを修正: jobExecution.ID -> executionID
 
   return jobExecution, nil
 }
@@ -290,7 +289,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
     jobExecution.ExitCode = int(exitCode.Int64)
   }
 
-  // TODO: job_parameters, failure_exceptions を JSON から構造体に戻す (次のステップで実装)
+  // TODO: job_parameters, failure_exceptions を JSON から構造体に戻す
   if paramsJSON.Valid {
     err = json.Unmarshal([]byte(paramsJSON.String), &jobExecution.Parameters)
      if err != nil { logger.Errorf("JobExecution (ID: %s) の JobParameters のデコードに失敗しました: %v", jobExecution.ID, err) }
@@ -314,7 +313,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
       logger.Errorf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました: %v", jobExecution.ID, err)
       // リスタート時に ExecutionContext が取得できないと問題になる可能性が高い
       // エラーを返すか、ログレベルを上げて警告するなど検討
-      // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", executionID), err)
+      // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", executionID), err) // ここを修正: executionID -> jobExecution.ID
     }
   } else {
     // カラムが NULL の場合は空の ExecutionContext を設定 (NewJobExecution で既に設定済みだが念のため)
@@ -491,7 +490,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
   }
 
 
-  // TODO: failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
+  // TODO: failure_exceptions を JSON から構造体に戻す
    if failuresJSON.Valid {
      var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
@@ -505,13 +504,19 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
        }
     }
   }
-  // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
+  // ★ 第6段階: ExecutionContext の JSON データをデシリアライズ
+  // stepExecution.ExecutionContext は NewStepExecution で初期化済み
   if contextJSON.Valid {
-    // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-    // err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
-    // if err != nil { ... } // エラーハンドリング
+    err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
+    if err != nil {
+      // TODO: エラーハンドリング - デシリアライズに失敗した場合でもステップ実行は継続できるか？ログ出力して進む？
+      logger.Errorf("StepExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました: %v", executionID, err)
+      // リスタート時に ExecutionContext が取得できないと問題になる可能性が高い
+      // エラーを返すか、ログレベルを上げて警告するなど検討
+      // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", executionID), err)
+    }
   } else {
-    // カラムが NULL の場合は空の ExecutionContext を設定
+    // カラムが NULL の場合は空の ExecutionContext を設定 (NewStepExecution で既に設定済みだが念のため)
     stepExecution.ExecutionContext = core.NewExecutionContext()
   }
 
@@ -526,7 +531,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
   // Option 3: StepExecution 取得時に JobRepository で JobExecution もフェッチして設定する (今のコメント部分)
   // 今回は Option 1 を採用し、FindStepExecutionByID で JobExecution は取得しないこととする（必要なら別途取得）。
 
-  logger.Debugf("StepExecution (ID: %s) をデータベースから取得しました。", stepExecution.ID)
+  logger.Debugf("StepExecution (ID: %s) をデータベースから取得しました。", executionID) // ここを修正: stepExecution.ID -> executionID
 
   return stepExecution, nil
 }
@@ -582,7 +587,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
       stepExecution.ExitStatus = core.ExitStatus(exitStatus.String)
     }
 
-     // TODO: failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
+     // TODO: failure_exceptions を JSON から構造体に戻す
      if failuresJSON.Valid {
        var failureMsgs []string // 仮の型
       err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
@@ -596,13 +601,19 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
          }
       }
     }
-    // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
+    // ★ 第6段階: ExecutionContext の JSON データをデシリアライズ
+    // stepExecution.ExecutionContext は NewStepExecution で初期化済み
     if contextJSON.Valid {
-      // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-      // err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
-      // if err != nil { ... } // エラーハンドリング
+      err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
+      if err != nil {
+        // TODO: エラーハンドリング - デシリアライズに失敗した場合でもステップ実行は継続できるか？ログ出力して進む？
+        logger.Errorf("StepExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました: %v", stepExecution.ID, err)
+        // リスタート時に ExecutionContext が取得できないと問題になる可能性が高い
+        // エラーを返すか、ログレベルを上げて警告するなど検討
+        // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の ExecutionContext のデシリアライズに失敗しました", stepExecution.ID), err)
+      }
     } else {
-      // カラムが NULL の場合は空の ExecutionContext を設定
+      // カラムが NULL の場合は空の ExecutionContext を設定 (NewStepExecution で既に設定済みだが念のため)
       stepExecution.ExecutionContext = core.NewExecutionContext()
     }
 
@@ -697,4 +708,3 @@ func unmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error {
 // error 型は Marshal/Unmarshal が標準でサポートしていないため、エラーメッセージの文字列リストとして保存するなどの工夫が必要
 // func marshalErrors(errs []error) ([]byte, error) { ... }
 // func unmarshalErrors(data []byte) ([]error, error) { ... }
-
