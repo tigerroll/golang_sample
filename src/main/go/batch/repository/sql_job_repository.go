@@ -1,9 +1,10 @@
+// src/main/go/batch/repository/sql_job_repository.go
 package repository
 
 import (
   "context"
   "database/sql"
-  "encoding/json" // JobParameters や Failureliye をJSONとして保存する場合
+  "encoding/json" // JobParameters, Failureliye, ExecutionContext をJSONとして保存/読み込み
   "fmt"
   "time"
 
@@ -36,7 +37,7 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
   if err != nil {
     return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加
+  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(jobExecution.ExecutionContext)
   // if err != nil { ... }
   // 現時点では空のJSON文字列を使用
@@ -86,7 +87,7 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
   if err != nil {
     return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加
+  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(jobExecution.ExecutionContext)
   // if err != nil { ... }
   // 現時点では空のJSON文字列を使用
@@ -204,7 +205,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
        }
     }
   }
-  // TODO: ExecutionContext のデシリアライズ処理をここに追加
+  // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // jobExecution.ExecutionContext = NewExecutionContext() // マップを初期化
     // err = json.Unmarshal([]byte(contextJSON.String), &jobExecution.ExecutionContext)
@@ -297,7 +298,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
       }
     }
   }
-  // TODO: ExecutionContext のデシリアライズ処理をここに追加
+  // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // jobExecution.ExecutionContext = NewExecutionContext() // マップを初期化
     // err = json.Unmarshal([]byte(contextJSON.String), &jobExecution.ExecutionContext)
@@ -331,7 +332,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
   if err != nil {
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加
+  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(stepExecution.ExecutionContext)
   // if err != nil { ... }
   // 現時点では空のJSON文字列を使用
@@ -386,7 +387,7 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
   if err != nil {
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加
+  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(stepExecution.ExecutionContext)
   // if err != nil { ... }
   // 現時点では空のJSON文字列を使用
@@ -490,7 +491,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
        }
     }
   }
-  // TODO: ExecutionContext のデシリアライズ処理をここに追加
+  // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
     // err = json.Unmarshal([]byte(contextJSON.String), &stepExecution.ExecutionContext)
@@ -581,7 +582,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
          }
       }
     }
-    // TODO: ExecutionContext のデシリアライズ処理をここに追加
+    // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
     if contextJSON.Valid {
       // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
       // err = json.Unmarshal([]byte(contextJSON.String), &stepExecution.ExecutionContext)
@@ -625,11 +626,61 @@ func (r *SQLJobRepository) Close() error {
 // SQLJobRepository が JobRepository インターフェースを満たすことを確認
 var _ JobRepository = (*SQLJobRepository)(nil)
 
-// TODO: ExecutionContext の永続化・復元ヘルパー関数またはメソッドを追加 (次のステップで実装)
-// func marshalExecutionContext(ctx core.ExecutionContext) ([]byte, error) { ... }
-// func unmarshalExecutionContext(data []byte, ctx core.ExecutionContext) error { ... }
+// ★ 第2段階で追加されたヘルパー関数
+// marshalExecutionContext は ExecutionContext を JSON バイトスライスにシリアライズします。
+func marshalExecutionContext(ctx core.ExecutionContext) ([]byte, error) {
+  if ctx == nil {
+    // nil の場合は空の JSON オブジェクトを表すバイトスライスを返す
+    return []byte("{}"), nil
+  }
+  // JSON にシリアライズ
+  data, err := json.Marshal(ctx)
+  if err != nil {
+    // シリアライズ失敗時はエラーを返す
+    return nil, fmt.Errorf("ExecutionContext のシリアライズに失敗しました: %w", err)
+  }
+  return data, nil
+}
+
+// unmarshalExecutionContext は JSON バイトスライスを ExecutionContext にデシリアライズします。
+// デシリアライズ結果は既存の ExecutionContext マップに格納されます。
+// 既存のマップが nil の場合は新しいマップを作成します。
+func unmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error {
+  if len(data) == 0 || string(data) == "null" {
+    // データが空または "null" の場合は、ExecutionContext を空にする
+    if *ctx == nil {
+      *ctx = core.NewExecutionContext() // nil の場合は新しいマップを作成
+    } else {
+      // 既存のマップをクリア
+      for k := range *ctx {
+        delete(*ctx, k)
+      }
+    }
+    return nil
+  }
+
+  // デシリアライズ対象のマップを初期化またはクリア
+  if *ctx == nil {
+    *ctx = core.NewExecutionContext() // nil の場合は新しいマップを作成
+  } else {
+    // 既存のマップをクリア
+    for k := range *ctx {
+      delete(*ctx, k)
+    }
+  }
+
+  // JSON からマップにデシリアライズ
+  err := json.Unmarshal(data, ctx)
+  if err != nil {
+    // デシリアライズ失敗時はエラーを返す
+    return fmt.Errorf("ExecutionContext のデシリアライズに失敗しました: %w", err)
+  }
+  return nil
+}
+
 
 // TODO: Failureliye の永続化・復元ヘルパー関数またはメソッドを追加 (必要に応じて検討)
 // error 型は Marshal/Unmarshal が標準でサポートしていないため、エラーメッセージの文字列リストとして保存するなどの工夫が必要
 // func marshalErrors(errs []error) ([]byte, error) { ... }
 // func unmarshalErrors(data []byte) ([]error, error) { ... }
+
