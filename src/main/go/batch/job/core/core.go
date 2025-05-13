@@ -12,7 +12,25 @@ type Job interface {
   Run(ctx context.Context, jobExecution *JobExecution) error
   // SimpleJobLauncherでジョブ名を取得するために追加
   JobName() string
+  // TODO: ジョブが持つステップやフロー定義を取得するメソッドを追加する必要がある
+  // GetSteps() []Step // 例: シンプルにステップのリストを返す場合
+  // GetFlow() FlowDefinition // 例: フロー定義構造を返す場合
 }
+
+// Step はジョブ内で実行される単一のステップのインターフェースです。
+// Item-Oriented Step や Tasklet Step の基盤となります。
+// JSR352 の Step に相当します。
+type Step interface {
+  // Execute はステップの処理を実行します。
+  // StepExecution のライフサイクル管理（開始/終了マーク、リスナー通知など）はこのメソッドの実装内で行われます。
+  // エラーが発生した場合、そのエラーを返します。
+  Execute(ctx context.Context, jobExecution *JobExecution, stepExecution *StepExecution) error
+  // ステップ名を取得するために追加
+  StepName() string
+  // TODO: ステップが持つリスナーを取得するメソッドを追加する必要がある (Job が一元管理する場合は不要)
+  // GetListeners() []StepExecutionListener
+}
+
 
 // JobStatus はジョブ実行の状態を表します。
 type JobStatus string
@@ -85,6 +103,7 @@ type JobParameters struct {
   // 例: StartDate string
   // 例: EndDate string
   // 必要に応じてマップなどに変更可能
+  // TODO: JSR352 に近づけるなら map[string]interface{} に変更し、型安全な取得メソッドを追加
 }
 
 // NewJobParameters は新しい JobParameters のインスタンスを作成します。
@@ -181,6 +200,7 @@ type StepExecution struct {
 }
 
 // NewStepExecution は新しい StepExecution のインスタンスを作成します。
+// JobExecution への参照を受け取るように変更
 func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecution {
   now := time.Now()
   se := &StepExecution{
@@ -193,7 +213,7 @@ func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecutio
     Failureliye:    make([]error, 0),
     ExecutionContext: NewExecutionContext(), // ここで初期化
   }
-  // JobExecution にこの StepExecution を追加
+  // JobExecution にこの StepExecution を追加 (JobExecution が nil でない場合)
   if jobExecution != nil {
     jobExecution.StepExecutions = append(jobExecution.StepExecutions, se)
   }
@@ -228,3 +248,21 @@ func (se *StepExecution) AddFailureException(err error) {
     se.Failureliye = append(se.Failureliye, err)
   }
 }
+
+// --- Step 実行の共通ロジックのためのヘルパー関数や構造体 ---
+// これらは core パッケージに置くか、新しいユーティリティパッケージに置くか検討可能
+// ここではシンプルに core パッケージ内にヘルパー関数として追加する例を示します。
+
+// ExecuteStep は与えられた Step の Execute メソッドを呼び出し、
+// StepExecution のライフサイクル（開始/終了マーク、リスナー通知）を管理します。
+// この関数は Job.Run メソッドから呼び出されることを想定しています。
+// TODO: リスナー通知ロジックは Job または Step に持たせるべきか検討
+// TODO: JobRepository への StepExecution の保存/更新ロジックもここに含まれるべきか検討
+// 現状は Job.Run 内で StepExecution を作成し、JobRepository に保存/更新するが、
+// Step の Execute メソッド内で自身（StepExecution）を更新し、JobRepository を使用する設計も考えられる。
+// シンプル化のため、ここでは Job.Run が StepExecution のライフサイクルと永続化を管理し、
+// Step.Execute は純粋にビジネスロジック（Reader/Processor/Writer）の実行とエラー返却に集中する設計とします。
+// そのため、この ExecuteStep ヘルパー関数は今回のステップでは不要になります。
+// Step.Execute メソッド内で直接 StepExecution の状態を更新し、Job.Run が永続化を管理します。
+
+// したがって、core.go の修正は Step インターフェースの追加のみとなります。
