@@ -106,10 +106,7 @@ func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepExecution *core.St
 // Run メソッドは core.Job インターフェースの実装です。
 // ジョブ全体の実行フローを制御します。
 func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) error {
-  retryConfig := j.config.Batch.Retry
-  chunkSize := j.config.Batch.ChunkSize
-
-  logger.Infof("Weather Job を開始します。チャンクサイズ: %d", chunkSize)
+  logger.Infof("Weather Job を開始します。チャンクサイズ: %d", j.config.Batch.ChunkSize)
 
   // Job 実行前処理の通知
   j.notifyBeforeJob(ctx, jobExecution)
@@ -147,8 +144,11 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 
   // ステップ実行後処理 (defer で必ず実行)
   defer func() {
-    stepExecution.EndTime = time.Now() // ステップの終了時刻を設定
-    j.notifyAfterStep(ctx, stepExecution) // ステップ実行後処理の通知
+    // ステップの終了時刻を設定
+    stepExecution.EndTime = time.Now()
+
+    // ステップ実行後処理の通知
+    j.notifyAfterStep(ctx, stepExecution)
 
     // ステップが失敗としてマークされていれば、ジョブも失敗としてマーク
     if stepExecution.Status == core.JobStatusFailed {
@@ -159,134 +159,19 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
     }
   }()
 
-
-  // ★ チャンク処理ループ (この部分はまだ長いままですが、次の段階で分割します)
-  processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize)
-  itemCountInChunk := 0
-  chunkCount := 0
-  retryAttempt := 0
-
-  for retryAttempt = 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
-    logger.Debugf("チャンク処理試行: %d", retryAttempt+1)
-
-    chunkProcessErr := func() error {
-      processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-      itemCountInChunk = 0
-
-      for {
-        select {
-        case <-ctx.Done():
-          logger.Warnf("Context がキャンセルされたため、チャンク処理を中断します: %v", ctx.Err())
-          stepExecution.MarkAsFailed(ctx.Err()) // ステップ実行にエラーを追加
-          jobExecution.AddFailureException(ctx.Err()) // ジョブ実行にエラーを追加
-          return ctx.Err()
-        default:
-        }
-
-        // ★ 第2段階: 単一アイテムの読み込みと処理を新しいメソッドに切り出し
-        processedItemSlice, eofReached, itemErr := j.processSingleItem(ctx, stepExecution)
-        if itemErr != nil {
-          // Reader または Processor でエラーが発生した場合
-          logger.Errorf("アイテム処理でエラーが発生しました (試行 %d/%d): %v", retryAttempt+1, retryConfig.MaxAttempts, itemErr)
-          stepExecution.AddFailureException(itemErr) // ステップ実行にエラーを追加
-          return fmt.Errorf("item processing failed: %w", itemErr) // エラーを返してこのチャンク試行を終了
-        }
-
-        if eofReached {
-          logger.Debugf("Reader からデータの終端に達しました。")
-          break // インナーループを抜ける
-        }
-
-        // 処理済みアイテムをチャンクに追加
-        processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
-        itemCountInChunk = len(processedItemsChunk)
-
-        // チャンクが満たされたら書き込み
-        if itemCountInChunk >= chunkSize {
-          // ★ 第3段階: チャンク書き込み処理を新しいメソッドに切り出し
-          chunkCount++
-          writeErr := j.writeChunk(ctx, stepExecution, chunkCount, processedItemsChunk)
-          if writeErr != nil {
-            // Writer でエラーが発生した場合
-            logger.Errorf("Writer でエラーが発生しました (チャンク #%d, 試行 %d/%d): %v", chunkCount, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
-            stepExecution.AddFailureException(writeErr) // ステップ実行にエラーを追加
-            return fmt.Errorf("writer error: %w", writeErr) // エラーを返してこのチャンク試行を終了
-          }
-
-          // チャンクをリセット
-          processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-          itemCountInChunk = 0
-
-          // リトライ回数をリセットしない（チャンク処理全体でリトライをカウントするため）
-          // retryAttempt = 0
-        }
-      } // インナーループ終了
-
-      // インナーループ終了後の処理
-
-      // 残っているアイテムがあれば最終チャンクとして書き込む
-      if itemCountInChunk > 0 {
-        chunkCount++
-        logger.Infof("Reader 終端到達。残りのアイテム (%d 件) を書き込みます (チャンク #%d, 試行 %d/%d)。", itemCountInChunk, chunkCount, retryAttempt+1, retryConfig.MaxAttempts)
-        // ★ 第3段階: チャンク書き込み処理を新しいメソッドに切り出し
-        writeErr := j.writeChunk(ctx, stepExecution, chunkCount, processedItemsChunk)
-        if writeErr != nil {
-          // 最終チャンクの書き込みでエラーが発生した場合
-          logger.Errorf("Writer でエラーが発生しました (最終チャンク #%d, 試行 %d/%d): %v", chunkCount, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
-          stepExecution.AddFailureException(writeErr) // ステップ実行にエラーを追加
-          return fmt.Errorf("writer error on final chunk: %w", writeErr) // エラーを返してこのチャンク試行を終了
-        }
-        // チャンクをリセット (不要かもしれないが念のため)
-        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-        itemCountInChunk = 0
-        // リトライ回数をリセットしない
-        // retryAttempt = 0
-      }
-
-      return nil // このチャンク試行はエラーなく完了
-    }() // chunkProcessErr := func() error {...}() 終了
-
-    if chunkProcessErr == nil {
-      logger.Infof("チャンク処理ステップが正常に完了しました。合計チャンク数: %d", chunkCount)
-      // ステップ実行の最終状態は defer で設定されるためここでは不要
-      // stepExecution.MarkAsCompleted()
-      stepExecution.ExecutionContext.Put("chunkCount", chunkCount)
-
-      // ItemCount の設定 (簡易的に計算)
-      // Reader/Processor/Writer で正確に集計し、StepExecution に設定するのが理想
-      stepExecution.ReadCount = chunkCount * chunkSize // あくまで概算
-      stepExecution.WriteCount = chunkCount * chunkSize // あくまで概算
-      stepExecution.CommitCount = chunkCount
-
-      break // チャンク処理全体が成功したらリトライループを抜ける
-    } else {
-      if errors.Is(chunkProcessErr, context.Canceled) || errors.Is(chunkProcessErr, context.DeadlineExceeded) {
-         return chunkProcessErr // Context エラーは即座に返す
-      }
-
-      // チャンク処理試行でエラーが発生した場合のリトライ判定
-      if retryAttempt < retryConfig.MaxAttempts-1 {
-        logger.Warnf("チャンク処理でエラーが発生しました。リトライします (試行 %d/%d)。エラー: %v", retryAttempt+1, retryConfig.MaxAttempts, chunkProcessErr)
-        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
-        // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-      } else {
-        logger.Errorf("チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。エラー: %v", retryConfig.MaxAttempts, chunkProcessErr)
-        stepExecution.MarkAsFailed(chunkProcessErr) // ステップ実行を失敗としてマーク
-        jobExecution.AddFailureException(fmt.Errorf("ステップ '%s' が最大リトライ回数に達し失敗しました", stepExecution.StepName)) // ジョブ実行にエラーを追加
-        // JobExecution の状態は defer の Job 側で最終決定される
-        return chunkProcessErr // エラーを返してジョブを失敗させる
-      }
-    }
-  } // リトライループ終了
-
-  // ここに到達するのは、リトライ回数が0の場合か、論理的に到達しない場合
-  // 安全のためエラーを返しておく (通常は processChunkLoop 内で return される)
-  if len(stepExecution.Failureliye) > 0 {
-    // ステップにエラーが記録されている場合は、そのエラーを返す
-    return stepExecution.Failureliye[0] // 最初の失敗例外を返す (または全てをラップ)
+  // ★ 第4段階: チャンク処理ループを新しいメソッドに切り出し
+  // このメソッド内でリトライ処理とアイテム処理、チャンク書き込みが行われる
+  chunkProcessErr := j.processChunkLoop(ctx, jobExecution, stepExecution)
+  if chunkProcessErr != nil {
+    // チャンク処理ループ内でエラーが発生した場合、ステップは既に失敗としてマークされているはず
+    // ここで再度エラーを返すことで、JobLauncher がエラーを捕捉できるようにする
+    return chunkProcessErr
   }
 
-  return nil // Run メソッドはジョブ全体の実行結果を返す。エラーは JobExecution に記録される。
+  // チャンク処理ループがエラーなく完了した場合、ステップは defer で完了としてマークされる
+  // JobExecution の最終状態も defer で設定される
+
+  return nil // ジョブ全体の実行結果としてエラーがなければ nil を返す
 }
 
 // JobName はジョブ名を返します。core.Job インターフェースの実装です。
@@ -370,7 +255,6 @@ func (j *WeatherJob) processSingleItem(ctx context.Context, stepExecution *core.
   return processedItemsSlice, false, nil
 }
 
-
 // ★ 第3段階で追加されたメソッド
 // writeChunk は加工済みアイテムのチャンクを Writer で書き込みます。
 func (j *WeatherJob) writeChunk(ctx context.Context, stepExecution *core.StepExecution, chunkNum int, items []*entity.WeatherDataToStore) error {
@@ -397,12 +281,140 @@ func (j *WeatherJob) writeChunk(ctx context.Context, stepExecution *core.StepExe
   return nil
 }
 
-
-// ★ 今後の段階で追加されるメソッドのプレースホルダ (コメントアウト)
-/*
+// ★ 第4段階で追加されたメソッド
 // processChunkLoop はチャンク処理のメインループとリトライロジックを管理します。
 func (j *WeatherJob) processChunkLoop(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
-  // TODO: Implement chunk processing loop and retry logic here
-  return fmt.Errorf("processChunkLoop not implemented")
+  retryConfig := j.config.Batch.Retry
+  chunkSize := j.config.Batch.ChunkSize
+
+  processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize)
+  itemCountInChunk := 0
+  chunkCount := 0 // 成功したチャンクの数
+
+  // チャンク処理全体のリトライループ
+  for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
+    logger.Debugf("チャンク処理試行: %d/%d", retryAttempt+1, retryConfig.MaxAttempts)
+
+    // リトライ時にはチャンクをリセット
+    processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
+    itemCountInChunk = 0
+    chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
+
+    // アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
+    for {
+      select {
+      case <-ctx.Done():
+        logger.Warnf("Context がキャンセルされたため、チャンク処理を中断します: %v", ctx.Err())
+        stepExecution.MarkAsFailed(ctx.Err())
+        jobExecution.AddFailureException(ctx.Err())
+        return ctx.Err() // Context エラーは即座に返す
+      default:
+      }
+
+      // 単一アイテムの読み込みと処理
+      // processSingleItem は Reader/Processor エラーまたは Context キャンセルエラーを返す
+      processedItemSlice, eofReached, itemErr := j.processSingleItem(ctx, stepExecution)
+      if itemErr != nil {
+        // Reader または Processor でエラーが発生した場合
+        // processSingleItem 内で既に StepExecution にエラーは追加されている
+        logger.Errorf("アイテム処理でエラーが発生しました (試行 %d/%d): %v", retryAttempt+1, retryConfig.MaxAttempts, itemErr)
+        chunkAttemptError = true // この試行はエラー
+        break                    // インナーループを抜ける
+      }
+
+      // processSingleItem が nil アイテムを返した場合 (スキップされた場合)
+      if processedItemSlice == nil && !eofReached {
+        continue // 次のアイテムへ
+      }
+
+      // 処理済みアイテムをチャンクに追加
+      processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
+      itemCountInChunk = len(processedItemsChunk)
+
+      // チャンクが満たされたら書き込み
+      if itemCountInChunk >= chunkSize {
+        // チャンク書き込み処理
+        // writeChunk は Writer エラーまたは Context キャンセルエラーを返す
+        writeErr := j.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // 次のチャンク番号を渡す
+        if writeErr != nil {
+          // Writer でエラーが発生した場合
+          // writeChunk 内で既に StepExecution にエラーは追加されている
+          logger.Errorf("Writer でエラーが発生しました (チャンク #%d, 試行 %d/%d): %v", chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
+          chunkAttemptError = true // この試行はエラー
+          break                    // インナーループを抜ける
+        }
+        chunkCount++ // 書き込み成功した場合のみチャンク数をインクリメント
+        // チャンクをリセット
+        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
+        itemCountInChunk = 0
+        // Note: ここで retryAttempt をリセットしない。リトライはチャンク処理全体に対して行う。
+      }
+
+      // Reader の終端に達した場合
+      if eofReached {
+        logger.Debugf("Reader からデータの終端に達しました。")
+        break // インナーループを抜ける
+      }
+    } // インナーループ終了
+
+    // インナーループ終了後の処理
+
+    // この試行でエラーが発生した場合のリトライ判定
+    if chunkAttemptError {
+      if retryAttempt < retryConfig.MaxAttempts-1 {
+        // リトライ可能回数が残っている場合
+        logger.Warnf("チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
+        // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
+        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
+      } else {
+        // 最大リトライ回数に達した場合
+        logger.Errorf("チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", retryConfig.MaxAttempts)
+        // エラーは既に StepExecution に追加済み
+        // ステップの最終状態は defer で設定される
+        return fmt.Errorf("chunk processing failed after %d retries", retryConfig.MaxAttempts) // エラーを返してステップを失敗させる
+      }
+    } else {
+      // この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
+      // 残っているアイテムがあれば最終チャンクとして書き込む
+      if itemCountInChunk > 0 {
+        logger.Infof("Reader 終端到達。残りのアイテム (%d 件) を書き込みます (チャンク #%d, 試行 %d/%d)。", itemCountInChunk, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts)
+        // 最終チャンクの書き込み処理
+        writeErr := j.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // 次のチャンク番号を渡す
+        if writeErr != nil {
+          // 最終チャンクの書き込みでエラーが発生した場合
+          // writeChunk 内で既に StepExecution にエラーは追加されている
+          logger.Errorf("Writer でエラーが発生しました (最終チャンク #%d, 試行 %d/%d): %v", chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
+          // 最終チャンクの書き込み失敗もリトライ対象とする
+          if retryAttempt < retryConfig.MaxAttempts-1 {
+            logger.Warnf("最終チャンクの書き込み試行 %d/%d が失敗しました。リトライ間隔: %d秒", retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
+            // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
+            time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
+            continue // 次のリトライ試行へ
+          } else {
+            logger.Errorf("最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました。ステップを終了します。", retryConfig.MaxAttempts)
+            return fmt.Errorf("final chunk write failed after %d retries: %w", retryConfig.MaxAttempts, writeErr) // エラーを返してステップを失敗させる
+          }
+        }
+        chunkCount++ // 最終チャンクの書き込み成功
+        // チャンクをリセット (不要かもしれないが念のため)
+        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
+        itemCountInChunk = 0
+      }
+
+      // チャンク処理全体がエラーなく完了
+      logger.Infof("チャンク処理ステップが正常に完了しました。合計チャンク数: %d", chunkCount)
+      stepExecution.ExecutionContext.Put("chunkCount", chunkCount)
+      // ItemCount の設定 (Reader/Processor/Writer で正確に集計し、StepExecution に設定するのが理想)
+      // ここでは簡易的に計算
+      stepExecution.ReadCount = chunkCount * chunkSize // あくまで概算
+      stepExecution.WriteCount = chunkCount * chunkSize // あくまで概算
+      stepExecution.CommitCount = chunkCount
+
+      return nil // 成功したら nil を返してメソッドを終了
+    }
+  } // リトライループ終了
+
+  // ここに到達するのは、リトライ回数が0の場合か、論理的に到達しない場合
+  // 安全のためエラーを返しておく
+  return fmt.Errorf("chunk processing loop finished unexpectedly")
 }
-*/
