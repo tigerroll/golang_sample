@@ -26,9 +26,7 @@ func NewSQLJobRepository(db *sql.DB) *SQLJobRepository {
 
 // SaveJobExecution は新しい JobExecution をデータベースに保存します。
 func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
-  // TODO: JobParameters, Failureliye, ExecutionContext をデータベースの形式に合わせて変換 (例: JSON)
-  // ExecutionContext を JSON にシリアライズする処理は今後のステップで実装します。
-  // 現時点ではダミーデータまたは空の JSON を使用します。
+  // TODO: JobParameters, Failureliye をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
@@ -37,11 +35,14 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
   if err != nil {
     return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
-  // contextJSON, err := json.Marshal(jobExecution.ExecutionContext)
-  // if err != nil { ... }
-  // 現時点では空のJSON文字列を使用
-  contextJSON := "{}" // ダミーデータ
+
+  // ★ 第3段階: ExecutionContext を JSON にシリアライズ
+  contextJSONBytes, err := marshalExecutionContext(jobExecution.ExecutionContext)
+  if err != nil {
+    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err)
+  }
+  contextJSON := string(contextJSONBytes)
+
 
   // ★ スキーマ変更の意図を示すコメントを追加
   // job_executions テーブルに execution_context カラム (JSONB or JSON 型) を追加することを想定
@@ -64,7 +65,7 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
     jobExecution.Version, // TODO: version の管理ロジックが必要
     string(paramsJSON),
     string(failuresJSON),
-    contextJSON, // ★ execution_context カラムにバインド
+    contextJSON, // ★ シリアライズした execution_context カラムにバインド
   )
   if err != nil {
     return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の保存に失敗しました", jobExecution.ID), err)
@@ -76,9 +77,7 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
 
 // UpdateJobExecution は既存の JobExecution の状態をデータベースで更新します。
 func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
-  // TODO: JobParameters, Failureliye, ExecutionContext をデータベースの形式に合わせて変換 (例: JSON)
-  // ExecutionContext を JSON にシリアライズする処理は今後のステップで実装します。
-  // 現時点ではダミーデータまたは空の JSON を使用します。
+  // TODO: JobParameters, Failureliye をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
@@ -87,11 +86,13 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
   if err != nil {
     return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
   }
-  // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
-  // contextJSON, err := json.Marshal(jobExecution.ExecutionContext)
-  // if err != nil { ... }
-  // 現時点では空のJSON文字列を使用
-  contextJSON := "{}" // ダミーデータ
+
+  // ★ 第3段階: ExecutionContext を JSON にシリアライズ
+  contextJSONBytes, err := marshalExecutionContext(jobExecution.ExecutionContext)
+  if err != nil {
+    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err)
+  }
+  contextJSON := string(contextJSONBytes)
 
 
   // ★ スキーマ変更の意図を示すコメントを追加
@@ -112,7 +113,7 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
     jobExecution.Version, // TODO: version をインクリメントするなど管理ロジックが必要
     string(paramsJSON),
     string(failuresJSON),
-    contextJSON, // ★ execution_context カラムにバインド
+    contextJSON, // ★ シリアライズした execution_context カラムにバインド
     jobExecution.ID,
   )
   if err != nil {
@@ -181,7 +182,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     jobExecution.ExitCode = int(exitCode.Int64)
   }
 
-  // TODO: job_parameters, failure_exceptions, execution_context を JSON から構造体に戻す
+  // TODO: job_parameters, failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
   if paramsJSON.Valid {
     err = json.Unmarshal([]byte(paramsJSON.String), &jobExecution.Parameters)
     if err != nil {
@@ -208,7 +209,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
   // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // jobExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-    // err = json.Unmarshal([]byte(contextJSON.String), &jobExecution.ExecutionContext)
+    // err = unmarshalExecutionContext([]byte(contextJSON.String), &jobExecution.ExecutionContext) // ヘルパー関数を使用
     // if err != nil { ... } // エラーハンドリング
   } else {
     // カラムが NULL の場合は空の ExecutionContext を設定
@@ -283,7 +284,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
     jobExecution.ExitCode = int(exitCode.Int64)
   }
 
-  // TODO: job_parameters, failure_exceptions, execution_context を JSON から構造体に戻す
+  // TODO: job_parameters, failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
   if paramsJSON.Valid {
     err = json.Unmarshal([]byte(paramsJSON.String), &jobExecution.Parameters)
      if err != nil { logger.Errorf("JobExecution (ID: %s) の JobParameters のデコードに失敗しました: %v", jobExecution.ID, err) }
@@ -291,7 +292,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
   if failuresJSON.Valid {
     var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
-    if err != nil { logger.Errorf("JobExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", jobExecution.ID, err) } else {
+    if err != nil { logger.Errorf("JobExecution (ID: %s) の failure_exceptions のデcode に失敗しました: %v", jobExecution.ID, err) } else {
       jobExecution.Failureliye = make([]error, len(failureMsgs))
       for i, msg := range failureMsgs {
         jobExecution.Failureliye[i] = fmt.Errorf(msg)
@@ -301,7 +302,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
   // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // jobExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-    // err = json.Unmarshal([]byte(contextJSON.String), &jobExecution.ExecutionContext)
+    // err = unmarshalExecutionContext([]byte(contextJSON.String), &jobExecution.ExecutionContext) // ヘルパー関数を使用
     // if err != nil { ... } // エラーハンドリング
   } else {
     // カラムが NULL の場合は空の ExecutionContext を設定
@@ -326,12 +327,11 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobName s
 // SaveStepExecution は新しい StepExecution をデータベースに保存します。
 func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution *core.StepExecution) error {
   // TODO: Failureliye, ExecutionContext をデータベースの形式に合わせて変換 (例: JSON)
-  // ExecutionContext を JSON にシリアライズする処理は今後のステップで実装します。
-  // 現時点ではダミーデータまたは空の JSON を使用します。
   failuresJSON, err := json.Marshal(stepExecution.Failureliye) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
+
   // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(stepExecution.ExecutionContext)
   // if err != nil { ... }
@@ -380,13 +380,12 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 
 // UpdateStepExecution は既存の StepExecution の状態をデータベースで更新します。
 func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecution *core.StepExecution) error {
-  // TODO: Failureliye, ExecutionContext をデータベースの形式に合わせて変換 (例: JSON)
-  // ExecutionContext を JSON にシリアライズする処理は今後のステップで実装します。
-  // 現時点ではダミーデータまたは空の JSON を使用します。
+  // TODO: Failureliye をデータベースの形式に合わせて変換 (例: JSON)
   failuresJSON, err := json.Marshal(stepExecution.Failureliye) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
   }
+
   // TODO: ExecutionContext のシリアライズ処理をここに追加 (次のステップでこのダミーを置き換える)
   // contextJSON, err := json.Marshal(stepExecution.ExecutionContext)
   // if err != nil { ... }
@@ -478,7 +477,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
   }
 
 
-  // TODO: failure_exceptions, execution_context を JSON から構造体に戻す
+  // TODO: failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
    if failuresJSON.Valid {
      var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
@@ -494,7 +493,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
   // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
   if contextJSON.Valid {
     // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-    // err = json.Unmarshal([]byte(contextJSON.String), &stepExecution.ExecutionContext)
+    // err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
     // if err != nil { ... } // エラーハンドリング
   } else {
     // カラムが NULL の場合は空の ExecutionContext を設定
@@ -568,7 +567,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
       stepExecution.ExitStatus = core.ExitStatus(exitStatus.String)
     }
 
-     // TODO: failure_exceptions, execution_context を JSON から構造体に戻す
+     // TODO: failure_exceptions, execution_context を JSON から構造体に戻す (次のステップで実装)
      if failuresJSON.Valid {
        var failureMsgs []string // 仮の型
       err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
@@ -585,7 +584,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
     // TODO: ExecutionContext のデシリアライズ処理をここに追加 (次のステップでこのプレースホルダを置き換える)
     if contextJSON.Valid {
       // stepExecution.ExecutionContext = NewExecutionContext() // マップを初期化
-      // err = json.Unmarshal([]byte(contextJSON.String), &stepExecution.ExecutionContext)
+      // err = unmarshalExecutionContext([]byte(contextJSON.String), &stepExecution.ExecutionContext) // ヘルパー関数を使用
       // if err != nil { ... } // エラーハンドリング
     } else {
       // カラムが NULL の場合は空の ExecutionContext を設定
