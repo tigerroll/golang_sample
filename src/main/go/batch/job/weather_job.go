@@ -28,7 +28,7 @@ type WeatherJob struct {
   writer        stepWriter.Writer
   config        *config.Config
   stepListeners map[string][]stepListener.StepExecutionListener
-  jobListeners  []jobListener.JobExecutionListener // ★ 修正: jobListener.JobExecutionListener を使用
+  jobListeners  []jobListener.JobExecutionListener // jobListener パッケージの JobExecutionListener を使用
 }
 
 // WeatherJob が core.Job インターフェースを満たすことを確認します。
@@ -49,7 +49,7 @@ func NewWeatherJob(
     writer:        writer,
     config:        cfg,
     stepListeners: make(map[string][]stepListener.StepExecutionListener),
-    jobListeners:  make([]jobListener.JobExecutionListener, 0), // ★ 修正: jobListener.JobExecutionListener を使用
+    jobListeners:  make([]jobListener.JobExecutionListener, 0), // jobListener パッケージの JobExecutionListener を使用
   }
 }
 
@@ -62,7 +62,7 @@ func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepEx
 }
 
 // RegisterJobListener は JobExecutionListener を登録します。
-func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) { // ★ 修正: jobListener.JobExecutionListener を使用
+func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) { // jobListener パッケージの JobExecutionListener を使用
   j.jobListeners = append(j.jobListeners, l)
 }
 
@@ -183,41 +183,27 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
         default:
         }
 
-        readItem, readerErr := j.reader.Read(ctx)
-
-        if readerErr != nil {
-          if errors.Is(readerErr, io.EOF) {
-            logger.Debugf("Reader からデータの終端に達しました。")
-            break
-          }
-          logger.Errorf("Reader でエラーが発生しました (試行 %d): %v", retryAttempt+1, readerErr)
-          stepExecution.AddFailureException(readerErr)
-          return fmt.Errorf("reader error: %w", readerErr)
+        // ★ 第2段階: 単一アイテムの読み込みと処理を新しいメソッドに切り出し
+        processedItemSlice, eofReached, itemErr := j.processSingleItem(ctx, stepExecution)
+        if itemErr != nil {
+          // Reader または Processor でエラーが発生した場合
+          logger.Errorf("アイテム処理でエラーが発生しました (試行 %d/%d): %v", retryAttempt+1, retryConfig.MaxAttempts, itemErr)
+          stepExecution.AddFailureException(itemErr) // ステップ実行にエラーを追加
+          return fmt.Errorf("item processing failed: %w", itemErr) // エラーを返してこのチャンク試行を終了
         }
 
-        if readItem == nil {
-          continue
+        if eofReached {
+          logger.Debugf("Reader からデータの終端に達しました。")
+          break // インナーループを抜ける
         }
 
-        processedItem, processorErr := j.processor.Process(ctx, readItem)
-        if processorErr != nil {
-          logger.Errorf("Processor でエラーが発生しました (試行 %d): %v", retryAttempt+1, processorErr)
-          stepExecution.AddFailureException(processorErr)
-          return fmt.Errorf("processor error: %w", processorErr)
-        }
-
-        processedItemsSlice, ok := processedItem.([]*entity.WeatherDataToStore)
-        if !ok {
-          err := fmt.Errorf("processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", processedItem)
-          logger.Errorf("%v", err)
-          stepExecution.AddFailureException(err)
-          return err
-        }
-
-        processedItemsChunk = append(processedItemsChunk, processedItemsSlice...)
+        // 処理済みアイテムをチャンクに追加
+        processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
         itemCountInChunk = len(processedItemsChunk)
 
+        // チャンクが満たされたら書き込み
         if itemCountInChunk >= chunkSize {
+          // ★ 第3段階: チャンク書き込み処理を新しいメソッドに切り出し (まだ実装はここ)
           chunkCount++
           logger.Infof("チャンクサイズ (%d) に達しました。Writer で書き込みを開始します (チャンク #%d, 試行 %d)。", chunkSize, chunkCount, retryAttempt+1)
 
@@ -236,11 +222,15 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
           // リトライ回数をリセットしない（チャンク処理全体でリトライをカウントするため）
           // retryAttempt = 0
         }
-      }
+      } // インナーループ終了
 
+      // インナーループ終了後の処理
+
+      // 残っているアイテムがあれば最終チャンクとして書き込む
       if itemCountInChunk > 0 {
         chunkCount++
         logger.Infof("Reader 終端到達。残りのアイテム (%d 件) を書き込みます (チャンク #%d, 試行 %d)。", itemCountInChunk, chunkCount, retryAttempt+1)
+        // ★ 第3段階: チャンク書き込み処理を新しいメソッドに切り出し (まだ実装はここ)
         writerErr := j.writer.Write(ctx, processedItemsChunk)
         if writerErr != nil {
           logger.Errorf("Writer でエラーが発生しました (最終チャンク #%d, 試行 %d): %v", chunkCount, retryAttempt+1, writerErr)
@@ -254,8 +244,8 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
         // retryAttempt = 0
       }
 
-      return nil
-    }()
+      return nil // このチャンク試行はエラーなく完了
+    }() // chunkProcessErr := func() error {...}() 終了
 
     if chunkProcessErr == nil {
       logger.Infof("チャンク処理ステップが正常に完了しました。")
@@ -264,8 +254,8 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
       stepExecution.ExecutionContext.Put("chunkCount", chunkCount)
 
       // ItemCount の設定 (簡易的に計算)
-      stepExecution.ReadCount = chunkCount * chunkSize
-      stepExecution.WriteCount = chunkCount * chunkSize
+      stepExecution.ReadCount = chunkCount * chunkSize // あくまで概算
+      stepExecution.WriteCount = chunkCount * chunkSize // あくまで概算
       stepExecution.CommitCount = chunkCount
 
       break // チャンク処理全体が成功したらリトライループを抜ける
@@ -274,19 +264,20 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
          return chunkProcessErr // Context エラーは即座に返す
       }
 
+      // チャンク処理試行でエラーが発生した場合のリトライ判定
       if retryAttempt < retryConfig.MaxAttempts-1 {
         logger.Warnf("チャンク処理でエラーが発生しました。リトライします (試行 %d/%d)。エラー: %v", retryAttempt+1, retryConfig.MaxAttempts, chunkProcessErr)
         time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
         // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
       } else {
-        logger.Errorf("チャンク処理が最大リトライ回数 (%d) 失敗しました。ジョブを終了します。エラー: %v", retryConfig.MaxAttempts, chunkProcessErr)
+        logger.Errorf("チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。エラー: %v", retryConfig.MaxAttempts, chunkProcessErr)
         stepExecution.MarkAsFailed(chunkProcessErr) // ステップ実行を失敗としてマーク
         jobExecution.AddFailureException(fmt.Errorf("ステップ '%s' が最大リトライ回数に達し失敗しました", stepExecution.StepName)) // ジョブ実行にエラーを追加
         // JobExecution の状態は defer の Job 側で最終決定される
         return chunkProcessErr // エラーを返してジョブを失敗させる
       }
     }
-  }
+  } // リトライループ終了
 
   // ここに到達するのは、リトライ回数が0の場合か、論理的に到達しない場合
   // 安全のためエラーを返しておく (通常は processChunkLoop 内で return される)
@@ -323,15 +314,62 @@ func (j *WeatherJob) setupStepExecution(ctx context.Context, jobExecution *core.
   return stepExecution, nil
 }
 
-// ★ 今後の段階で追加されるメソッドのプレースホルダ (コメントアウト)
-/*
+// ★ 第2段階で追加されたメソッド
 // processSingleItem は Reader から1アイテム読み込み、Processor で処理します。
 // 処理結果のスライス、EOFに達したかを示すフラグ、エラーを返します。
-func (j *WeatherJob) processSingleItem(ctx context.Context, stepExecution *core.StepExecution, processedItemsChunk *[]*entity.WeatherDataToStore) ([]*entity.WeatherDataToStore, bool, error) {
-  // TODO: Implement item reading and processing logic here
-  return nil, false, fmt.Errorf("processSingleItem not implemented")
+func (j *WeatherJob) processSingleItem(ctx context.Context, stepExecution *core.StepExecution) ([]*entity.WeatherDataToStore, bool, error) {
+  // Context の完了をチェック
+  select {
+  case <-ctx.Done():
+    return nil, false, ctx.Err()
+  default:
+  }
+
+  // Reader から読み込み
+  readItem, readerErr := j.reader.Read(ctx)
+
+  if readerErr != nil {
+    if errors.Is(readerErr, io.EOF) {
+      // EOF の場合はエラーではないが、終端に達したことを示すフラグを返す
+      logger.Debugf("Reader returned EOF.")
+      return nil, true, nil
+    }
+    // その他の Reader エラー
+    logger.Errorf("Reader error: %v", readerErr)
+    return nil, false, fmt.Errorf("reader error: %w", readerErr)
+  }
+
+  if readItem == nil {
+    // nil アイテムはスキップ
+    logger.Debugf("Reader returned nil item, skipping.")
+    return nil, false, nil
+  }
+
+  // Processor で処理
+  processedItem, processorErr := j.processor.Process(ctx, readItem)
+  if processorErr != nil {
+    // Processor エラー
+    logger.Errorf("Processor error: %v", processorErr)
+    return nil, false, fmt.Errorf("processor error: %w", processorErr)
+  }
+
+  // 処理済みアイテムの型アサート
+  processedItemsSlice, ok := processedItem.([]*entity.WeatherDataToStore)
+  if !ok {
+    // 予期しない型の場合
+    err := fmt.Errorf("processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", processedItem)
+    logger.Errorf("%v", err)
+    return nil, false, err
+  }
+
+  // 成功
+  //logger.Debugf("Successfully processed an item.")
+  return processedItemsSlice, false, nil
 }
 
+
+// ★ 今後の段階で追加されるメソッドのプレースホルダ (コメントアウト)
+/*
 // writeChunk は加工済みアイテムのチャンクを Writer で書き込みます。
 func (j *WeatherJob) writeChunk(ctx context.Context, stepExecution *core.StepExecution, chunkNum int, items []*entity.WeatherDataToStore) error {
   // TODO: Implement chunk writing logic here
@@ -344,4 +382,3 @@ func (j *WeatherJob) processChunkLoop(ctx context.Context, jobExecution *core.Jo
   return fmt.Errorf("processChunkLoop not implemented")
 }
 */
-
