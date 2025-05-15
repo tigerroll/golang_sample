@@ -25,7 +25,7 @@ func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
 }
 
 // Write メソッドが Writer インターフェースを満たすように修正
-// このステップでは、ExecutionContext からデータを読み取って書き込みます。
+// このステップでは、ChunkOrientedStep から渡されたアイテムを書き込みます。
 func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   select {
   case <-ctx.Done():
@@ -33,30 +33,11 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   default:
   }
 
-  // ★ ExecutionContext からデータを読み取る ★
-  // Write メソッドの引数 items は、このステップ (SaveDataStep) では DummyProcessor から渡されるダミーデータになるため使用しません。
-  // 代わりに、JobExecution の ExecutionContext から "processed_weather_data" を取得します。
-  // JobExecution は StepExecution を通じてアクセスできますが、Write メソッドは StepExecution を直接受け取らないため、
-  // ChunkOrientedStep の Execute メソッド内で JobExecution を Writer に渡すか、
-  // Writer が ExecutionContext を直接受け取るように設計を変更する必要があります。
-  // ここではシンプル化のため、Write メソッドの引数 items を使用せず、
-  // ChunkOrientedStep の Execute メソッドが Writer を呼び出す際に、
-  // ExecutionContext から取得したデータを Write メソッドに渡す、という設計とします。
-  // ただし、ChunkOrientedStep.writeChunk は items []*entity.WeatherDataToStore を引数に取ります。
-  // したがって、ChunkOrientedStep.Execute 内で ExecutionContext からデータを取得し、
-  // そのデータを ChunkOrientedStep.writeChunk に渡し、さらにそれが WeatherWriter.Write に渡される、という流れになります。
-
   // ChunkOrientedStep.writeChunk から渡された items を使用します。
-  // この items は、前のステップ (FetchAndProcessStep) が ExecutionContext に保存したデータが、
-  // ChunkOrientedStep.Execute 内で ExecutionContext から取得され、writeChunk に渡されたものです。
+  // SaveDataStep の場合、この items は ChunkOrientedStep.Execute が ExecutionContext から取得して渡したデータです。
   dataToStore, ok := items.([]*entity.WeatherDataToStore)
   if !ok {
-    // この Writer が SaveDataStep で使用され、DummyProcessor から渡される items はダミーなので、
-    // ここに到達することは想定していません。もし到達したらエラーとします。
-    // 実際のデータは ExecutionContext から取得されるべきです。
-    // 上記のコメントの通り、ChunkOrientedStep.Execute が ExecutionContext からデータを取得し、
-    // writeChunk を通じてこの Write メソッドに渡す設計とします。
-    // したがって、items は DummyProcessor の出力ではなく、ExecutionContext からのデータです。
+    // 予期しない型の場合
     return fmt.Errorf("Writer: 予期しない入力型です: %T, 期待される型: []*entity.WeatherDataToStore", items)
   }
 

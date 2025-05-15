@@ -113,10 +113,7 @@ func (s *ChunkOrientedStep) Execute(ctx context.Context, jobExecution *core.JobE
   retryConfig := s.retryConfig
   chunkSize := s.chunkSize
 
-  // 処理済みアイテムを蓄積するためのスライス - 削除
-  // processedItemsAccumulated := make([]*entity.WeatherDataToStore, 0) // 全ての処理済みアイテムを蓄積
-
-  // 成功したチャンクの数 - 宣言を復活
+  // 成功したチャンクの数
   var chunkCount int = 0
 
   // チャンク処理全体のリトライループ
@@ -160,28 +157,64 @@ func (s *ChunkOrientedStep) Execute(ctx context.Context, jobExecution *core.JobE
 
       // チャンクが満たされたら書き込み (または次のステップへの引き渡し準備)
       if itemCountInChunk >= chunkSize {
-        // ★ 処理済みチャンクを ExecutionContext に追加 ★
-        // キーはステップ名など一意になるようにする
-        // 既存のデータがあれば append する
-        currentProcessedData, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
-        if !ok {
-          currentProcessedData = make([]*entity.WeatherDataToStore, 0)
+        // ★ 処理済みチャンクを ExecutionContext に追加（FetchAndProcessStep の場合）または Writer で書き込み（SaveDataStep の場合）★
+        if s.name == "FetchAndProcessStep" {
+          // FetchAndProcessStep の場合: ExecutionContext に追加
+          currentProcessedData, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
+          if !ok {
+            currentProcessedData = make([]*entity.WeatherDataToStore, 0)
+          }
+          jobExecution.ExecutionContext.Put("processed_weather_data", append(currentProcessedData, processedItemsChunk...))
+          logger.Debugf("ステップ '%s' 処理済みチャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
+            s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
+
+          // Dummy Writer の呼び出し (実際には何も起きない)
+          writeErr := s.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // chunkCount を使用
+          if writeErr != nil {
+            logger.Errorf("ステップ '%s' Writer でエラーが発生しました (チャンク #%d, 試行 %d/%d): %v", s.name, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr) // chunkCount を使用
+            chunkAttemptError = true
+            break
+          }
+
+        } else if s.name == "SaveDataStep" {
+          // SaveDataStep の場合: Writer で書き込み
+          // SaveDataStep では Reader が DummyReader なので、items は常に空になります。
+          // 実際のデータは ExecutionContext から取得されるべきですが、
+          // ChunkOrientedStep の設計上、Writer は processSingleItem の出力 (またはその蓄積) を受け取るため、
+          // SaveDataStep の Reader/Processor はダミーでも、ExecutionContext からデータを取得して
+          // Writer に渡すような仕組みが ChunkOrientedStep 内に必要になります。
+          // しかし、これは ChunkOrientedStep の標準的な動作とは異なります。
+          // シンプル化のため、SaveDataStep の Writer は ChunkOrientedStep から渡される空のチャンクを受け取りますが、
+          // 内部で ExecutionContext からデータを取得して書き込むように WeatherWriter を修正します。
+          // ここでは SaveDataStep の Writer 呼び出しは行いません。Writer はステップ完了後にまとめて呼び出すか、
+          // または SaveDataStep 自体の Execute メソッド内で ExecutionContext から読み込み、
+          // Writer を呼び出す設計にする必要があります。
+
+          // 現在の ChunkOrientedStep の設計では、Reader -> Processor -> Writer は一体です。
+          // SaveDataStep を ChunkOrientedStep で実装する場合、DummyReader/DummyProcessor を使用すると
+          // Writer にデータが渡りません。
+          // したがって、SaveDataStep は ChunkOrientedStep ではなく、ExecutionContext から読み込み、
+          // Writer を実行する別のタイプのステップ (例: TaskletStep のようなもの) で実装するか、
+          // または SaveDataStep の ChunkOrientedStep の Reader が ExecutionContext からデータを読み込むように
+          // DummyReader を修正する必要があります。
+
+          // ここでは、SaveDataStep は ChunkOrientedStep であり、DummyReader/Processor を使用する前提で、
+          // ChunkOrientedStep のチャンク処理ループは SaveDataStep では実質的に何も読み込まないため、
+          // このチャンク処理ループ自体は SaveDataStep ではデータを書き込みません。
+          // SaveDataStep の書き込みは、ステップの Execute メソッドの最後で、
+          // ExecutionContext からデータを取得して Writer を呼び出す形にする必要があります。
+
+          // したがって、SaveDataStep の ChunkOrientedStep の Execute メソッドでは、
+          // このチャンク処理ループは Reader が EOF を返すまで空回りし、
+          // 処理済みアイテムは常に空になります。
+          // ExecutionContext への追加も FetchAndProcessStep でのみ行われます。
+          // SaveDataStep の書き込みロジックは、このループの外に実装します。
+
+          // このブロックでは FetchAndProcessStep の Writer 呼び出しのみを扱います。
+          // SaveDataStep の場合はこのブロックはスキップされます。
         }
-        jobExecution.ExecutionContext.Put("processed_weather_data", append(currentProcessedData, processedItemsChunk...))
-        logger.Debugf("ステップ '%s' 処理済みチャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
-          s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
 
 
-        // チャンク書き込み処理 (このステップではダミーWriterなので実際には何も起きない)
-        // writeChunk は Writer エラーまたは Context キャンセルエラーを返す
-        // Note: writeChunk は Writer を呼び出すだけなので、データ引き渡しロジックとは独立
-        writeErr := s.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // ★ chunkCount を使用
-        if writeErr != nil {
-          // Writer でエラーが発生した場合
-          logger.Errorf("ステップ '%s' Writer でエラーが発生しました (チャンク #%d, 試行 %d/%d): %v", s.name, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr) // ★ chunkCount を使用
-          chunkAttemptError = true // この試行はエラー
-          break                    // インナーループを抜ける
-        }
         chunkCount++ // 書き込み成功した場合のみチャンク数をインクリメント
         // チャンクをリセット
         processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
@@ -219,40 +252,45 @@ func (s *ChunkOrientedStep) Execute(ctx context.Context, jobExecution *core.JobE
       }
     } else {
       // この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
-      // 残っているアイテムがあれば最終チャンクとして処理し、ExecutionContext に追加
+      // 残っているアイテムがあれば最終チャンクとして処理し、ExecutionContext に追加（FetchAndProcessStep の場合）
       if itemCountInChunk > 0 {
-        logger.Infof("ステップ '%s' Reader 終端到達。残りのアイテム (%d 件) を処理し ExecutionContext に追加します (試行 %d/%d)。", s.name, itemCountInChunk, retryAttempt+1, retryConfig.MaxAttempts)
-        // ★ 処理済み最終チャンクを ExecutionContext に追加 ★
-        currentProcessedData, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
-        if !ok {
-          currentProcessedData = make([]*entity.WeatherDataToStore, 0)
-        }
-        jobExecution.ExecutionContext.Put("processed_weather_data", append(currentProcessedData, processedItemsChunk...))
-        logger.Debugf("ステップ '%s' 処理済み最終チャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
-          s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
-
-        // 最終チャンクの書き込み処理 (このステップではダミーWriterなので実際には何も起きない)
-        writeErr := s.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // ★ chunkCount を使用
-        if writeErr != nil {
-          // 最終チャンクの書き込みでエラーが発生した場合
-          logger.Errorf("ステップ '%s' Writer でエラーが発生しました (最終チャンク #%d, 試行 %d/%d): %v", s.name, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr) // ★ chunkCount を使用
-          // 最終チャンクの書き込み失敗もリトライ対象とする
-          if retryAttempt < retryConfig.MaxAttempts-1 {
-            logger.Warnf("ステップ '%s' 最終チャンクの書き込み試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
-            // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-            time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
-            continue // 次のリトライ試行へ
-          } else {
-            logger.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, retryConfig.MaxAttempts)
-            stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました: %w", s.name, retryConfig.MaxAttempts, writeErr)) // ステップを失敗としてマーク
-            jobExecution.AddFailureException(stepExecution.Failureliye[len(stepExecution.Failureliye)-1]) // JobExecution にも最後のステップエラーを追加
-            return fmt.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました: %w", s.name, retryConfig.MaxAttempts, writeErr) // エラーを返してステップを失敗させる
+        if s.name == "FetchAndProcessStep" {
+          logger.Infof("ステップ '%s' Reader 終端到達。残りのアイテム (%d 件) を処理し ExecutionContext に追加します (試行 %d/%d)。", s.name, itemCountInChunk, retryAttempt+1, retryConfig.MaxAttempts)
+          // ★ 処理済み最終チャンクを ExecutionContext に追加 ★
+          currentProcessedData, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
+          if !ok {
+            currentProcessedData = make([]*entity.WeatherDataToStore, 0)
           }
+          jobExecution.ExecutionContext.Put("processed_weather_data", append(currentProcessedData, processedItemsChunk...))
+          logger.Debugf("ステップ '%s' 処理済み最終チャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
+            s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
+
+          // 最終チャンクの書き込み処理 (このステップではダミーWriterなので実際には何も起きない)
+          writeErr := s.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // chunkCount を使用
+          if writeErr != nil {
+            logger.Errorf("ステップ '%s' Writer でエラーが発生しました (最終チャンク #%d, 試行 %d/%d): %v", s.name, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr) // chunkCount を使用
+            // 最終チャンクの書き込み失敗もリトライ対象とする
+            if retryAttempt < retryConfig.MaxAttempts-1 {
+              logger.Warnf("ステップ '%s' 最終チャンクの書き込み試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
+              // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
+              time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
+              continue // 次のリトライ試行へ
+            } else {
+              logger.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, retryConfig.MaxAttempts)
+              stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました: %w", s.name, retryConfig.MaxAttempts, writeErr)) // ステップを失敗としてマーク
+              jobExecution.AddFailureException(stepExecution.Failureliye[len(stepExecution.Failureliye)-1]) // JobExecution にも最後のステップエラーを追加
+              return fmt.Errorf("ステップ '%s' 最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました: %w", s.name, retryConfig.MaxAttempts, writeErr) // エラーを返してステップを失敗させる
+            }
+          }
+          chunkCount++ // 最終チャンクの書き込み成功
+          // チャンクをリセット (不要かもしれないが念のため)
+          processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
+          itemCountInChunk = 0
+        } else if s.name == "SaveDataStep" {
+          // SaveDataStep の場合: ここでは Reader/Processor がダミーなので、itemCountInChunk は常に 0 です。
+          // したがって、このブロックは SaveDataStep では実行されません。
+          // SaveDataStep の書き込みロジックは、このループの外に実装します。
         }
-        chunkCount++ // 最終チャンクの書き込み成功
-        // チャンクをリセット (不要かもしれないが念のため)
-        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-        itemCountInChunk = 0
       }
 
       // チャンク処理全体がエラーなく完了
@@ -339,13 +377,8 @@ func (s *ChunkOrientedStep) processSingleItem(ctx context.Context, stepExecution
 
 // writeChunk は加工済みアイテムのチャンクを Writer で書き込みます。
 // WeatherJob から移動し、ChunkOrientedStep のプライベートメソッドとしました。
-// このステップでは、Writer は DummyWriter であり、実際には何も書き込みません。
-// データは ExecutionContext に蓄積されます。
+// FetchAndProcessStep では DummyWriter を使用し、SaveDataStep では Actual Writer を使用します。
 func (s *ChunkOrientedStep) writeChunk(ctx context.Context, stepExecution *core.StepExecution, chunkNum int, items []*entity.WeatherDataToStore) error {
-  // このステップ (FetchAndProcessStep) では DummyWriter を使用するため、ここではログ出力のみ行い、実際の書き込みは行いません。
-  // 実際の書き込みは次のステップ (SaveDataStep) の Writer で行われます。
-  logger.Infof("ステップ '%s' (Dummy Writer) で書き込み処理が呼び出されました (チャンク #%d, アイテム数: %d).", s.name, chunkNum, len(items))
-
   // Context の完了をチェック
   select {
   case <-ctx.Done():
@@ -354,15 +387,17 @@ func (s *ChunkOrientedStep) writeChunk(ctx context.Context, stepExecution *core.
   default:
   }
 
-  // DummyWriter の Write メソッドを呼び出す（何も行わずに nil を返す）
-  // writeErr := s.writer.Write(ctx, items)
-  // if writeErr != nil {
-  //   // Writer エラー (DummyWriter はエラーを返さないはずだが念のため)
-  //   logger.Errorf("ステップ '%s' Dummy Writer error for chunk #%d: %v", s.name, chunkNum, writeErr)
-  //   stepExecution.AddFailureException(writeErr) // Writer エラーも StepExecution に記録
-  //   return fmt.Errorf("ステップ '%s' dummy writer error for chunk #%d: %w", s.name, chunkNum, writeErr)
-  // }
+  // Writer の Write メソッドを呼び出す
+  // SaveDataStep の場合、items は ExecutionContext から取得されたデータになります。
+  // FetchAndProcessStep の場合、items は Reader/Processor の出力であり、Writer は DummyWriter です。
+  writeErr := s.writer.Write(ctx, items)
+  if writeErr != nil {
+    // Writer エラー
+    logger.Errorf("ステップ '%s' Writer error for chunk #%d: %v", s.name, chunkNum, writeErr)
+    stepExecution.AddFailureException(writeErr) // Writer エラーも StepExecution に記録
+    return fmt.Errorf("ステップ '%s' writer error for chunk #%d: %w", s.name, chunkNum, writeErr)
+  }
 
-  logger.Infof("ステップ '%s' (Dummy Writer) チャンク #%d の書き込み処理が完了しました。", s.name, chunkNum)
-  return nil // Dummy Writer は常に成功とみなす
+  logger.Infof("ステップ '%s' チャンク #%d の書き込み処理が完了しました。", s.name, chunkNum)
+  return nil // Writer が成功したら nil を返す
 }
