@@ -147,7 +147,7 @@ if [ "$state" = "InBody" ]; then
           # InBody状態のはずなのにパスが空なのは異常
           echo "Error: Input ended in InBody state without a valid current_output_file set." >&2
           exit 1
-     }
+     fi
      echo "Writing final content to '$current_output_file' ..."
      # 出力先のディレクトリを作成
      output_dir="$(dirname "$current_output_file")"

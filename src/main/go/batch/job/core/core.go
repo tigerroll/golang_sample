@@ -2,6 +2,7 @@ package core
 
 import (
   "context"
+  "fmt"
   "time"
   "github.com/google/uuid" // ID生成のためにuuidパッケージをインポート
 )
@@ -13,8 +14,8 @@ type Job interface {
   // SimpleJobLauncherでジョブ名を取得するために追加
   JobName() string
   // TODO: ジョブが持つステップやフロー定義を取得するメソッドを追加する必要がある
-  // GetSteps() []Step // 例: シンプルにステップのリストを返す場合
-  // GetFlow() FlowDefinition // 例: フロー定義構造を返す場合
+  // GetSteps() []Step // 例: シンプルにステップのリストを返す場合 (現状のWeatherJobはこちらに近い)
+  GetFlow() *FlowDefinition // 例: フロー定義構造を返す場合 (フェーズ2以降で導入)
 }
 
 // Step はジョブ内で実行される単一のステップのインターフェースです。
@@ -104,12 +105,48 @@ type JobParameters struct {
   // 例: EndDate string
   // 必要に応じてマップなどに変更可能
   // TODO: JSR352 に近づけるなら map[string]interface{} に変更し、型安全な取得メソッドを追加
+  Params map[string]interface{} // JSR352に近づけるためマップ形式に
 }
 
 // NewJobParameters は新しい JobParameters のインスタンスを作成します。
 func NewJobParameters() JobParameters {
-  return JobParameters{}
+  return JobParameters{
+    Params: make(map[string]interface{}),
+  }
 }
+
+// Put は指定されたキーと値で JobParameters に値を設定します。
+func (jp JobParameters) Put(key string, value interface{}) {
+  jp.Params[key] = value
+}
+
+// Get は指定されたキーの値を取得します。値が存在しない場合は nil を返します。
+func (jp JobParameters) Get(key string) interface{} {
+  return jp.Params[key]
+}
+
+// GetString は指定されたキーの値を文字列として取得します。
+// 存在しない場合や型が異なる場合は空文字列と false を返します。
+func (jp JobParameters) GetString(key string) (string, bool) {
+  val, ok := jp.Params[key]
+  if !ok {
+    return "", false
+  }
+  str, ok := val.(string)
+  return str, ok
+}
+
+// GetInt は指定されたキーの値をintとして取得します。
+// 存在しない場合や型が異なる場合は0と false を返します。
+func (jp JobParameters) GetInt(key string) (int, bool) {
+  val, ok := jp.Params[key]
+  if !ok {
+    return 0, false
+  }
+  i, ok := val.(int)
+  return i, ok
+}
+
 
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
 // JobExecution は BatchStatus と ExitStatus を持ちます。
@@ -128,6 +165,9 @@ type JobExecution struct {
   LastUpdated    time.Time
   StepExecutions []*StepExecution // このジョブ実行に関連するステップ実行
   ExecutionContext ExecutionContext // ジョブレベルのコンテキスト
+  CurrentStepName string // 現在実行中のステップ名 (リスタート時に使用)
+  // TODO: JobInstance への参照を追加 (JSR352の概念)
+  // JobInstanceID string // JobInstanceを識別するID
 }
 
 // NewJobExecution は新しい JobExecution のインスタンスを作成します。
@@ -145,6 +185,7 @@ func NewJobExecution(jobName string, params JobParameters) *JobExecution {
     Failureliye:    make([]error, 0),
     StepExecutions: make([]*StepExecution, 0),
     ExecutionContext: NewExecutionContext(), // ここで初期化
+    CurrentStepName: "", // 初期状態では空
   }
 }
 
@@ -165,7 +206,7 @@ func (je *JobExecution) MarkAsCompleted() {
 // MarkAsFailed は JobExecution の状態を失敗に更新し、エラー情報を追加します。
 func (je *JobExecution) MarkAsFailed(err error) {
   je.Status = JobStatusFailed
-  je.ExitStatus = ExitStatusFailed
+  je.ExitStatus = ExitStatusFailed // 失敗時は ExitStatusFailed に設定することが多い
   je.EndTime = time.Now()
   je.LastUpdated = time.Now()
   if err != nil {
@@ -197,6 +238,7 @@ type StepExecution struct {
   CommitCount    int
   RollbackCount  int
   ExecutionContext ExecutionContext // ステップレベルのコンテキスト
+  // TODO: CheckpointData を追加 (リスタート時に使用)
 }
 
 // NewStepExecution は新しい StepExecution のインスタンスを作成します。
@@ -223,6 +265,7 @@ func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecutio
 // MarkAsStarted は StepExecution の状態を実行中に更新します。
 func (se *StepExecution) MarkAsStarted() {
   se.Status = JobStatusStarted
+  //se.StartTime = time.Now() // StartTime は NewStepExecution で設定済み
 }
 
 // MarkAsCompleted は StepExecution の状態を完了に更新します。
@@ -235,7 +278,7 @@ func (se *StepExecution) MarkAsCompleted() {
 // MarkAsFailed は StepExecution の状態を失敗に更新し、エラー情報を追加します。
 func (se *StepExecution) MarkAsFailed(err error) {
   se.Status = JobStatusFailed
-  se.ExitStatus = ExitStatusFailed
+  se.ExitStatus = ExitStatusFailed // 失敗時は ExitStatusFailed に設定することが多い
   se.EndTime = time.Now()
   if err != nil {
     se.Failureliye = append(se.Failureliye, err)
@@ -266,3 +309,153 @@ func (se *StepExecution) AddFailureException(err error) {
 // Step.Execute メソッド内で直接 StepExecution の状態を更新し、Job.Run が永続化を管理します。
 
 // したがって、core.go の修正は Step インターフェースの追加のみとなります。
+
+// --- フェーズ2: 条件付き遷移のための構造体定義 ---
+
+// Transition はステップまたは Decision から次の要素への遷移ルールを定義します。
+// JSR352 の <next> 要素や <end>, <fail>, <stop> 要素に相当します。
+type Transition struct {
+  // From は遷移元のステップ名または Decision 名です。
+  // このフィールドはフロー定義内で使用されるため、Transition 自体には不要かもしれません。
+  // StartElement やステップ/Decision定義内で遷移先を指定する形式の方が一般的です。
+  // 例: <step id="stepA" next="stepB"> または <step id="stepA"> <end on="COMPLETED"/> <next on="FAILED" to="stepC"/> </step>
+  // ここではシンプルに、ある要素の終了ステータスに基づいて次の要素を指定する形式とします。
+
+  // On はこの遷移が有効になる遷移元要素の ExitStatus です。
+  // ワイルドカード (*) もサポートすることを想定します。
+  On string
+
+  // To は遷移先のステップ名または Decision 名です。
+  // End, Fail, Stop のいずれかが true の場合は無視されます。
+  To string
+
+  // End はこの遷移でジョブを完了させるかどうかを示します。
+  End bool
+  // EndStatus はジョブを完了させる場合の ExitStatus です (例: COMPLETED, COMPLETED_WITH_WARNINGS)。
+  // End が true の場合に有効です。
+  EndStatus ExitStatus // JSR352ではExitStatusを文字列で指定することが多い
+
+  // Fail はこの遷移でジョブを失敗させるかどうかを示します。
+  Fail bool
+  // FailStatus はジョブを失敗させる場合の ExitStatus です (例: FAILED)。
+  // Fail が true の場合に有効です。
+  FailStatus ExitStatus // JSR352ではExitStatusを文字列で指定することが多い
+
+  // Stop はこの遷移でジョブを停止させるかどうかを示します。
+  // Stop が true の場合に有効です。
+  Stop bool
+  // Restartable は Stop が true の場合に、停止したジョブがリスタート可能かどうかを示します。
+  // JSR352のstop要素のrestartable属性に相当します。
+  Restartable bool
+}
+
+// FlowDefinition はジョブの実行フロー全体を定義します。
+// ステップ、Decision、およびそれらの間の遷移ルールを含みます。
+type FlowDefinition struct {
+  // StartElement はフローの開始点となるステップまたは Decision の名前です。
+  StartElement string
+
+  // Elements はこのフローに含まれる全ての要素（ステップ、Decisionなど）を名前でマッピングしたものです。
+  // 実行時に名前解決するために使用します。
+  // map[string]interface{} とすることで、Step や Decision など異なる型の要素を保持できます。
+  // ただし、型安全性のために map[string]FlowElement のようなインターフェースを定義することも検討できます。
+  // ここではシンプルに interface{} とします。
+  Elements map[string]interface{} // map[要素名]要素オブジェクト (Step, Decisionなど)
+
+  // Transitions はフロー内の全ての遷移ルールのリストです。
+  // 各遷移ルールは、遷移元要素の名前と、その要素の ExitStatus に基づく遷移先を指定します。
+  // マップ形式にすることで、遷移元要素ごとにルールを管理しやすくなります。
+  // map[string][]TransitionRule のような構造も考えられますが、
+  // ここではシンプルに、遷移元要素名と ExitStatus をキーとするマップとします。
+  // map[string]map[string]Transition // map[遷移元要素名][ExitStatus]遷移ルール
+  // あるいは、遷移元要素の構造体自身が次の遷移ルールを持つ形式も考えられます。
+  // 例: Step 構造体に NextTransitions map[ExitStatus]Transition を持たせる
+  // JSR352のJob XMLの構造に近づけるため、ここではフロー定義全体で遷移ルールを管理する形式とします。
+  // TransitionRule 構造体を別途定義し、From, On, To/End/Fail/Stop を持つ形式がより分かりやすいかもしれません。
+
+  // TransitionRule は特定の遷移元要素からの遷移ルールを定義します。
+  // FlowDefinition の Transitions フィールドで使用することを想定します。
+  // JSR352の <step> や <decision> 要素内の <next>, <end>, <fail>, <stop> に相当します。
+  TransitionRules []TransitionRule // 遷移ルールリスト
+
+  // TODO: Split 要素（並列実行）の定義を追加 (フェーズ4以降)
+}
+
+// TransitionRule は特定の遷移元要素からの単一の遷移ルールを定義します。
+type TransitionRule struct {
+  // From はこのルールの遷移元となるステップ名または Decision 名です。
+  From string
+
+  // Transition はこのルールの詳細な遷移定義です (On, To, End, Fail, Stop など)。
+  Transition Transition
+}
+
+
+// NewFlowDefinition は新しい FlowDefinition のインスタンスを作成します。
+func NewFlowDefinition(startElement string) *FlowDefinition {
+  return &FlowDefinition{
+    StartElement:    startElement,
+    Elements:        make(map[string]interface{}),
+    TransitionRules: make([]TransitionRule, 0),
+  }
+}
+
+// AddElement はフローにステップまたは Decision を追加します。
+func (fd *FlowDefinition) AddElement(name string, element interface{}) error {
+  // TODO: element が Step または Decision インターフェースを満たすかチェックする
+  // 現状は interface{} なので任意の型を追加可能だが、フロー実行エンジンで処理できる型に限定する必要がある
+  if _, exists := fd.Elements[name]; exists {
+    return fmt.Errorf("フロー要素名 '%s' は既に存在します", name)
+  }
+  fd.Elements[name] = element
+  return nil
+}
+
+// AddTransitionRule はフローに遷移ルールを追加します。
+func (fd *FlowDefinition) AddTransitionRule(from string, on string, to string, end bool, endStatus ExitStatus, fail bool, failStatus ExitStatus, stop bool, restartable bool) {
+  rule := TransitionRule{
+    From: from,
+    Transition: Transition{
+      On:          on,
+      To:          to,
+      End:         end,
+      EndStatus:   endStatus,
+      Fail:        fail,
+      FailStatus:  failStatus,
+      Stop:        stop,
+      Restartable: restartable,
+    },
+  }
+  fd.TransitionRules = append(fd.TransitionRules, rule)
+}
+
+// FindTransition は指定された遷移元要素名と ExitStatus に一致する遷移ルールを検索します。
+// 複数のルールが一致する場合（例: ワイルドカードと具体的なステータス）、より具体的なルールを優先するなどの
+// 解決ロジックが必要になりますが、ここではシンプルに最初に見つかった一致ルールを返します。
+// 一致するルールが見つからない場合は nil を返します。
+func (fd *FlowDefinition) FindTransition(from string, exitStatus ExitStatus) *Transition {
+  // TODO: ワイルドカード (*) の考慮や、より具体的なルールを優先するロジックを追加
+  // JSR352では、on="COMPLETED" > on="FAILED" > on="*" の順で評価されるのが一般的です。
+  // この検索ロジックはフロー実行エンジン内で実装される可能性が高いですが、
+  // ここでは定義構造の一部として FindTransition メソッドのシグネチャのみ示します。
+
+  // シンプルな実装例 (厳密なJSR352のルールではない):
+  for _, rule := range fd.TransitionRules {
+    if rule.From == from {
+      if rule.Transition.On == string(exitStatus) || rule.Transition.On == "*" {
+        // ここでさらに具体的なルールを優先するロジックが必要
+        // 例: if rule.Transition.On == string(exitStatus) { return &rule.Transition }
+        //     if rule.Transition.On == "*" { wildcardMatch = &rule.Transition }
+        // ループ後に wildcardMatch を返す
+        return &rule.Transition // 一旦、最初に見つかった一致を返す
+      }
+    }
+  }
+  return nil // 一致する遷移が見つからない
+}
+
+// GetElement は指定された名前のフロー要素を取得します。
+func (fd *FlowDefinition) GetElement(name string) (interface{}, bool) {
+  element, ok := fd.Elements[name]
+  return element, ok
+}

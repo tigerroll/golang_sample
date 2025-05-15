@@ -4,23 +4,24 @@ import (
   "context"
   "fmt"
 
-  config        "sample/src/main/go/batch/config" // config パッケージをインポート
-  job           "sample/src/main/go/batch/job"
-  core          "sample/src/main/go/batch/job/core"
-  jobListener   "sample/src/main/go/batch/job/listener"
-  repository    "sample/src/main/go/batch/repository"
-  stepListener  "sample/src/main/go/batch/step/listener"
+  config "sample/src/main/go/batch/config" // config パッケージをインポート
+  job "sample/src/main/go/batch/job"
+  core "sample/src/main/go/batch/job/core"
+  jobListener "sample/src/main/go/batch/job/listener"
+  repository "sample/src/main/go/batch/repository"
+  stepListener "sample/src/main/go/batch/step/listener"
   // step パッケージのインターフェースをインポート
-  step          "sample/src/main/go/batch/step" // step パッケージをインポート
+  step "sample/src/main/go/batch/step" // step パッケージをインポート
   stepProcessor "sample/src/main/go/batch/step/processor"
-  stepReader    "sample/src/main/go/batch/step/reader"
-  stepWriter    "sample/src/main/go/batch/step/writer"
-  logger        "sample/src/main/go/batch/util/logger"
+  stepReader "sample/src/main/go/batch/step/reader"
+  stepWriter "sample/src/main/go/batch/step/writer"
+  logger "sample/src/main/go/batch/util/logger"
 )
 
 // CreateWeatherJob は WeatherJob オブジェクトとその依存関係を作成し、リスナーを登録します。
 // これは JobFactory.CreateJob メソッドから呼び出されます。
 // JobRepository を引数に追加
+// ★ FlowDefinition を作成し、WeatherJob に渡すように変更
 func CreateWeatherJob(ctx context.Context, cfg *config.Config, jobRepository repository.JobRepository) (core.Job, error) {
   logger.Debugf("Creating WeatherJob components and dependencies in weather_factory")
 
@@ -29,7 +30,7 @@ func CreateWeatherJob(ctx context.Context, cfg *config.Config, jobRepository rep
   // 現在の Repository は config.Config 全体を受け取っていたが、DatabaseConfig に絞るべき
   // NewWeatherRepository は context と DatabaseConfig を受け取るように修正が必要（repository/factory.go の NewWeatherRepository も修正）
   // repo, err := repository.NewWeatherRepository(ctx, *cfg) // cfg 全体を渡している箇所
-  // ここでは repository/factory.go の NewWeatherRepository が config.Config 全体を受け取るままと仮定し、
+  // ここでは repository.NewWeatherRepository が config.Config 全体を受け取るままと仮定し、
   // Repository 自体のコンストラクタが DatabaseConfig を受け取るように修正されている前提とする。
   // 理想的には、repository.NewWeatherRepository(ctx context.Context, dbConfig *config.DatabaseConfig) のようなシグネチャが望ましい。
   // 現在のコードでは repository.NewWeatherRepository が config.Config 全体を受け取るので、それに合わせるが、依存は増える
@@ -81,13 +82,21 @@ func CreateWeatherJob(ctx context.Context, cfg *config.Config, jobRepository rep
   weatherProcessingStep.RegisterListener(retryListener)
   weatherProcessingStep.RegisterListener(loggingStepListener)
 
+  // --- フロー定義の生成 (フェーズ2 ステップ1 の成果物を使用) ---
+  // ★ ここでシンプルに WeatherProcessingStep を実行するフローを定義します。
+  flow := core.NewFlowDefinition("WeatherProcessingStep") // 開始要素は WeatherProcessingStep
+  flow.AddElement("WeatherProcessingStep", weatherProcessingStep) // フローにステップを追加
+  // TODO: フェーズ2 ステップ2 で条件付き遷移ルールを追加
+
   // --- ジョブの生成 ---
   // WeatherJob オブジェクトを生成時に JobRepository とステップリストを渡す
   // NewWeatherJob は JobRepository と []core.Step を受け取るように修正済み
+  // ★ NewWeatherJob に FlowDefinition を渡すように変更
+  // ★ NewWeatherJob の引数の順序と型を修正
   weatherJob := job.NewWeatherJob(
     jobRepository, // JobRepository を渡す
-    []core.Step{weatherProcessingStep}, // ステップリストを渡す
-    cfg, // Job 自身は Config 全体が必要なためそのまま渡す
+    cfg,           // config を渡す
+    flow,          // FlowDefinition を渡す
   )
 
   // JobExecutionListener をここで生成し、ジョブに登録
