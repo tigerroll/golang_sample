@@ -86,7 +86,20 @@ func CreateWeatherJob(ctx context.Context, cfg *config.Config, jobRepository rep
   // ★ ここでシンプルに WeatherProcessingStep を実行するフローを定義します。
   flow := core.NewFlowDefinition("WeatherProcessingStep") // 開始要素は WeatherProcessingStep
   flow.AddElement("WeatherProcessingStep", weatherProcessingStep) // フローにステップを追加
+
   // TODO: フェーズ2 ステップ2 で条件付き遷移ルールを追加
+  // ★ WeatherProcessingStep が COMPLETED で終了した場合にジョブを COMPLETED で終了させる遷移ルールを追加
+  flow.AddTransitionRule(
+    "WeatherProcessingStep", // from: 遷移元要素名
+    string(core.ExitStatusCompleted), // on: 遷移元要素の ExitStatus
+    "", // to: 次の要素名 (終了遷移なので空文字列)
+    true, // end: ジョブを終了させる
+    core.ExitStatusCompleted, // endStatus: 終了時のジョブ ExitStatus
+    false, // fail: ジョブを失敗させない
+    "", // failStatus: (使用しない)
+    false, // stop: ジョブを停止させない
+    false, // restartable: (使用しない)
+  )
 
   // --- ジョブの生成 ---
   // WeatherJob オブジェクトを生成時に JobRepository とステップリストを渡す
