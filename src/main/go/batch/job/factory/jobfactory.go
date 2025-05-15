@@ -6,18 +6,22 @@ import (
 
   config  "sample/src/main/go/batch/config"
   core    "sample/src/main/go/batch/job/core"
+  repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
   //logger  "sample/src/main/go/batch/util/logger"
 )
 
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
   config *config.Config
+  jobRepository repository.JobRepository // JobRepository を依存として追加
 }
 
 // NewJobFactory は JobFactory の新しいインスタンスを作成します。
-func NewJobFactory(cfg *config.Config) *JobFactory {
+// JobRepository を引数に追加
+func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactory {
   return &JobFactory{
     config: cfg,
+    jobRepository: repo, // JobRepository を初期化
   }
 }
 
@@ -27,8 +31,8 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) {
   switch jobName {
   case "weather":
     // CreateWeatherJob 関数を呼び出す (同じ factory パッケージ内)
-    // CreateWeatherJob も core.Job を返すように修正される前提
-    return CreateWeatherJob(context.Background(), f.config)
+    // JobRepository を渡すように変更
+    return CreateWeatherJob(context.Background(), f.config, f.jobRepository)
 
   // 他の Job の case を追加
   default:

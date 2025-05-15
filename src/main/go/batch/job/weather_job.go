@@ -2,64 +2,52 @@ package job
 
 import (
   "context"
-  "errors"
   "fmt"
-  "io"
-  "time"
 
   config "sample/src/main/go/batch/config"
   core "sample/src/main/go/batch/job/core" // core パッケージをインポート
   jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
-  repository "sample/src/main/go/batch/repository"
-  stepListener "sample/src/main/go/batch/step/listener"
-  stepProcessor "sample/src/main/go/batch/step/processor"
-  stepReader "sample/src/main/go/batch/step/reader"
-  stepWriter "sample/src/main/go/batch/step/writer"
+  repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
   logger "sample/src/main/go/batch/util/logger"
-  entity "sample/src/main/go/batch/domain/entity" // entity パッケージをインポート
 )
 
 // WeatherJob は天気予報データを取得・処理・保存するバッチジョブです。
 // core.Job インターフェースを実装します。
 type WeatherJob struct {
-  repo          repository.WeatherRepository
-  reader        stepReader.Reader
-  processor     stepProcessor.Processor
-  writer        stepWriter.Writer
+  jobRepository repository.JobRepository // JobRepository を追加
+  steps         []core.Step            // 実行するステップのリスト
   config        *config.Config
-  stepListeners map[string][]stepListener.StepExecutionListener
-  jobListeners  []jobListener.JobExecutionListener // jobListener パッケージの JobExecutionListener を使用
+  // stepListeners map[string][]stepListener.StepExecutionListener // ステップに紐づくリスナーはステップ自身が持つように変更
+  jobListeners []jobListener.JobExecutionListener // jobListener パッケージの JobExecutionListener を使用
 }
 
 // WeatherJob が core.Job インターフェースを満たすことを確認します。
 var _ core.Job = (*WeatherJob)(nil)
 
 // NewWeatherJob は新しい WeatherJob のインスタンスを作成します。
+// JobRepository とステップリスト、config を受け取るように変更
 func NewWeatherJob(
-  repo repository.WeatherRepository,
-  reader stepReader.Reader,
-  processor stepProcessor.Processor,
-  writer stepWriter.Writer,
+  jobRepository repository.JobRepository, // JobRepository を追加
+  steps []core.Step, // ステップリストを追加
   cfg *config.Config,
 ) *WeatherJob {
   return &WeatherJob{
-    repo:          repo,
-    reader:        reader,
-    processor:     processor,
-    writer:        writer,
+    jobRepository: jobRepository, // JobRepository を初期化
+    steps:         steps,         // ステップリストを初期化
     config:        cfg,
-    stepListeners: make(map[string][]stepListener.StepExecutionListener),
-    jobListeners:  make([]jobListener.JobExecutionListener, 0), // jobListener パッケージの JobExecutionListener を使用
+    // stepListeners: make(map[string][]stepListener.StepExecutionListener), // 削除または変更
+    jobListeners: make([]jobListener.JobExecutionListener, 0), // jobListener パッケージの JobExecutionListener を使用
   }
 }
 
 // RegisterStepListener は指定されたステップ名に StepExecutionListener を登録します。
-func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepExecutionListener) {
-  if _, ok := j.stepListeners[stepName]; !ok {
-    j.stepListeners[stepName] = make([]stepListener.StepExecutionListener, 0)
-  }
-  j.stepListeners[stepName] = append(j.stepListeners[stepName], l)
-}
+// このメソッドはステップ自身にリスナーを登録するように変更されるため、Job レベルからは削除または変更が必要
+// func (j *WeatherJob) RegisterStepListener(stepName string, l stepListener.StepExecutionListener) {
+//   if _, ok := j.stepListeners[stepName]; !ok {
+//     j.stepListeners[stepName] = make([]stepListener.StepExecutionListener, 0)
+//   }
+//   j.stepListeners[stepName] = append(j.stepListeners[stepName], l)
+// }
 
 // RegisterJobListener は JobExecutionListener を登録します。
 func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) { // jobListener パッケージの JobExecutionListener を使用
@@ -67,6 +55,7 @@ func (j *WeatherJob) RegisterJobListener(l jobListener.JobExecutionListener) { /
 }
 
 // notifyBeforeJob は登録されている JobExecutionListener の BeforeJob メソッドを呼び出します。
+// JobLauncher の責務として移動することを検討
 func (j *WeatherJob) notifyBeforeJob(ctx context.Context, jobExecution *core.JobExecution) {
   for _, l := range j.jobListeners {
     l.BeforeJob(ctx, jobExecution)
@@ -81,37 +70,39 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobE
 }
 
 // notifyBeforeStep は指定されたステップ名に登録されている StepExecutionListener の BeforeStep メソッドを呼び出します。
-func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepExecution *core.StepExecution) {
-  if stepListeners, ok := j.stepListeners[stepExecution.StepName]; ok {
-    for _, l := range stepListeners {
-      l.BeforeStep(ctx, stepExecution)
-    }
-  }
-}
+// ステップ自身がリスナーを持つように変更されたため、Job レベルからは削除または変更が必要
+// func (j *WeatherJob) notifyBeforeStep(ctx context.Context, stepExecution *core.StepExecution) {
+//   if stepListeners, ok := j.stepListeners[stepExecution.StepName]; ok {
+//     for _, l := range stepListeners {
+//       l.BeforeStep(ctx, stepExecution)
+//     }
+//   }
+// }
 
 // notifyAfterStep は指定されたステップ名に登録されている StepExecutionListener の AfterStep メソッドを呼び出します。
-func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepExecution *core.StepExecution) {
-  if stepListeners, ok := j.stepListeners[stepExecution.StepName]; ok {
-    for _, l := range stepListeners {
-      // LoggingListener の AfterStepWithDuration を特別に呼び出す例 (必要に応じて調整)
-      if loggingListener, ok := l.(*stepListener.LoggingListener); ok {
-        loggingListener.AfterStepWithDuration(ctx, stepExecution)
-      } else {
-        l.AfterStep(ctx, stepExecution)
-      }
-    }
-  }
-}
+// ステップ自身がリスナーを持つように変更されたため、Job レベルからは削除または変更が必要
+// func (j *WeatherJob) notifyAfterStep(ctx context.Context, stepExecution *core.StepExecution) {
+//   if stepListeners, ok := j.stepListeners[stepExecution.StepName]; ok {
+//     for _, l := range stepListeners {
+//       // LoggingListener の AfterStepWithDuration を特別に呼び出す例 (必要に応じて調整)
+//       if loggingListener, ok := l.(*stepListener.LoggingListener); ok {
+//         loggingListener.AfterStepWithDuration(ctx, stepExecution)
+//       } else {
+//         l.AfterStep(ctx, stepExecution)
+//       }
+//     }
+//   }
+// }
 
 // Run メソッドは core.Job インターフェースの実装です。
-// ジョブ全体の実行フローを制御します。
+// ジョブ全体の実行フローを制御します。複数ステップを順番に実行するように変更します。
 func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) error {
-  logger.Infof("Weather Job を開始します。チャンクサイズ: %d", j.config.Batch.ChunkSize)
+  logger.Infof("Weather Job を開始します。Job Execution ID: %s", jobExecution.ID)
 
-  // Job 実行前処理の通知
+  // Job 実行前処理の通知 (JobLauncher から呼び出されるように変更予定だが、一旦ここに残す)
   j.notifyBeforeJob(ctx, jobExecution)
 
-  // Job 実行後処理 (defer で必ず実行)
+  // Job 実行後処理 (defer で必ず実行) (JobLauncher から呼び出されるように変更予定だが、一旦ここに残す)
   defer func() {
     // ジョブがまだ失敗としてマークされていなければ完了としてマーク
     if jobExecution.Status != core.JobStatusFailed {
@@ -122,54 +113,107 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
     j.notifyAfterJob(ctx, jobExecution)
 
     // リポジトリのリソース解放 (Close メソッドを持つ場合)
-    if closer, ok := j.repo.(interface{ Close() error }); ok {
-      if err := closer.Close(); err != nil {
-        logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
-        jobExecution.AddFailureException(fmt.Errorf("リポジトリのクローズエラー: %w", err))
-        // クローズエラーが発生した場合、ジョブを失敗としてマーク
-        if jobExecution.Status != core.JobStatusFailed {
-          jobExecution.MarkAsFailed(fmt.Errorf("リポジトリのクローズエラー: %w", err))
-        }
+    // WeatherRepository は WeatherJobFactory で生成され、WeatherJob に依存として渡されるため、
+    // WeatherJob の Run メソッドの defer で Close するのが適切。
+    // JobRepository は main で生成され、defer で Close されるため、ここでは不要。
+    // ただし、WeatherRepository は JobFactory で生成されているため、JobFactory または main で Close する方が適切かもしれない。
+    // ここでは WeatherJob が WeatherRepository への参照を持つ前提で Close する例を示すが、設計によって変更が必要。
+    // WeatherJob 構造体から WeatherRepository フィールドは削除されたため、ここでは WeatherRepository の Close は行わない。
+    // WeatherRepository の Close は WeatherJobFactory または main 関数で行うべき。
+    // if closer, ok := j.repo.(interface{ Close() error }); ok { // repo フィールドは削除
+    //   if err := closer.Close(); err != nil {
+    //     logger.Errorf("リポジトリのクローズに失敗しました: %v", err)
+    //     jobExecution.AddFailureException(fmt.Errorf("リポジトリのクローズエラー: %w", err))
+    //     // クローズエラーが発生した場合、ジョブを失敗としてマーク
+    //     if jobExecution.Status != core.JobStatusFailed {
+    //       jobExecution.MarkAsFailed(fmt.Errorf("リポジトリのクローズエラー: %w", err))
+    //     }
+    //   }
+    // }
+  }()
+
+  // ステップを順番に実行
+  for _, step := range j.steps {
+    stepName := step.StepName()
+    logger.Infof("ステップ '%s' の実行を開始します。", stepName)
+
+    // StepExecution の作成と初期永続化
+    stepExecution := core.NewStepExecution(stepName, jobExecution)
+    // NewStepExecution 内で jobExecution.StepExecutions に追加済み
+
+    // StepExecution を JobRepository に保存
+    err := j.jobRepository.SaveStepExecution(ctx, stepExecution)
+    if err != nil {
+      logger.Errorf("StepExecution (ID: %s) の初期永続化に失敗しました: %v", stepExecution.ID, err)
+      // Step の実行を開始せずにジョブ全体を失敗としてマーク
+      stepExecution.MarkAsFailed(fmt.Errorf("StepExecution の初期永続化に失敗しました: %w", err))
+      j.jobRepository.UpdateStepExecution(ctx, stepExecution) // 失敗状態を永続化
+      jobExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, err))
+      return fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, err) // ジョブ全体のエラーとして返す
+    }
+    logger.Debugf("StepExecution (ID: %s) を JobRepository に初期保存しました。", stepExecution.ID)
+
+
+    // StepExecution の状態を Started に更新し、永続化
+    stepExecution.MarkAsStarted() // StartTime, Status を更新
+    err = j.jobRepository.UpdateStepExecution(ctx, stepExecution)
+    if err != nil {
+      logger.Errorf("StepExecution (ID: %s) の Started 状態への更新に失敗しました: %v", stepExecution.ID, err)
+      // 永続化エラーを記録するが、ステップ実行自体は進める
+      stepExecution.AddFailureException(fmt.Errorf("StepExecution 状態更新エラー (Started): %w", err))
+      // エラーはログ出力に留め、ステップの Execute 処理に進む
+    } else {
+      logger.Debugf("StepExecution (ID: %s) を JobRepository で Started に更新しました。", stepExecution.ID)
+    }
+
+
+    // ステップの Execute メソッドを実行
+    // Execute メソッド内で StepExecution の最終状態が設定されることを期待
+    stepErr := step.Execute(ctx, jobExecution, stepExecution)
+
+    // ステップ実行完了後の StepExecution の状態を永続化
+    // Execute メソッド内で StepExecution の最終状態 (Completed or Failed) は既に設定されています。
+    // ここではその最終状態を JobRepository に保存します。
+    updateErr := j.jobRepository.UpdateStepExecution(ctx, stepExecution)
+    if updateErr != nil {
+      logger.Errorf("StepExecution (ID: %s) の最終状態の更新に失敗しました: %v", stepExecution.ID, updateErr)
+      // このエラーを StepExecution に追加
+      stepExecution.AddFailureException(fmt.Errorf("StepExecution 最終状態更新エラー: %w", updateErr))
+      // ステップ自体が成功していても、永続化エラーがあればジョブ全体を失敗とみなす
+      if stepErr == nil {
+        stepErr = fmt.Errorf("StepExecution 最終状態の永続化に失敗しました: %w", updateErr)
+      } else {
+        // ステップ実行エラーと永続化エラーをラップすることも検討
+        stepErr = fmt.Errorf("ステップ実行エラー (%w), 永続化エラー (%w)", stepErr, updateErr)
       }
+    } else {
+      logger.Debugf("StepExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", stepExecution.ID, stepExecution.Status)
     }
-  }()
 
-  // ★ 第1段階: ステップ実行のセットアップ処理を新しいメソッドに切り出し
-  stepExecution, err := j.setupStepExecution(ctx, jobExecution, "WeatherProcessingStep")
-  if err != nil {
-    // ステップセットアップに失敗した場合、ジョブを失敗としてマークし、エラーを返す
-    jobExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' のセットアップに失敗しました: %w", "WeatherProcessingStep", err))
-    return err
-  }
 
-  // ステップ実行後処理 (defer で必ず実行)
-  defer func() {
-    // ステップの終了時刻を設定
-    stepExecution.EndTime = time.Now()
-
-    // ステップ実行後処理の通知
-    j.notifyAfterStep(ctx, stepExecution)
-
-    // ステップが失敗としてマークされていれば、ジョブも失敗としてマーク
-    if stepExecution.Status == core.JobStatusFailed {
-      jobExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' が失敗しました", stepExecution.StepName))
-    } else if jobExecution.Status != core.JobStatusFailed {
-      // ジョブがまだ失敗でなく、ステップが失敗でなければ、ステップを完了としてマーク
-      stepExecution.MarkAsCompleted()
+    // ステップ実行エラーが発生した場合
+    if stepErr != nil {
+      logger.Errorf("ステップ '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
+        stepName, stepExecution.ID, stepErr)
+      // JobExecution を失敗としてマークし、エラーを追加
+      jobExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, stepErr))
+      // JobExecution の最終状態は defer で更新されるが、ここで明示的に更新することも検討
+      // j.jobRepository.UpdateJobExecution(ctx, jobExecution)
+      return fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, stepErr) // ジョブ全体のエラーとして返す
     }
-  }()
 
-  // ★ 第4段階: チャンク処理ループを新しいメソッドに切り出し
-  // このメソッド内でリトライ処理とアイテム処理、チャンク書き込みが行われる
-  chunkProcessErr := j.processChunkLoop(ctx, jobExecution, stepExecution)
-  if chunkProcessErr != nil {
-    // チャンク処理ループ内でエラーが発生した場合、ステップは既に失敗としてマークされているはず
-    // ここで再度エラーを返すことで、JobLauncher がエラーを捕捉できるようにする
-    return chunkProcessErr
-  }
+    // ステップが正常に完了した場合
+    logger.Infof("ステップ '%s' (Execution ID: %s) が正常に完了しました。最終状態: %s",
+      stepName, stepExecution.ID, stepExecution.Status)
 
-  // チャンク処理ループがエラーなく完了した場合、ステップは defer で完了としてマークされる
-  // JobExecution の最終状態も defer で設定される
+    // TODO: ここで条件付き遷移のロジックを評価し、次に実行するステップを決定する (Phase 2)
+    //       現在の実装では常に次のステップへ進む（リストの最後まで）
+
+  } // ステップループ終了
+
+  // 全てのステップがエラーなく完了した場合
+  logger.Infof("全てのステップが正常に完了しました。Job Execution ID: %s", jobExecution.ID)
+  // JobExecution の最終状態は defer で Completed としてマークされる
 
   return nil // ジョブ全体の実行結果としてエラーがなければ nil を返す
 }
@@ -179,242 +223,8 @@ func (j *WeatherJob) JobName() string {
   return j.config.Batch.JobName
 }
 
-// ★ 第1段階で追加されたメソッド
-// setupStepExecution は新しい StepExecution を作成し、初期化します。
-func (j *WeatherJob) setupStepExecution(ctx context.Context, jobExecution *core.JobExecution, stepName string) (*core.StepExecution, error) {
-  // StepExecution の作成
-  stepExecution := core.NewStepExecution(stepName, jobExecution)
-  // NewStepExecution 内で jobExecution.StepExecutions に追加済み
-
-  // ステップ開始時刻の設定と状態のマーク
-  stepExecution.StartTime = time.Now()
-  stepExecution.MarkAsStarted()
-
-  // ステップ実行前処理の通知
-  j.notifyBeforeStep(ctx, stepExecution)
-
-  logger.Debugf("ステップ '%s' (Execution ID: %s) のセットアップが完了しました。", stepName, stepExecution.ID)
-
-  // セットアップ処理自体でエラーが発生する可能性は低いですが、将来的な拡張に備えてエラーを返すようにしておきます。
-  return stepExecution, nil
-}
-
-// ★ 第2段階で追加されたメソッド
-// processSingleItem は Reader から1アイテム読み込み、Processor で処理します。
-// 処理結果のスライス、EOFに達したかを示すフラグ、エラーを返します。
-func (j *WeatherJob) processSingleItem(ctx context.Context, stepExecution *core.StepExecution) ([]*entity.WeatherDataToStore, bool, error) {
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    return nil, false, ctx.Err()
-  default:
-  }
-
-  // Reader から読み込み
-  readItem, readerErr := j.reader.Read(ctx)
-
-  if readerErr != nil {
-    if errors.Is(readerErr, io.EOF) {
-      // EOF の場合はエラーではないが、終端に達したことを示すフラグを返す
-      logger.Debugf("Reader returned EOF.")
-      return nil, true, nil
-    }
-    // その他の Reader エラー
-    logger.Errorf("Reader error: %v", readerErr)
-    stepExecution.AddFailureException(readerErr) // Reader エラーも StepExecution に記録
-    return nil, false, fmt.Errorf("reader error: %w", readerErr)
-  }
-
-  if readItem == nil {
-    // nil アイテムはスキップ
-    logger.Debugf("Reader returned nil item, skipping.")
-    return nil, false, nil
-  }
-
-  // Processor で処理
-  processedItem, processorErr := j.processor.Process(ctx, readItem)
-  if processorErr != nil {
-    // Processor エラー
-    logger.Errorf("Processor error: %v", processorErr)
-    stepExecution.AddFailureException(processorErr) // Processor エラーも StepExecution に記録
-    return nil, false, fmt.Errorf("processor error: %w", processorErr)
-  }
-
-  // 処理済みアイテムの型アサート
-  processedItemsSlice, ok := processedItem.([]*entity.WeatherDataToStore)
-  if !ok {
-    // 予期しない型の場合
-    err := fmt.Errorf("processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", processedItem)
-    logger.Errorf("%v", err)
-    stepExecution.AddFailureException(err) // 型アサートエラーも StepExecution に記録
-    return nil, false, err
-  }
-
-  // 成功
-  //logger.Debugf("Successfully processed an item.")
-  return processedItemsSlice, false, nil
-}
-
-// ★ 第3段階で追加されたメソッド
-// writeChunk は加工済みアイテムのチャンクを Writer で書き込みます。
-func (j *WeatherJob) writeChunk(ctx context.Context, stepExecution *core.StepExecution, chunkNum int, items []*entity.WeatherDataToStore) error {
-  logger.Infof("Writer で書き込みを開始します (チャンク #%d, アイテム数: %d).", chunkNum, len(items))
-
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    logger.Warnf("Context がキャンセルされたため、チャンク #%d の書き込みを中断します: %v", chunkNum, ctx.Err())
-    return ctx.Err()
-  default:
-  }
-
-  // Writer で書き込み
-  writeErr := j.writer.Write(ctx, items)
-  if writeErr != nil {
-    // Writer エラー
-    logger.Errorf("Writer error for chunk #%d: %v", chunkNum, writeErr)
-    stepExecution.AddFailureException(writeErr) // Writer エラーも StepExecution に記録
-    return fmt.Errorf("writer error for chunk #%d: %w", chunkNum, writeErr)
-  }
-
-  logger.Infof("チャンク #%d の書き込みが完了しました。", chunkNum)
-  return nil
-}
-
-// ★ 第4段階で追加されたメソッド
-// processChunkLoop はチャンク処理のメインループとリトライロジックを管理します。
-func (j *WeatherJob) processChunkLoop(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
-  retryConfig := j.config.Batch.Retry
-  chunkSize := j.config.Batch.ChunkSize
-
-  processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize)
-  itemCountInChunk := 0
-  chunkCount := 0 // 成功したチャンクの数
-
-  // チャンク処理全体のリトライループ
-  for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
-    logger.Debugf("チャンク処理試行: %d/%d", retryAttempt+1, retryConfig.MaxAttempts)
-
-    // リトライ時にはチャンクをリセット
-    processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-    itemCountInChunk = 0
-    chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
-
-    // アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
-    for {
-      select {
-      case <-ctx.Done():
-        logger.Warnf("Context がキャンセルされたため、チャンク処理を中断します: %v", ctx.Err())
-        stepExecution.MarkAsFailed(ctx.Err())
-        jobExecution.AddFailureException(ctx.Err())
-        return ctx.Err() // Context エラーは即座に返す
-      default:
-      }
-
-      // 単一アイテムの読み込みと処理
-      // processSingleItem は Reader/Processor エラーまたは Context キャンセルエラーを返す
-      processedItemSlice, eofReached, itemErr := j.processSingleItem(ctx, stepExecution)
-      if itemErr != nil {
-        // Reader または Processor でエラーが発生した場合
-        // processSingleItem 内で既に StepExecution にエラーは追加されている
-        logger.Errorf("アイテム処理でエラーが発生しました (試行 %d/%d): %v", retryAttempt+1, retryConfig.MaxAttempts, itemErr)
-        chunkAttemptError = true // この試行はエラー
-        break                    // インナーループを抜ける
-      }
-
-      // processSingleItem が nil アイテムを返した場合 (スキップされた場合)
-      if processedItemSlice == nil && !eofReached {
-        continue // 次のアイテムへ
-      }
-
-      // 処理済みアイテムをチャンクに追加
-      processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
-      itemCountInChunk = len(processedItemsChunk)
-
-      // チャンクが満たされたら書き込み
-      if itemCountInChunk >= chunkSize {
-        // チャンク書き込み処理
-        // writeChunk は Writer エラーまたは Context キャンセルエラーを返す
-        writeErr := j.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // 次のチャンク番号を渡す
-        if writeErr != nil {
-          // Writer でエラーが発生した場合
-          // writeChunk 内で既に StepExecution にエラーは追加されている
-          logger.Errorf("Writer でエラーが発生しました (チャンク #%d, 試行 %d/%d): %v", chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
-          chunkAttemptError = true // この試行はエラー
-          break                    // インナーループを抜ける
-        }
-        chunkCount++ // 書き込み成功した場合のみチャンク数をインクリメント
-        // チャンクをリセット
-        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-        itemCountInChunk = 0
-        // Note: ここで retryAttempt をリセットしない。リトライはチャンク処理全体に対して行う。
-      }
-
-      // Reader の終端に達した場合
-      if eofReached {
-        logger.Debugf("Reader からデータの終端に達しました。")
-        break // インナーループを抜ける
-      }
-    } // インナーループ終了
-
-    // インナーループ終了後の処理
-
-    // この試行でエラーが発生した場合のリトライ判定
-    if chunkAttemptError {
-      if retryAttempt < retryConfig.MaxAttempts-1 {
-        // リトライ可能回数が残っている場合
-        logger.Warnf("チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
-        // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-        time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
-      } else {
-        // 最大リトライ回数に達した場合
-        logger.Errorf("チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", retryConfig.MaxAttempts)
-        // エラーは既に StepExecution に追加済み
-        // ステップの最終状態は defer で設定される
-        return fmt.Errorf("chunk processing failed after %d retries", retryConfig.MaxAttempts) // エラーを返してステップを失敗させる
-      }
-    } else {
-      // この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
-      // 残っているアイテムがあれば最終チャンクとして書き込む
-      if itemCountInChunk > 0 {
-        logger.Infof("Reader 終端到達。残りのアイテム (%d 件) を書き込みます (チャンク #%d, 試行 %d/%d)。", itemCountInChunk, chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts)
-        // 最終チャンクの書き込み処理
-        writeErr := j.writeChunk(ctx, stepExecution, chunkCount+1, processedItemsChunk) // 次のチャンク番号を渡す
-        if writeErr != nil {
-          // 最終チャンクの書き込みでエラーが発生した場合
-          // writeChunk 内で既に StepExecution にエラーは追加されている
-          logger.Errorf("Writer でエラーが発生しました (最終チャンク #%d, 試行 %d/%d): %v", chunkCount+1, retryAttempt+1, retryConfig.MaxAttempts, writeErr)
-          // 最終チャンクの書き込み失敗もリトライ対象とする
-          if retryAttempt < retryConfig.MaxAttempts-1 {
-            logger.Warnf("最終チャンクの書き込み試行 %d/%d が失敗しました。リトライ間隔: %d秒", retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
-            // TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-            time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
-            continue // 次のリトライ試行へ
-          } else {
-            logger.Errorf("最終チャンクの書き込みが最大リトライ回数 (%d) 失敗しました。ステップを終了します。", retryConfig.MaxAttempts)
-            return fmt.Errorf("final chunk write failed after %d retries: %w", retryConfig.MaxAttempts, writeErr) // エラーを返してステップを失敗させる
-          }
-        }
-        chunkCount++ // 最終チャンクの書き込み成功
-        // チャンクをリセット (不要かもしれないが念のため)
-        processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-        itemCountInChunk = 0
-      }
-
-      // チャンク処理全体がエラーなく完了
-      logger.Infof("チャンク処理ステップが正常に完了しました。合計チャンク数: %d", chunkCount)
-      stepExecution.ExecutionContext.Put("chunkCount", chunkCount)
-      // ItemCount の設定 (Reader/Processor/Writer で正確に集計し、StepExecution に設定するのが理想)
-      // ここでは簡易的に計算
-      stepExecution.ReadCount = chunkCount * chunkSize // あくまで概算
-      stepExecution.WriteCount = chunkCount * chunkSize // あくまで概算
-      stepExecution.CommitCount = chunkCount
-
-      return nil // 成功したら nil を返してメソッドを終了
-    }
-  } // リトライループ終了
-
-  // ここに到達するのは、リトライ回数が0の場合か、論理的に到達しない場合
-  // 安全のためエラーを返しておく
-  return fmt.Errorf("chunk processing loop finished unexpectedly")
-}
+// ★ WeatherJob から processChunkLoop, processSingleItem, writeChunk メソッドは削除されます。
+// これらのロジックは ChunkOrientedStep に移動しました。
+// func (j *WeatherJob) processChunkLoop(...) error { ... }
+// func (j *WeatherJob) processSingleItem(...) ([]*entity.WeatherDataToStore, bool, error) { ... }
+// func (j *WeatherJob) writeChunk(...) error { ... }

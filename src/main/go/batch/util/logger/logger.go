@@ -34,7 +34,7 @@ func SetLogLevel(level string) {
   case "FATAL":
     logLevel = LevelFatal
   default:
-    fmt.Printf("警告: 不明なログレベル '%s' が指定されました。INFO レベルで続行します。\n", level)
+    fmt.Printf("警告: 不明なログレベル '%s' が指定されました。INFO レベルで続行します。", level)
     logLevel = LevelInfo
   }
 }

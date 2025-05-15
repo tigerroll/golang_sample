@@ -62,8 +62,8 @@ func LoadConfig() (*Config, error) {
     if chunkSize, err := strconv.Atoi(chunkSizeStr); err == nil {
       cfg.Batch.ChunkSize = chunkSize
     } else {
-        // エラーハンドリングを強化する場合はここに記述
-        fmt.Printf("警告: BATCH_CHUNK_SIZE の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。\n", chunkSizeStr)
+      // エラーハンドリングを強化する場合はここに記述
+      fmt.Printf("警告: BATCH_CHUNK_SIZE の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。", chunkSizeStr)
     }
   }
 

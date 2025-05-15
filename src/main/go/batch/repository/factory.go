@@ -64,8 +64,8 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 
   // データベースへの疎通確認 (Ping)
   if err = db.PingContext(ctx); err != nil {
-      db.Close() // Ping に失敗したら接続を閉じる
-      return nil, fmt.Errorf("failed to ping database for JobRepository: %w", err)
+    db.Close() // Ping に失敗したら接続を閉じる
+    return nil, fmt.Errorf("failed to ping database for JobRepository: %w", err)
   }
 
   // SQLJobRepository の新しいインスタンスを作成し、確立した接続を渡します。
