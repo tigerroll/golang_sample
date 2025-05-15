@@ -198,7 +198,7 @@ func (je *JobExecution) MarkAsStarted() {
 // MarkAsCompleted は JobExecution の状態を完了に更新します。
 func (je *JobExecution) MarkAsCompleted() {
   je.Status = JobStatusCompleted
-  je.ExitStatus = ExitStatusCompleted
+  je.ExitStatus = ExitStatusCompleted // ★ ExitStatus も COMPLETED に設定
   je.EndTime = time.Now()
   je.LastUpdated = time.Now()
 }
@@ -271,7 +271,7 @@ func (se *StepExecution) MarkAsStarted() {
 // MarkAsCompleted は StepExecution の状態を完了に更新します。
 func (se *StepExecution) MarkAsCompleted() {
   se.Status = JobStatusCompleted
-  se.ExitStatus = ExitStatusCompleted
+  se.ExitStatus = ExitStatusCompleted // ★ ExitStatus も COMPLETED に設定
   se.EndTime = time.Now()
 }
 
@@ -317,7 +317,6 @@ func (se *StepExecution) AddFailureException(err error) {
 type Transition struct {
   // From は遷移元のステップ名または Decision 名です。
   // このフィールドはフロー定義内で使用されるため、Transition 自体には不要かもしれません。
-  // StartElement やステップ/Decision定義内で遷移先を指定する形式の方が一般的です。
   // 例: <step id="stepA" next="stepB"> または <step id="stepA"> <end on="COMPLETED"/> <next on="FAILED" to="stepC"/> </step>
   // ここではシンプルに、ある要素の終了ステータスに基づいて次の要素を指定する形式とします。
 

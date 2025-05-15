@@ -33,8 +33,8 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
   default:
   }
 
-  // ChunkOrientedStep.writeChunk から渡された items を使用します。
-  // SaveDataStep の場合、この items は ChunkOrientedStep.Execute が ExecutionContext から取得して渡したデータです。
+  // ChunkOrientedStep.Execute (SaveDataStep の場合) から渡された items を使用します。
+  // この items は ExecutionContext から取得されたデータです。
   dataToStore, ok := items.([]*entity.WeatherDataToStore)
   if !ok {
     // 予期しない型の場合
