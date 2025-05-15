@@ -3,6 +3,7 @@ package factory
 import (
   "context"
   "fmt"
+  // "io" // DummyReader が移動したので io パッケージのインポートは不要になる可能性がある
 
   config "sample/src/main/go/batch/config" // config パッケージをインポート
   job "sample/src/main/go/batch/job"
@@ -12,124 +13,159 @@ import (
   stepListener "sample/src/main/go/batch/step/listener"
   // step パッケージのインターフェースをインポート
   step "sample/src/main/go/batch/step" // step パッケージをインポート
-  stepProcessor "sample/src/main/go/batch/step/processor"
-  stepReader "sample/src/main/go/batch/step/reader"
-  stepWriter "sample/src/main/go/batch/step/writer"
+  stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
+  stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
+  stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
   logger "sample/src/main/go/batch/util/logger"
+
+  // ★ ダミーコンポーネントをそれぞれのパッケージからインポート ★
+  dummyReader "sample/src/main/go/batch/step/reader" // dummy_reader.go がこのパッケージに属する
+  dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
+  dummyWriter "sample/src/main/go/batch/step/writer" // dummy_writer.go がこのパッケージに属する
 )
+
+// --- ダミーコンポーネントの定義 (それぞれのパッケージファイルに移動) ---
+// DummyReader, DummyProcessor, DummyWriter の定義はここから削除されます。
+
+
+// --- JobFactory の実装 (jobfactory.go に移動) ---
+// JobFactory, NewJobFactory, JobFactory.CreateJob は jobfactory.go で定義されているため、ここから削除します。
+
 
 // CreateWeatherJob は WeatherJob オブジェクトとその依存関係を作成し、リスナーを登録します。
 // これは JobFactory.CreateJob メソッドから呼び出されます。
 // JobRepository を引数に追加
 // ★ FlowDefinition を作成し、WeatherJob に渡すように変更
+// ★ 複数ステップを定義するように変更
 func CreateWeatherJob(ctx context.Context, cfg *config.Config, jobRepository repository.JobRepository) (core.Job, error) {
   logger.Debugf("Creating WeatherJob components and dependencies in weather_factory")
 
   // リポジトリをこのファクトリ関数内で生成する
-  // Repository は DatabaseConfig 全体、または DatabaseConfig から必要な部分を渡すように設計されている可能性が高い
-  // 現在の Repository は config.Config 全体を受け取っていたが、DatabaseConfig に絞るべき
-  // NewWeatherRepository は context と DatabaseConfig を受け取るように修正が必要（repository/factory.go の NewWeatherRepository も修正）
-  // repo, err := repository.NewWeatherRepository(ctx, *cfg) // cfg 全体を渡している箇所
-  // ここでは repository.NewWeatherRepository が config.Config 全体を受け取るままと仮定し、
-  // Repository 自体のコンストラクタが DatabaseConfig を受け取るように修正されている前提とする。
-  // 理想的には、repository.NewWeatherRepository(ctx context.Context, dbConfig *config.DatabaseConfig) のようなシグネチャが望ましい。
-  // 現在のコードでは repository.NewWeatherRepository が config.Config 全体を受け取るので、それに合わせるが、依存は増える
-  repo, err := repository.NewWeatherRepository(ctx, *cfg) // ← この呼び出しはそのまま
+  repo, err := repository.NewWeatherRepository(ctx, *cfg)
   if err != nil {
     return nil, fmt.Errorf("WeatherRepository の生成に失敗しました: %w", err)
   }
   // Note: リポジトリのリソース解放 (Close メソッドを持つ場合) は Job の Run メソッド内で defer されるため、ここでは不要
 
-  // Reader に渡す設定構造体を生成
+  // --- コンポーネントの生成 ---
+  // Reader, Processor, Writer の実際のインスタンスとダミーインスタンスを生成
   weatherReaderCfg := &config.WeatherReaderConfig{
     APIEndpoint: cfg.Batch.APIEndpoint,
     APIKey:      cfg.Batch.APIKey,
   }
-  // Reader の生成時に小さい設定構造体を渡す
-  reader := stepReader.NewWeatherReader(weatherReaderCfg)
+  actualReader := stepReader.NewWeatherReader(weatherReaderCfg)
+  actualProcessor := stepProcessor.NewWeatherProcessor()
+  actualWriter := stepWriter.NewWeatherWriter(repo)
 
-  // Processor は現時点で設定が不要
-  processor := stepProcessor.NewWeatherProcessor()
+  // ★ ダミーコンポーネントをそれぞれのパッケージから生成 ★
+  dummyReaderInstance := dummyReader.NewDummyReader()
+  dummyProcessorInstance := dummyProcessor.NewDummyProcessor()
+  dummyWriterInstance := dummyWriter.NewDummyWriter()
 
-  // Writer は Repository に依存しており、Writer 自身に渡す設定は現時点では不要
-  writer := stepWriter.NewWeatherWriter(repo)
-
-  // RetryListener に渡す設定構造体は RetryConfig そのものを使用
+  // RetryListener と LoggingListener は共通して使用
   retryCfg := &cfg.Batch.Retry
-  // RetryListener の生成時に RetryConfig を渡す
   retryListener := stepListener.NewRetryListener(retryCfg)
-
-  // LoggingListener に渡す設定構造体は LoggingConfig を使用
   loggingCfg := &cfg.System.Logging
-  // LoggingListener の生成時に LoggingConfig を渡す
   loggingStepListener := stepListener.NewLoggingListener(loggingCfg)
-  // JobLoggingListener の生成時にも LoggingConfig を渡す
   loggingJobListener := jobListener.NewLoggingJobListener(loggingCfg)
 
-  // --- ステップの生成 ---
-  // ChunkOrientedStep を生成
-  weatherProcessingStep := step.NewChunkOrientedStep(
-    "WeatherProcessingStep", // ステップ名
-    reader,
-    processor,
-    writer,
-    cfg.Batch.ChunkSize, // チャンクサイズを設定から取得
-    retryCfg,            // リトライ設定を渡す
+
+  // --- ステップの生成 (複数ステップ) ---
+
+  // FetchAndProcessStep: Reader と Processor を使用し、Writer はダミー
+  fetchAndProcessStep := step.NewChunkOrientedStep(
+    "FetchAndProcessStep", // ステップ名
+    actualReader,
+    actualProcessor,
+    dummyWriterInstance, // ★ ダミー Writer インスタンスを使用
+    cfg.Batch.ChunkSize,
+    retryCfg,
+  )
+  // ステップリスナーを FetchAndProcessStep に登録
+  logger.Debugf("Registering Step Listeners to FetchAndProcessStep")
+  fetchAndProcessStep.RegisterListener(retryListener)
+  fetchAndProcessStep.RegisterListener(loggingStepListener)
+
+
+  // SaveDataStep: Writer を使用し、Reader と Processor はダミー
+  saveDataStep := step.NewChunkOrientedStep(
+    "SaveDataStep", // ステップ名
+    dummyReaderInstance, // ★ ダミー Reader インスタンスを使用
+    dummyProcessorInstance, // ★ ダミー Processor インスタンスを使用
+    actualWriter,
+    cfg.Batch.ChunkSize, // ChunkSize は Writer 側でも使用される可能性があるため渡す
+    retryCfg, // リトライ設定 (書き込み処理のリトライに使用)
+  )
+  // ステップリスナーを SaveDataStep に登録
+  logger.Debugf("Registering Step Listeners to SaveDataStep")
+  saveDataStep.RegisterListener(retryListener)
+  saveDataStep.RegisterListener(loggingStepListener)
+
+
+  // --- フロー定義の生成 ---
+  // ★ 複数ステップとそれらの間の遷移ルールを定義します。
+  flow := core.NewFlowDefinition("FetchAndProcessStep") // 開始要素は FetchAndProcessStep
+
+  // フローにステップを追加
+  flow.AddElement("FetchAndProcessStep", fetchAndProcessStep)
+  flow.AddElement("SaveDataStep", saveDataStep)
+
+  // --- 遷移ルールの追加 ---
+
+  // FetchAndProcessStep からの遷移ルール
+  // COMPLETED で終了したら SaveDataStep へ遷移
+  flow.AddTransitionRule(
+    "FetchAndProcessStep",          // from
+    string(core.ExitStatusCompleted), // on
+    "SaveDataStep",                 // to
+    false, core.ExitStatusUnknown, // end, endStatus
+    false, core.ExitStatusUnknown, // fail, failStatus
+    false, false, // stop, restartable
+  )
+  // FAILED で終了したらジョブを FAILED で終了
+  flow.AddTransitionRule(
+    "FetchAndProcessStep",       // from
+    string(core.ExitStatusFailed), // on
+    "",                            // to (終了遷移)
+    false, core.ExitStatusUnknown, // end, endStatus
+    true, core.ExitStatusFailed, // fail, failStatus
+    false, false, // stop, restartable
   )
 
-  // ステップリスナーを ChunkOrientedStep に登録
-  logger.Debugf("Registering Step Listeners to WeatherProcessingStep")
-  weatherProcessingStep.RegisterListener(retryListener)
-  weatherProcessingStep.RegisterListener(loggingStepListener)
-
-  // --- フロー定義の生成 (フェーズ2 ステップ1 の成果物を使用) ---
-  // ★ ここでシンプルに WeatherProcessingStep を実行するフローを定義します。
-  flow := core.NewFlowDefinition("WeatherProcessingStep") // 開始要素は WeatherProcessingStep
-  flow.AddElement("WeatherProcessingStep", weatherProcessingStep) // フローにステップを追加
-
-  // ★ WeatherProcessingStep が COMPLETED で終了した場合にジョブを COMPLETED で終了させる遷移ルールを追加
+  // SaveDataStep からの遷移ルール
+  // COMPLETED で終了したらジョブを COMPLETED で終了
   flow.AddTransitionRule(
-    "WeatherProcessingStep",          // from: 遷移元要素名
-    string(core.ExitStatusCompleted), // on: 遷移元要素の ExitStatus
-    "",                               // to: 次の要素名 (終了遷移なので空文字列)
-    true,                             // end: ジョブを終了させる
-    core.ExitStatusCompleted,         // endStatus: 終了時のジョブ ExitStatus
-    false,                            // fail: ジョブを失敗させない
-    "",                               // failStatus: (使用しない)
-    false,                            // stop: ジョブを停止させない
-    false,                            // restartable: (使用しない)
+    "SaveDataStep",           // from
+    string(core.ExitStatusCompleted), // on
+    "",                       // to (終了遷移)
+    true, core.ExitStatusCompleted, // end, endStatus
+    false, core.ExitStatusUnknown, // fail, failStatus
+    false, false, // stop, restartable
   )
-
-  // ★ WeatherProcessingStep が FAILED で終了した場合にジョブを FAILED で終了させる遷移ルールを追加
+  // FAILED で終了したらジョブを FAILED で終了
   flow.AddTransitionRule(
-    "WeatherProcessingStep",       // from: 遷移元要素名
-    string(core.ExitStatusFailed), // on: 遷移元要素の ExitStatus
-    "",                            // to: 次の要素名 (終了遷移なので空文字列)
-    false,                         // end: ジョブを終了させない
-    "",                            // endStatus: (使用しない)
-    true,                          // fail: ジョブを失敗させる
-    core.ExitStatusFailed,         // failStatus: 終了時のジョブ ExitStatus
-    false,                         // stop: ジョブを停止させない
-    false,                         // restartable: (使用しない)
+    "SaveDataStep",       // from
+    string(core.ExitStatusFailed), // on
+    "",                   // to (終了遷移)
+    false, core.ExitStatusUnknown, // end, endStatus
+    true, core.ExitStatusFailed, // fail, failStatus
+    false, false, // stop, restartable
   )
 
 
   // --- ジョブの生成 ---
-  // WeatherJob オブジェクトを生成時に JobRepository とステップリストを渡す
-  // NewWeatherJob は JobRepository と []core.Step を受け取るように修正済み
-  // ★ NewWeatherJob に FlowDefinition を渡すように変更
-  // ★ NewWeatherJob の引数の順序と型を修正
+  // WeatherJob オブジェクトを生成時に JobRepository と FlowDefinition を渡す
   weatherJob := job.NewWeatherJob(
-    jobRepository, // JobRepository を渡す
-    cfg,           // config を渡す
-    flow,          // FlowDefinition を渡す
+    jobRepository,
+    cfg,
+    flow, // ★ FlowDefinition を渡す
   )
 
   // JobExecutionListener をここで生成し、ジョブに登録
   logger.Debugf("Registering Job Execution Listeners to WeatherJob")
   weatherJob.RegisterJobListener(loggingJobListener)
 
-  logger.Debugf("WeatherJob created and configured successfully in weather_factory")
+  logger.Debugf("WeatherJob created and configured successfully with multiple steps and transitions in weather_factory")
 
   return weatherJob, nil
 }
