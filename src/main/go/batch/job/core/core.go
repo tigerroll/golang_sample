@@ -60,6 +60,7 @@ const (
 
 // ExecutionContext はジョブやステップの状態を共有するためのキー-値ストアです。
 // 任意の値 (interface{}) を格納できるように map[string]interface{} とします。
+// JSR352 の ExecutionContext に相当します。
 type ExecutionContext map[string]interface{}
 
 // NewExecutionContext は新しい空の ExecutionContext を作成します。
@@ -74,7 +75,11 @@ func (ec ExecutionContext) Put(key string, value interface{}) {
 
 // Get は指定されたキーの値を取得します。値が存在しない場合は nil を返します。
 func (ec ExecutionContext) Get(key string) interface{} {
-  return ec[key]
+  val, ok := ec[key]
+  if !ok {
+    return nil // キーが存在しない場合は nil を返す
+  }
+  return val
 }
 
 // GetString は指定されたキーの値を文字列として取得します。
@@ -99,12 +104,32 @@ func (ec ExecutionContext) GetInt(key string) (int, bool) {
   return i, ok
 }
 
+// GetBool は指定されたキーの値をboolとして取得します。
+// 存在しない場合や型が異なる場合は false と false を返します。
+func (ec ExecutionContext) GetBool(key string) (bool, bool) {
+  val, ok := ec[key]
+  if !ok {
+    return false, false
+  }
+  b, ok := val.(bool)
+  return b, ok
+}
+
+// GetFloat64 は指定されたキーの値をfloat64として取得します。
+// 存在しない場合や型が異なる場合は 0.0 と false を返します。
+func (ec ExecutionContext) GetFloat64(key string) (float64, bool) {
+  val, ok := ec[key]
+  if !ok {
+    return 0.0, false
+  }
+  f, ok := val.(float64)
+  return f, ok
+}
+
+
 // JobParameters はジョブ実行時のパラメータを保持する構造体です。
+// JSR352 に近づけるため map[string]interface{} とし、型安全な取得メソッドを追加します。
 type JobParameters struct {
-  // 例: StartDate string
-  // 例: EndDate string
-  // 必要に応じてマップなどに変更可能
-  // TODO: JSR352 に近づけるなら map[string]interface{} に変更し、型安全な取得メソッドを追加
   Params map[string]interface{} // JSR352に近づけるためマップ形式に
 }
 
@@ -122,7 +147,11 @@ func (jp JobParameters) Put(key string, value interface{}) {
 
 // Get は指定されたキーの値を取得します。値が存在しない場合は nil を返します。
 func (jp JobParameters) Get(key string) interface{} {
-  return jp.Params[key]
+  val, ok := jp.Params[key]
+  if !ok {
+    return nil // キーが存在しない場合は nil を返す
+  }
+  return val
 }
 
 // GetString は指定されたキーの値を文字列として取得します。
@@ -147,13 +176,35 @@ func (jp JobParameters) GetInt(key string) (int, bool) {
   return i, ok
 }
 
+// GetBool は指定されたキーの値をboolとして取得します。
+// 存在しない場合や型が異なる場合は false と false を返します。
+func (jp JobParameters) GetBool(key string) (bool, bool) {
+  val, ok := jp.Params[key]
+  if !ok {
+    return false, false
+  }
+  b, ok := val.(bool)
+  return b, ok
+}
+
+// GetFloat64 は指定されたキーの値をfloat64として取得します。
+// 存在しない場合や型が異なる場合は 0.0 と false を返します。
+func (jp JobParameters) GetFloat64(key string) (float64, bool) {
+  val, ok := jp.Params[key]
+  if !ok {
+    return 0.0, false
+  }
+  f, ok := val.(float64)
+  return f, ok
+}
+
 
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
 // JobExecution は BatchStatus と ExitStatus を持ちます。
 type JobExecution struct {
   ID             string         // 実行を一意に識別するID (通常、永続化層で生成)
   JobName        string
-  Parameters     JobParameters
+  Parameters     JobParameters // JobParameters の型は変更なし (内部構造が変更)
   StartTime      time.Time
   EndTime        time.Time
   Status         JobStatus      // BatchStatus に相当
@@ -176,7 +227,7 @@ func NewJobExecution(jobName string, params JobParameters) *JobExecution {
   return &JobExecution{
     ID:             uuid.New().String(), // 例: uuid パッケージを使用
     JobName:        jobName,
-    Parameters:     params,
+    Parameters:     params, // JobParameters はそのまま代入
     StartTime:      now,
     Status:         JobStatusStarting, // 開始時は Starting または Started
     ExitStatus:     ExitStatusUnknown,
