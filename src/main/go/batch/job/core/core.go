@@ -198,11 +198,60 @@ func (jp JobParameters) GetFloat64(key string) (float64, bool) {
   return f, ok
 }
 
+// Equal は2つの JobParameters が等しいかどうかを比較します。
+// JSR352 の JobParameters の同一性判定に相当します。
+// マップのキーと値が全て一致する場合に true を返します。
+// 値の比較は型に応じて適切に行う必要があります（ここでは簡易的な比較）。
+func (jp JobParameters) Equal(other JobParameters) bool {
+  if len(jp.Params) != len(other.Params) {
+    return false
+  }
+  for key, val1 := range jp.Params {
+    val2, ok := other.Params[key]
+    if !ok {
+      return false // キーが存在しない
+    }
+    // 値の比較 (簡易的な比較)
+    if val1 != val2 {
+      // TODO: より厳密な値の比較（型に応じた比較）を実装
+      return false
+    }
+  }
+  return true
+}
+
+
+// JobInstance はジョブの論理的な実行単位を表す構造体です。
+// 同じ JobParameters で複数回実行された JobExecution は、同じ JobInstance に属します。
+// JSR352 の JobInstance に相当します。
+type JobInstance struct {
+  ID           string        // JobInstance を一意に識別するID
+  JobName      string        // この JobInstance に関連付けられているジョブの名前
+  Parameters   JobParameters // この JobInstance を識別するための JobParameters
+  CreateTime   time.Time     // JobInstance が作成された時刻
+  Version      int           // バージョン (楽観的ロックなどに使用)
+  // TODO: JobInstance の状態（完了したか、失敗したかなど）を表すフィールドを追加するか検討
+  //       JSR352 では JobInstance 自体は状態を持ちませんが、関連する JobExecution の状態から判断します。
+}
+
+// NewJobInstance は新しい JobInstance のインスタンスを作成します。
+func NewJobInstance(jobName string, params JobParameters) *JobInstance {
+  now := time.Now()
+  return &JobInstance{
+    ID:         uuid.New().String(), // 例: uuid パッケージを使用
+    JobName:    jobName,
+    Parameters: params,
+    CreateTime: now,
+    Version:    0, // 初期バージョン
+  }
+}
+
 
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
 // JobExecution は BatchStatus と ExitStatus を持ちます。
 type JobExecution struct {
   ID             string         // 実行を一意に識別するID (通常、永続化層で生成)
+  JobInstanceID  string         // ★ 所属する JobInstance の ID を追加
   JobName        string
   Parameters     JobParameters // JobParameters の型は変更なし (内部構造が変更)
   StartTime      time.Time
@@ -217,15 +266,17 @@ type JobExecution struct {
   StepExecutions []*StepExecution // このジョブ実行に関連するステップ実行
   ExecutionContext ExecutionContext // ジョブレベルのコンテキスト
   CurrentStepName string // 現在実行中のステップ名 (リスタート時に使用)
-  // TODO: JobInstance への参照を追加 (JSR352の概念)
-  // JobInstanceID string // JobInstanceを識別するID
+  // TODO: JobInstance への参照を追加 (JobInstance オブジェクト自体を持つか、ID だけ持つか検討)
+  //       ID だけ持つ設計（今回採用）が循環参照を防ぎやすい。必要に応じて JobRepository で JobInstance を取得する。
 }
 
 // NewJobExecution は新しい JobExecution のインスタンスを作成します。
-func NewJobExecution(jobName string, params JobParameters) *JobExecution {
+// JobInstanceID を引数に追加
+func NewJobExecution(jobInstanceID string, jobName string, params JobParameters) *JobExecution {
   now := time.Now()
   return &JobExecution{
     ID:             uuid.New().String(), // 例: uuid パッケージを使用
+    JobInstanceID:  jobInstanceID, // ★ JobInstanceID を設定
     JobName:        jobName,
     Parameters:     params, // JobParameters はそのまま代入
     StartTime:      now,

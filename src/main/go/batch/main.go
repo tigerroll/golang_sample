@@ -1,4 +1,3 @@
-// src/main/go/batch/main.go
 package main
 
 import (
@@ -45,7 +44,7 @@ func main() {
     if closeErr != nil {
       logger.Errorf("Job Repository のクローズに失敗しました: %v", closeErr)
     } else {
-       logger.Infof("Job Repository を正常にクローズしました。")
+      logger.Infof("Job Repository を正常にクローズしました。")
     }
   }()
   logger.Infof("Job Repository を生成しました。")
@@ -89,27 +88,30 @@ func main() {
   // ジョブ自体の実行エラーは JobExecution に記録される場合と、Launch の戻り値のエラーに含まれる場合があります。
   jobExecution, launchErr := jobLauncher.Launch(ctx, batchJob, jobParams)
 
-  // Launch メソッドは常に JobExecution を返すように設計されているため、
-  // Launch 処理自体にエラーがあっても jobExecution は nil でない場合があります。
-  // launchErr は JobLauncher レベルのエラー（例: JobRepository との通信エラー）
-  // または Job の Run メソッドが返したエラーを含みます。
-
-  // JobLauncher の起動処理やジョブ実行中にエラーが発生したかチェック
+  // Launch メソッドがエラーを返した場合のハンドリングを修正
   if launchErr != nil {
     // Launch メソッドがエラーを返した場合、それは Job 実行中に発生したエラーか、
     // JobLauncher 内部（JobRepository 関連など）のエラーです。
-    logger.Errorf("Job '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
-      jobName, jobExecution.ID, launchErr)
+    // panic を防ぐため、jobExecution が nil でないかチェックします。
+    if jobExecution != nil {
+      logger.Errorf("Job '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
+        jobName, jobExecution.ID, launchErr)
 
-    // JobExecution の最終状態を再度確認 (Run メソッドや Update で状態が設定されているはず)
-    logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s",
-       jobExecution.JobName, jobExecution.ID, jobExecution.Status)
+      // JobExecution の最終状態を再度確認 (Run メソッドや Update で状態が設定されているはず)
+      logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s",
+        jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
-    // JobExecution に記録された失敗例外もログ出力することを検討
-    if len(jobExecution.Failureliye) > 0 {
-      logger.Errorf("Job '%s' (Execution ID: %s) の失敗例外: %v",
-         jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+      // JobExecution に記録された失敗例外もログ出力することを検討
+      if len(jobExecution.Failureliye) > 0 {
+        logger.Errorf("Job '%s' (Execution ID: %s) の失敗例外: %v",
+          jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+      }
+    } else {
+      // jobExecution が nil の場合は、JobExecution の作成以前にエラーが発生した可能性が高い
+      logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, launchErr)
+      // この場合、JobExecution は存在しないため、その後の JobExecution を参照するログ出力はスキップ
     }
+
 
     // 失敗した場合は非ゼロ終了コードで終了
     os.Exit(1)
@@ -117,6 +119,12 @@ func main() {
 
   // Launch メソッドがエラーを返さなかった場合でも、JobExecution のステータスを確認して、
   // ジョブが論理的に成功したか判断します。
+  // ここに到達した場合、jobExecution は nil ではないはずですが、念のためチェックすることも可能です。
+  if jobExecution == nil {
+    // 通常はここに到達しないはずですが、もし jobExecution が nil なら致命的な問題
+    logger.Fatalf("JobLauncher.Launch がエラーなしで nil の JobExecution を返しました。")
+  }
+
   logger.Infof("Job '%s' (Execution ID: %s) の最終状態: %s",
     jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
@@ -130,7 +138,7 @@ func main() {
     // JobExecution に記録された失敗例外もログ出力することを検討
     if len(jobExecution.Failureliye) > 0 {
       logger.Errorf("Job '%s' (Execution ID: %s) の失敗例外: %v",
-         jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+        jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
     }
 
     // 失敗した場合は非ゼロ終了コードで終了
