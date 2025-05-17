@@ -1,4 +1,4 @@
-// (修正 - JobOperator メソッドスタブ追加)
+// (修正 - JobOperator メソッド実装)
 package job
 
 import (
@@ -184,57 +184,154 @@ func (o *DefaultJobOperator) Abandon(ctx context.Context, executionID string) er
 }
 
 // GetJobExecution は指定された ID の JobExecution を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetJobExecution(ctx context.Context, executionID string) (*core.JobExecution, error) {
   logger.Infof("JobOperator: GetJobExecution メソッドが呼び出されました。Execution ID: %s", executionID)
-  // TODO: JobRepository から JobExecution を取得するロジックを実装
-  return nil, fmt.Errorf("GetJobExecution メソッドはまだ実装されていません")
+  // JobRepository の FindJobExecutionByID を呼び出す
+  jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    return nil, fmt.Errorf("JobExecution (ID: %s) の取得に失敗しました: %w", executionID, err)
+  }
+  logger.Debugf("JobExecution (ID: %s) を JobRepository から取得しました。", executionID)
+  return jobExecution, nil
 }
 
 // GetJobExecutions は指定された JobInstance に関連する全ての JobExecution を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetJobExecutions(ctx context.Context, instanceID string) ([]*core.JobExecution, error) {
   logger.Infof("JobOperator: GetJobExecutions メソッドが呼び出されました。Instance ID: %s", instanceID)
-  // TODO: JobRepository から JobInstance に関連する JobExecution のリストを取得するロジックを実装
-  return nil, fmt.Errorf("GetJobExecutions メソッドはまだ実装されていません")
+
+  // まず JobInstance を取得
+  jobInstance, err := o.jobRepository.FindJobInstanceByID(ctx, instanceID)
+  if err != nil {
+    // JobInstance が見つからない場合や取得エラーの場合
+    return nil, fmt.Errorf("JobInstance (ID: %s) の取得に失敗しました: %w", instanceID, err)
+  }
+  if jobInstance == nil {
+    // JobInstance が見つからなかった場合
+    logger.Warnf("JobInstance (ID: %s) が見つかりませんでした。", instanceID)
+    return []*core.JobExecution{}, nil // 空のスライスを返す
+  }
+
+  // JobInstance に関連する全ての JobExecution を取得
+  jobExecutions, err := o.jobRepository.FindJobExecutionsByJobInstance(ctx, jobInstance)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    return nil, fmt.Errorf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました: %w", instanceID, err)
+  }
+
+  logger.Debugf("JobInstance (ID: %s) に関連する %d 件の JobExecution を取得しました。", instanceID, len(jobExecutions))
+  return jobExecutions, nil
 }
 
 // GetLastJobExecution は指定された JobInstance の最新の JobExecution を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetLastJobExecution(ctx context.Context, instanceID string) (*core.JobExecution, error) {
   logger.Infof("JobOperator: GetLastJobExecution メソッドが呼び出されました。Instance ID: %s", instanceID)
-  // TODO: JobRepository から JobInstance の最新の JobExecution を取得するロジックを実装
-  return nil, fmt.Errorf("GetLastJobExecution メソッドはまだ実装されていません")
+
+  // JobRepository の FindLatestJobExecution を呼び出す
+  jobExecution, err := o.jobRepository.FindLatestJobExecution(ctx, instanceID)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    // JobExecution が見つからない場合も JobRepository が nil, sql.ErrNoRows を返す想定
+    return nil, fmt.Errorf("JobInstance (ID: %s) の最新 JobExecution の取得に失敗しました: %w", instanceID, err)
+  }
+  // JobExecution が見つからなかった場合は nil が返される
+
+  if jobExecution != nil {
+    logger.Debugf("JobInstance (ID: %s) の最新 JobExecution (ID: %s) を JobRepository から取得しました。", instanceID, jobExecution.ID)
+  } else {
+    logger.Warnf("JobInstance (ID: %s) の最新 JobExecution が見つかりませんでした。", instanceID)
+  }
+
+  return jobExecution, nil
 }
 
 // GetJobInstance は指定された ID の JobInstance を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetJobInstance(ctx context.Context, instanceID string) (*core.JobInstance, error) {
   logger.Infof("JobOperator: GetJobInstance メソッドが呼び出されました。Instance ID: %s", instanceID)
-  // TODO: JobRepository から JobInstance を取得するロジックを実装
-  return nil, fmt.Errorf("GetJobInstance メソッドはまだ実装されていません")
+  // JobRepository の FindJobInstanceByID を呼び出す
+  jobInstance, err := o.jobRepository.FindJobInstanceByID(ctx, instanceID)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    // JobInstance が見つからない場合も JobRepository が nil, sql.ErrNoRows を返す想定
+    return nil, fmt.Errorf("JobInstance (ID: %s) の取得に失敗しました: %w", instanceID, err)
+  }
+  // JobInstance が見つからなかった場合は nil が返される
+
+  if jobInstance != nil {
+    logger.Debugf("JobInstance (ID: %s) を JobRepository から取得しました。", instanceID)
+  } else {
+    logger.Warnf("JobInstance (ID: %s) が見つかりませんでした。", instanceID)
+  }
+
+  return jobInstance, nil
 }
 
 // GetJobInstances は指定されたジョブ名とパラメータに一致する JobInstance を検索します。
-// JobOperator インターフェースの実装スタブです。
-func (o *DefaultJobOperator) GetJobInstances(ctx context.Context, jobName string, params core.JobParameters) ([]*core.JobInstance, error) { // JSR352では複数返す場合がある
+// JobOperator インターフェースの実装です。
+// JSR352では複数返す場合があるため、リストを返します。
+func (o *DefaultJobOperator) GetJobInstances(ctx context.Context, jobName string, params core.JobParameters) ([]*core.JobInstance, error) {
   logger.Infof("JobOperator: GetJobInstances メソッドが呼び出されました。Job Name: %s, Parameters: %+v", jobName, params)
-  // TODO: JobRepository からジョブ名とパラメータに一致する JobInstance のリストを検索するロジックを実装
-  return nil, fmt.Errorf("GetJobInstances メソッドはまだ実装されていません")
+  // JobRepository の FindJobInstanceByJobNameAndParameters は単一の JobInstance を返すため、
+  // このメソッドのインターフェース定義 (複数返す) とは少し異なります。
+  // JSR352 の GetJobInstances は、指定された JobName と JobParameters に一致する JobInstance のリストを返します。
+  // SQLJobRepository の FindJobInstanceByJobNameAndParameters は JobParameters で一意に JobInstance を検索する想定の実装になっています。
+  // ここでは、既存の FindJobInstanceByJobNameAndParameters を呼び出し、結果が nil でなければリストに入れて返すようにします。
+  // TODO: 厳密な JSR352 に合わせる場合は、JobRepository に JobName と JobParameters で複数検索するメソッドを追加する必要があります。
+
+  jobInstance, err := o.jobRepository.FindJobInstanceByJobNameAndParameters(ctx, jobName, params)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    return nil, fmt.Errorf("JobInstance (JobName: %s, Parameters: %+v) の検索に失敗しました: %w", jobName, params, err)
+  }
+
+  var jobInstances []*core.JobInstance
+  if jobInstance != nil {
+    jobInstances = append(jobInstances, jobInstance)
+    logger.Debugf("JobName '%s' と Parameters に一致する JobInstance (ID: %s) を取得しました。", jobName, jobInstance.ID)
+  } else {
+    logger.Warnf("JobName '%s' と Parameters に一致する JobInstance は見つかりませんでした。", jobName)
+    jobInstances = []*core.JobInstance{} // 見つからない場合は空のスライスを返す
+  }
+
+
+  return jobInstances, nil
 }
 
 // GetJobNames は登録されている全てのジョブ名を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetJobNames(ctx context.Context) ([]string, error) {
   logger.Infof("JobOperator: GetJobNames メソッドが呼び出されました。")
-  // TODO: JobFactory または他の方法で登録されているジョブ名のリストを取得するロジックを実装
-  return nil, fmt.Errorf("GetJobNames メソッドはまだ実装されていません")
+  // JobRepository の GetJobNames を呼び出す
+  jobNames, err := o.jobRepository.GetJobNames(ctx)
+  if err != nil {
+    // JobRepository からのエラーをそのまま返す
+    return nil, fmt.Errorf("登録されているジョブ名の取得に失敗しました: %w", err)
+  }
+  logger.Debugf("%d 件のジョブ名を取得しました。", len(jobNames))
+  return jobNames, nil
 }
 
 // GetParameters は指定された JobExecution の JobParameters を取得します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) GetParameters(ctx context.Context, executionID string) (core.JobParameters, error) {
   logger.Infof("JobOperator: GetParameters メソッドが呼び出されました。Execution ID: %s", executionID)
-  // TODO: JobRepository から JobExecution に関連する JobParameters を取得するロジックを実装
-  return core.NewJobParameters(), fmt.Errorf("GetParameters メソッドはまだ実装されていません")
+
+  // まず JobExecution を取得
+  jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
+  if err != nil {
+    // JobExecution が見つからない場合や取得エラーの場合
+    return core.NewJobParameters(), fmt.Errorf("JobExecution (ID: %s) の取得に失敗しました: %w", executionID, err)
+  }
+  if jobExecution == nil {
+    // JobExecution が見つからなかった場合
+    logger.Warnf("JobExecution (ID: %s) が見つかりませんでした。", executionID)
+    return core.NewJobParameters(), fmt.Errorf("JobExecution (ID: %s) が見つかりませんでした", executionID) // エラーとして返す
+  }
+
+  logger.Debugf("JobExecution (ID: %s) の JobParameters を取得しました。", executionID)
+  return jobExecution.Parameters, nil
 }

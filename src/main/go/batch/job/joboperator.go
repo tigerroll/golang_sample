@@ -29,30 +29,23 @@ type JobOperator interface {
   Abandon(ctx context.Context, executionID string) error
 
   // GetJobExecution は指定された ID の JobExecution を取得します。
-  // TODO: 実装
   GetJobExecution(ctx context.Context, executionID string) (*core.JobExecution, error)
 
   // GetJobExecutions は指定された JobInstance に関連する全ての JobExecution を取得します。
-  // TODO: 実装
   GetJobExecutions(ctx context.Context, instanceID string) ([]*core.JobExecution, error)
 
   // GetLastJobExecution は指定された JobInstance の最新の JobExecution を取得します。
-  // TODO: 実装
   GetLastJobExecution(ctx context.Context, instanceID string) (*core.JobExecution, error)
 
   // GetJobInstance は指定された ID の JobInstance を取得します。
-  // TODO: 実装
   GetJobInstance(ctx context.Context, instanceID string) (*core.JobInstance, error)
 
   // GetJobInstances は指定されたジョブ名とパラメータに一致する JobInstance を検索します。
-  // TODO: 実装
   GetJobInstances(ctx context.Context, jobName string, params core.JobParameters) ([]*core.JobInstance, error) // JSR352では複数返す場合がある
 
   // GetJobNames は登録されている全てのジョブ名を取得します。
-  // TODO: 実装
   GetJobNames(ctx context.Context) ([]string, error)
 
   // GetParameters は指定された JobExecution の JobParameters を取得します。
-  // TODO: 実装
   GetParameters(ctx context.Context, executionID string) (core.JobParameters, error)
 }
