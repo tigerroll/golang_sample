@@ -1,3 +1,4 @@
+// (修正)
 package main
 
 import (
@@ -5,9 +6,9 @@ import (
   "os"
 
   config "sample/src/main/go/batch/config"
-  job "sample/src/main/go/batch/job"
+  job "sample/src/main/go/batch/job" // job パッケージをインポート
   core "sample/src/main/go/batch/job/core"
-  factory "sample/src/main/go/batch/job/factory"
+  factory "sample/src/main/go/batch/job/factory" // factory パッケージをインポート
   "sample/src/main/go/batch/repository" // repository パッケージをインポート
   logger "sample/src/main/go/batch/util/logger"
 )
@@ -33,7 +34,6 @@ func main() {
   ctx := context.Background()
 
   // Step 1: Job Repository の生成
-  // repository.NewJobRepository 関数を呼び出します。
   jobRepository, err := repository.NewJobRepository(ctx, *cfg)
   if err != nil {
     logger.Fatalf("Job Repository の生成に失敗しました: %v", err)
@@ -50,7 +50,7 @@ func main() {
   logger.Infof("Job Repository を生成しました。")
 
 
-  // JobFactory の生成
+  // Step 3: JobFactory の生成
   // JobFactory が JobRepository を必要とするように変更したので、ここで JobRepository を渡します。
   jobFactory := factory.NewJobFactory(cfg, jobRepository) // JobRepository を渡す
   logger.Debugf("JobFactory を Job Repository と共に作成しました。")
@@ -59,21 +59,6 @@ func main() {
   jobName := cfg.Batch.JobName
   logger.Infof("実行する Job: '%s'", jobName)
 
-  // JobFactory で Job オブジェクトを取得
-  // CreateJob 関数が JobRepository を必要とするように変更したので、JobFactory に渡された JobRepository が使用されます。
-  batchJob, err := jobFactory.CreateJob(jobName)
-  if err != nil {
-    logger.Fatalf("Job '%s' の作成に失敗しました: %v", jobName, err)
-  }
-  logger.Debugf("Job '%s' オブジェクトを作成しました。", jobName)
-
-
-  // Step 3: JobLauncher を作成し、Job Repository を引き渡す
-  // job.NewSimpleJobLauncher 関数が JobRepository を引数に取るように変更したので、ここで渡します。
-  jobLauncher := job.NewSimpleJobLauncher(jobRepository)
-  logger.Debugf("SimpleJobLauncher を Job Repository と共に作成しました。")
-
-
   // JobParameters を作成 (必要に応じてパラメータを設定)
   // 例えば、コマンドライン引数や環境変数からパラメータを読み込み、JobParameters に設定します。
   // 例: core.NewJobParameters(); jobParams.Put("input.file", "/path/to/input.txt")
@@ -81,23 +66,29 @@ func main() {
   // TODO: ここで JobParameters をロードするロジックを追加
 
 
-  // JobLauncher を使用してジョブを起動
-  logger.Infof("JobLauncher を使用して Job '%s' を起動します。", jobName)
+  // Step 4: JobOperator を作成し、Job Repository と JobFactory を引き渡す
+  // job.NewDefaultJobOperator 関数が JobRepository と JobFactory を引数に取るように変更したので、ここで渡します。
+  // jobFactory はポインタ (*factory.JobFactory) なので、デリファレンスして渡します。
+  jobOperator := job.NewDefaultJobOperator(jobRepository, *jobFactory) // ★ ここを修正: *jobFactory
+  logger.Debugf("DefaultJobOperator を Job Repository および JobFactory と共に作成しました。")
 
+
+  // Step 5: JobOperator を使用してジョブを起動
+  // JobOperator.Start メソッドは jobName と jobParams を直接受け取ります。
   // Launch メソッドは JobExecution オブジェクトと、起動処理自体のエラーを返します。
-  // ジョブ自体の実行エラーは JobExecution に記録される場合と、Launch の戻り値のエラーに含まれる場合があります。
-  jobExecution, launchErr := jobLauncher.Launch(ctx, batchJob, jobParams)
+  // ジョブ自体の実行エラーは JobExecution に記録される場合と、Start の戻り値のエラーに含まれる場合があります。
+  jobExecution, startErr := jobOperator.Start(ctx, jobName, jobParams)
 
-  // Launch メソッドがエラーを返した場合のハンドリングを修正
-  if launchErr != nil {
-    // Launch メソッドがエラーを返した場合、それは Job 実行中に発生したエラーか、
-    // JobLauncher 内部（JobRepository 関連など）のエラーです。
+  // Start メソッドがエラーを返した場合のハンドリングを修正
+  if startErr != nil {
+    // Start メソッドがエラーを返した場合、それは Job 実行中に発生したエラーか、
+    // JobOperator 内部（Job Repository 関連、JobFactory 関連など）のエラーです。
     // panic を防ぐため、jobExecution が nil でないかチェックします。
     if jobExecution != nil {
       logger.Errorf("Job '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
-        jobName, jobExecution.ID, launchErr)
+        jobName, jobExecution.ID, startErr)
 
-      // JobExecution の最終状態を再度確認 (Run メソッドや Update で状態が設定されているはず)
+      // JobExecution の最終状態を再度確認 (Run メソッドや Operator の Update で状態が設定されているはず)
       logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s",
         jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
@@ -108,7 +99,7 @@ func main() {
       }
     } else {
       // jobExecution が nil の場合は、JobExecution の作成以前にエラーが発生した可能性が高い
-      logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, launchErr)
+      logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, startErr)
       // この場合、JobExecution は存在しないため、その後の JobExecution を参照するログ出力はスキップ
     }
 
@@ -117,12 +108,12 @@ func main() {
     os.Exit(1)
   }
 
-  // Launch メソッドがエラーを返さなかった場合でも、JobExecution のステータスを確認して、
+  // Start メソッドがエラーを返さなかった場合でも、JobExecution のステータスを確認して、
   // ジョブが論理的に成功したか判断します。
   // ここに到達した場合、jobExecution は nil ではないはずですが、念のためチェックすることも可能です。
   if jobExecution == nil {
     // 通常はここに到達しないはずですが、もし jobExecution が nil なら致命的な問題
-    logger.Fatalf("JobLauncher.Launch がエラーなしで nil の JobExecution を返しました。")
+    logger.Fatalf("JobOperator.Start がエラーなしで nil の JobExecution を返しました。")
   }
 
   logger.Infof("Job '%s' (Execution ID: %s) の最終状態: %s",
