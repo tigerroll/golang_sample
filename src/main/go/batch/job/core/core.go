@@ -47,6 +47,18 @@ const (
   JobStatusAbandoned JobStatus = "ABANDONED"
 )
 
+// IsFinished は JobStatus が終了状態かどうかを判定するヘルパーメソッドです。
+// このメソッドを core パッケージ内で定義します。
+func (s JobStatus) IsFinished() bool {
+  switch s {
+  case JobStatusCompleted, JobStatusFailed, JobStatusStopped, JobStatusAbandoned:
+    return true
+  default:
+    return false
+  }
+}
+
+
 // ExitStatus はジョブ/ステップの終了時の詳細なステータスを表します。
 type ExitStatus string
 
