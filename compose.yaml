@@ -4,14 +4,16 @@ services:
     build: container/development
     environment:
       TZ: 'Asia/Tokyo'
+    env_file:
+      - .aider_api_keys
     privileged: true
     tty: true
     restart: always
     volumes:
       - type: bind
         source: .
-        target: /home/fedora/go_project
-    working_dir: /home/fedora
+        target: /opt/go_project
+    working_dir: /opt/go_project
     networks:
       - fedora-network
 
