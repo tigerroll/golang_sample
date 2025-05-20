@@ -46,6 +46,22 @@ function install_homebrew() {
   return $code
 }
 
+function install_complete() {
+  echo "Checking bash complete installation..."
+  local code=0
+  [[ -s /home/linuxbrew/.linuxbrew/bin/brew ]] || {
+    code=1
+  } && {
+    [[ -r "/home/linuxbrew/.linuxbrew/etc/profile.d/bash_completion.sh" ]] || {
+      brew install bash-completion@2 && \
+      echo '[[ -r "/home/linuxbrew/.linuxbrew/etc/profile.d/bash_completion.sh" ]] && . "/home/linuxbrew/.linuxbrew/etc/profile.d/bash_completion.sh"' >> $HOME/.bashrc && \
+      source $HOME/.bashrc
+      code=$?
+    }
+  }
+  return $code
+}
+
 function install_goenv() {
   echo "Checking goenv installation..."
   local code=0
@@ -118,6 +134,7 @@ function initialize() {
   install_package_groups || exit 1
   install_packages || exit 1
   install_homebrew || exit 1
+  install_complete || exit 1
   install_goenv || exit 1
   install_mysql_client || exit 1
   install_posgres_client || exit 1
