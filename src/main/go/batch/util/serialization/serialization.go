@@ -2,7 +2,6 @@ package serialization
 
 import (
 	"encoding/json"
-	"fmt"
 
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	"sample/src/main/go/batch/util/exception" // exception パッケージをインポート
