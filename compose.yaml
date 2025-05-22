@@ -2,6 +2,10 @@ services:
   fedora:
     container_name: fedora
     build: container/development
+    platform: linux/amd64
+    ports:
+      - "4000:4000"
+      - "2345:2345"
     environment:
       TZ: 'Asia/Tokyo'
     env_file:

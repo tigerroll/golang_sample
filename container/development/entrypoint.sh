@@ -23,7 +23,11 @@ function install_packages() {
   local packages+=("vim")
   local packages+=("tree") 
   local packages+=("nkf")
-  local packages+=("bind-utils") 
+  local packages+=("jq")
+  local packages+=("yq")
+  local packages+=("iputils")
+  local packages+=("net-tools")
+  local packages+=("bind-utils")
   local packages+=("the_silver_searcher")
   local packages+=("htop")
   local packages+=("btop")
@@ -69,7 +73,7 @@ function install_goenv() {
     code=1
   } && {
     [[ -s $(goenv which go) ]] || {
-      brew install gcc goenv go-task && \
+      brew install gcc goenv go-task gopls delve && \
       goenv install -f latest && \
       goenv global latest && \
       echo 'export GOENV_ROOT=$HOME/.goenv' >> $HOME/.bashrc && \
