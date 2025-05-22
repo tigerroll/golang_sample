@@ -38,11 +38,11 @@ services:
 
   postgres:
     container_name: postgres
-    image: "postgres:14-alpine"
+    image: "postgres:latest"
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_DATABASE: weather
+      POSTGRES_DB: main
       POSTGRES_USER: weather
       POSTGRES_PASSWORD: weather
       POSTGRES_HOST_AUTH_METHOD: trust

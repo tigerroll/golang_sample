@@ -21,8 +21,10 @@ tasks:
       - dir: [".{{BUILD_OUTPUT_DIR}}"]
     cmds:
       - cp src/main/resources/application.yaml src/main/go/batch/config
+      - cp src/main/resources/jobs/weather.yaml src/main/go/batch/job
       - go build -v -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.SRC_DIR}}
       - rm src/main/go/batch/config/application.yaml
+      - rm src/main/go/batch/job/weaher.yaml
       - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     generates:
       - "{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
