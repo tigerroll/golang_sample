@@ -31,6 +31,7 @@ function install_packages() {
   local packages+=("the_silver_searcher")
   local packages+=("htop")
   local packages+=("btop")
+  local packages+=("socat")
 
   # install packages.
   dnf install "${packages[@]}" -y
@@ -93,10 +94,7 @@ function install_mysql_client() {
   } && {
     [[ -s $(type mysql) ]] || {
       brew install mysql-client && \
-      echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/mysql-client/bin:$PATH"' >> $HOME/.bashrc && \
-      echo 'export LDFLAGS="-L/home/linuxbrew/.linuxbrew/opt/mysql-client/lib"' >> $HOME/.bashrc && \
-      echo 'export CPPFLAGS="-I/home/linuxbrew/.linuxbrew/opt/mysql-client/include"' >> $HOME/.bashrc && \
-      echo 'export PKG_CONFIG_PATH="/home/linuxbrew/.linuxbrew/opt/mysql-client/lib/pkgconfig"' >> $HOME/.bashrc
+      echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/mysql-client/bin:$PATH"' >> $HOME/.bashrc
       code=$?
     }
   }
@@ -110,10 +108,7 @@ function install_posgres_client() {
   } && {
     [[ -s $(type psql) ]] || {
       brew install libpq && \
-      echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/libpq/bin:$PATH"' >> $HOME/.bashrc && \
-      echo 'export LDFLAGS="-L/home/linuxbrew/.linuxbrew/opt/libpq/lib"' >> $HOME/.bashrc && \
-      echo 'export CPPFLAGS="-I/home/linuxbrew/.linuxbrew/opt/libpq/include"' >> $HOME/.bashrc && \
-      echo 'export PKG_CONFIG_PATH="/home/linuxbrew/.linuxbrew/opt/libpq/lib/pkgconfig"' >> $HOME/.bashrc
+      echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/libpq/bin:$PATH"' >> $HOME/.bashrc
       code=$?
     }
   }
@@ -165,6 +160,11 @@ function entrypoint() {
 
   [[ -d '/home/linuxbrew/.linuxbrew/opt/libpq/bin' ]] && {
     export PATH="/home/linuxbrew/.linuxbrew/opt/libpq/bin:$PATH"
+  }
+
+  [[ -x "/opt/gopls-tcp-wrapper.sh" ]] && {
+    echo "Starting gopls TCP wrapper in background from entrypoint function..."
+    /opt/gopls-tcp-wrapper.sh &
   }
 }
 
