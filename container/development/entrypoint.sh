@@ -92,7 +92,7 @@ function install_mysql_client() {
   [[ -s /home/linuxbrew/.linuxbrew/bin/brew ]] || {
     code=1
   } && {
-    [[ -s $(type mysql) ]] || {
+    [[ -s $(type mysql 2>/dev/null) ]] || {
       brew install mysql-client && \
       echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/mysql-client/bin:$PATH"' >> $HOME/.bashrc
       code=$?
@@ -106,7 +106,7 @@ function install_posgres_client() {
   [[ -s /home/linuxbrew/.linuxbrew/bin/brew ]] || {
     code=1
   } && {
-    [[ -s $(type psql) ]] || {
+    [[ -s $(type psql 2>/dev/null) ]] || {
       brew install libpq && \
       echo 'export PATH="/home/linuxbrew/.linuxbrew/opt/libpq/bin:$PATH"' >> $HOME/.bashrc
       code=$?
@@ -120,7 +120,7 @@ function install_aider() {
   [[ -s /home/linuxbrew/.linuxbrew/bin/brew ]] || {
     code=1
   } && {
-    [[ -s $(type aider) ]] || {
+    [[ -s $(type aider 2>/dev/null) ]] || {
       brew install aider
     code=$?
     }
