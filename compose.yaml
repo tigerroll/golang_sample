@@ -12,6 +12,7 @@ services:
       - .aider_api_keys
     privileged: true
     tty: true
+    stdin_open: true
     restart: always
     volumes:
       - type: bind
