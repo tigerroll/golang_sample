@@ -1,4 +1,3 @@
-// (修正)
 package main
 
 import (

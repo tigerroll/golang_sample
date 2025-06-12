@@ -161,11 +161,6 @@ function entrypoint() {
   [[ -d '/home/linuxbrew/.linuxbrew/opt/libpq/bin' ]] && {
     export PATH="/home/linuxbrew/.linuxbrew/opt/libpq/bin:$PATH"
   }
-
-  [[ -x "/opt/gopls-tcp-wrapper.sh" ]] && {
-    echo "Starting gopls TCP wrapper in background from entrypoint function..."
-    /opt/gopls-tcp-wrapper.sh &
-  }
 }
 
 case ${1} in
