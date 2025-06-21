@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql" // sql パッケージをインポート
-	"fmt"          // fmt パッケージをインポート
 	"os"
 	"os/signal"
 	"syscall"
