@@ -2,6 +2,8 @@ package repository
 
 import (
   "context"
+  "database/sql" // sql パッケージをインポート
+
   core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 )
 
@@ -63,6 +65,9 @@ type JobRepository interface {
   FindStepExecutionsByJobExecutionID(ctx context.Context, jobExecutionID string) ([]*core.StepExecution, error)
 
   // TODO: CheckpointData の永続化・復元に関するメソッドもここに追加
+
+  // GetDB はデータベース接続を返します。トランザクション管理のために使用されます。
+  GetDB() *sql.DB
 
   // Close はリポジトリが使用するリソース (データベース接続など) を解放します。
   Close() error

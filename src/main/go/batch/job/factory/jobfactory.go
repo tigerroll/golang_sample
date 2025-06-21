@@ -17,6 +17,7 @@ import (
 
 	// ★ ダミーコンポーネントをそれぞれのパッケージからインポート ★
 	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
+	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
 )
@@ -76,7 +77,13 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	componentRegistry["dummyWriter"] = dummyWriter.NewDummyWriter()
 
 	// 3. JSL Flow を core.FlowDefinition に変換
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry)
+	// jobRepository を ConvertJSLToCoreFlow に渡す
+	// StepExecutionListener を生成
+	stepListeners := []stepListener.StepExecutionListener{
+		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
+		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
+	}
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, stepListeners)
 	if err != nil {
 		return nil, fmt.Errorf("JSL ジョブ '%s' のフロー変換に失敗しました: %w", jobName, err)
 	}

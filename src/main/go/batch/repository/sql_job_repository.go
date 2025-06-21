@@ -24,6 +24,11 @@ func NewSQLJobRepository(db *sql.DB) *SQLJobRepository {
   return &SQLJobRepository{db: db}
 }
 
+// GetDB はデータベース接続を返します。
+func (r *SQLJobRepository) GetDB() *sql.DB {
+  return r.db
+}
+
 // --- JobInstance 関連メソッドの実装 ---
 
 // SaveJobInstance は新しい JobInstance をデータベースに保存します。
@@ -390,7 +395,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
     if err != nil {
-      logger.Errorf("JobExecution (ID: %s) の Failures のデコードに失敗しました: %v", executionID, err)
+      logger.Errorf("JobExecution (ID: %s) の Failures のデcodeに失敗しました: %v", executionID, err)
     } else {
       // デコードしたstringスライスを error スライスに戻す（文字列から新しいerrorを作成）
       jobExecution.Failures = make([]error, len(failureMsgs))
@@ -895,12 +900,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
   // JobExecution の基本情報のみをロードするような別のメソッドを呼び出すか、
   // または FindJobExecutionByID が StepExecutions をロードしないように変更する必要があります。
   // 現状の FindJobExecutionByID は StepExecutions もロードするため、ここで呼び出すと無限ループになる可能性があります。
-  // ここでは、FindJobExecutionByID が StepExecutions をロードするが、その中でさらに FindStepExecutionsByJobExecutionID を呼び出すことはない、
-  // という前提で、親の JobExecution を取得し、それを各 StepExecution に設定します。
-  // ただし、FindJobExecutionByID が StepExecutions をロードする際にこのメソッドを呼び出すため、
-  // ここで再度 FindJobExecutionByID を呼び出すと無限再帰になります。
-  // したがって、ここでは parentJobExecution を設定しないか、JobExecution の基本情報のみをロードする専用メソッドが必要です。
-  // 今回は、FindJobExecutionByID が StepExecutions をロードする際に、
+  // ここでは、FindJobExecutionByID が StepExecutions をロードする際に、
   // その StepExecution の JobExecution フィールドは設定しない、という前提で進めます。
   // そして、FindJobExecutionByID の中で、取得した StepExecution の JobExecution フィールドを設定します。
   // したがって、この FindStepExecutionsByJobExecutionID の中では parentJobExecution の取得は行いません。

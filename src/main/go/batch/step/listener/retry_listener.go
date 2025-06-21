@@ -33,9 +33,9 @@ func (l *RetryListener) BeforeStep(ctx context.Context, stepExecution *core.Step
   // StepExecution からステップ名を取得
   stepName := stepExecution.StepName
   // StepExecution からリトライ回数などを取得 (StepExecutionにRetryCountフィールドを追加するなど)
-  // ここではStepExecutionのFailureliyeスライスの長さをリトライ回数として概算します。
+  // ここではStepExecutionのFailuresスライスの長さをリトライ回数として概算します。
   // 正確なリトライ回数は StepExecution に専用のフィールドを持たせるか、Execution Contextで管理すべきです。
-  attempt := len(stepExecution.Failureliye) + 1 // 最初の試行はリトライ0回目
+  attempt := len(stepExecution.Failures) + 1 // 最初の試行はリトライ0回目
 
   if attempt == 1 {
     // StepExecutionにStartTimeが設定されている前提
@@ -52,11 +52,11 @@ func (l *RetryListener) AfterStep(ctx context.Context, stepExecution *core.StepE
   // StepExecution から必要な情報 (エラー、処理時間) を取得してログ出力
   stepName := stepExecution.StepName
   duration := stepExecution.EndTime.Sub(stepExecution.StartTime) // StepExecution にEndTimeが設定されている前提
-  attempt := len(stepExecution.Failureliye) // AfterStep時点では、失敗していれば Failureliye にエラーが追加されているはず
+  attempt := len(stepExecution.Failures) // AfterStep時点では、失敗していれば Failures にエラーが追加されているはず
 
-  if len(stepExecution.Failureliye) > 0 {
+  if len(stepExecution.Failures) > 0 {
     logger.Errorf("ステップ '%s' (リトライ試行 %d) (Execution ID: %s) でエラーが発生しました: %v (処理時間: %s)",
-      stepName, attempt, stepExecution.ID, stepExecution.Failureliye, duration.String())
+      stepName, attempt, stepExecution.ID, stepExecution.Failures, duration.String())
     // config フィールドから必要な設定にアクセスしてリトライ上限を確認
     if attempt >= l.config.MaxAttempts {
       logger.Errorf("ステップ '%s' は最大リトライ回数に達しました。", stepName)

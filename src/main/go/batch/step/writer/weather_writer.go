@@ -6,20 +6,22 @@ import (
 	"time"
 
 	entity "sample/src/main/go/batch/domain/entity"
+	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	repository "sample/src/main/go/batch/repository"
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 )
 
 type WeatherWriter struct {
 	repo repository.WeatherRepository
-	// config *config.WeatherWriterConfig // 必要に応じて追加
+	// ExecutionContext を保持するためのフィールド
+	executionContext core.ExecutionContext
 }
 
 // NewWeatherWriter が Repository を受け取るように修正 (ここでは修正なし)
 func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
 	return &WeatherWriter{
 		repo: repo,
-		// config: cfg, // 必要に応じて初期化
+		executionContext: core.NewExecutionContext(), // 初期化
 	}
 }
 
@@ -85,6 +87,43 @@ func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
 
 	logger.Infof("WeatherWriter: %d 件のアイテムをリポジトリに書き込み完了しました。", len(dataToStore))
 	return nil
+}
+
+// Close は Writer インターフェースの実装です。
+// WeatherWriter は閉じるリソースがないため、何もしません。
+func (w *WeatherWriter) Close(ctx context.Context) error {
+  select {
+  case <-ctx.Done():
+    return ctx.Err()
+  default:
+  }
+  logger.Debugf("WeatherWriter.Close が呼び出されました。")
+  return nil
+}
+
+// SetExecutionContext は Writer インターフェースの実装です。
+// 渡された ExecutionContext を内部に設定します。
+func (w *WeatherWriter) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
+  select {
+  case <-ctx.Done():
+    return ctx.Err()
+  default:
+  }
+  w.executionContext = ec
+  logger.Debugf("WeatherWriter.SetExecutionContext が呼び出されました。")
+  return nil
+}
+
+// GetExecutionContext は Writer インターフェースの実装です。
+// 現在の ExecutionContext を返します。
+func (w *WeatherWriter) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
+  select {
+  case <-ctx.Done():
+    return nil, ctx.Err()
+  default:
+  }
+  logger.Debugf("WeatherWriter.GetExecutionContext が呼び出されました。")
+  return w.executionContext, nil
 }
 
 // WeatherWriter が Writer インターフェースを満たすことを確認

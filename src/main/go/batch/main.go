@@ -23,6 +23,7 @@ import (
 	_ "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
 	_ "sample/src/main/go/batch/step/reader"    // dummy_reader.go がこのパッケージに属する
 	_ "sample/src/main/go/batch/step/writer"    // dummy_writer.go がこのパッケージに属する
+	_ "sample/src/main/go/batch/step"           // JSLAdaptedStep が参照されるためインポート
 
 	// ★ マイグレーション関連のインポートを追加 ★
 	"github.com/golang-migrate/migrate/v4"
