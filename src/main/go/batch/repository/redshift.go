@@ -5,7 +5,6 @@ import (
 	"context" // context パッケージをインポート
 	"database/sql"
 	"fmt"
-	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (Redshift も互換性があるため使用)
 	"sample/src/main/go/batch/config"
@@ -44,9 +43,9 @@ func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftReposi
 	return &RedshiftRepository{db: db}, nil
 }
 
-// SaveWeatherData は加工済みの Open Meteo の天気予報データを Redshift に保存します。
-// Context を受け取るように修正
-func (r *RedshiftRepository) SaveWeatherData(ctx context.Context, forecast entity.OpenMeteoForecast) error {
+// BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをRedshiftに保存します。
+// このメソッドは、ItemWriterから呼び出されることを想定しています。
+func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -54,33 +53,15 @@ func (r *RedshiftRepository) SaveWeatherData(ctx context.Context, forecast entit
 	default:
 	}
 
+	if len(items) == 0 {
+		return nil // 書き込むデータがない場合は何もしない
+	}
+
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	// PrepareContext に Context を渡す
-	stmt, err := tx.PrepareContext(ctx, `
-		CREATE TABLE IF NOT EXISTS hourly_forecast (
-			time TIMESTAMP WITHOUT TIME ZONE,
-			weather_code INTEGER,
-			temperature_2m DOUBLE PRECISION,
-			latitude DOUBLE PRECISION,
-			longitude DOUBLE PRECISION,
-			collected_at TIMESTAMP WITHOUT TIME ZONE
-		);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare table creation statement: %w", err)
-	}
-	defer stmt.Close()
-
-	// ExecContext に Context を渡す
-	_, err = stmt.ExecContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
 
 	// PrepareContext に Context を渡す
 	insertStmt, err := tx.PrepareContext(ctx, `
@@ -92,19 +73,7 @@ func (r *RedshiftRepository) SaveWeatherData(ctx context.Context, forecast entit
 	}
 	defer insertStmt.Close()
 
-	// 設定のロードとタイムゾーン処理
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("設定のロードに失敗しました: %w", err)
-	}
-	loc, err := time.LoadLocation(cfg.System.Timezone)
-	if err != nil {
-		return fmt.Errorf("タイムゾーン '%s' のロードに失敗しました: %w", cfg.System.Timezone, err)
-	}
-
-	collectedAt := time.Now().In(loc).Format(time.RFC3339)
-
-	for i := range forecast.Hourly.Time {
+	for _, item := range items {
 		// ループ内でも Context の完了を定期的にチェック
 		select {
 		case <-ctx.Done():
@@ -116,15 +85,15 @@ func (r *RedshiftRepository) SaveWeatherData(ctx context.Context, forecast entit
 		// ExecContext に Context を渡す
 		_, err = insertStmt.ExecContext(
 			ctx,
-			forecast.Hourly.Time[i],
-			forecast.Hourly.WeatherCode[i],
-			forecast.Hourly.Temperature2M[i],
-			forecast.Latitude,
-			forecast.Longitude,
-			collectedAt,
+			item.Time,
+			item.WeatherCode,
+			item.Temperature2M,
+			item.Latitude,
+			item.Longitude,
+			item.CollectedAt,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert data for time %s: %w", forecast.Hourly.Time[i], err)
+			return fmt.Errorf("failed to insert data for time %s: %w", item.Time, err)
 		}
 	}
 
@@ -133,8 +102,7 @@ func (r *RedshiftRepository) SaveWeatherData(ctx context.Context, forecast entit
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	logger.Debugf("Open Meteo の天気予報データを Redshift に保存しました: 緯度=%f, 経度=%f, データ数=%d",
-		forecast.Latitude, forecast.Longitude, len(forecast.Hourly.Time))
+	logger.Debugf("Redshift に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
 }
 
