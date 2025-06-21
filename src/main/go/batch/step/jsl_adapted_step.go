@@ -3,6 +3,8 @@ package step
 import (
 	"context"
 	"errors"
+	"encoding/json" // json.UnmarshalTypeError のためにインポート
+	"net" // net.OpError のためにインポート
 	"fmt"
 	"io" // io パッケージをインポート
 	"reflect" // reflect パッケージをインポート
@@ -910,7 +912,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 }
 
 // isRetryableException はエラーがリトライ可能かどうかを判定します。
-// BatchError のフラグを優先し、次に文字列比較を行います。
+// BatchError のフラグを優先し、次に具体的なエラー型をチェックします。
 func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []string) bool {
 	if err == nil {
 		return false
@@ -920,18 +922,30 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 		return be.IsRetryable()
 	}
 
-	// それ以外のエラーは文字列比較で判定
-	errType := reflect.TypeOf(err).String()
+	// 設定されたリトライ可能な例外をチェック
 	for _, re := range retryableExceptions {
-		if errType == re {
-			return true
+		switch re {
+		case "io.EOF":
+			if errors.Is(err, io.EOF) {
+				return true
+			}
+		case "net.OpError":
+			var netOpErr *net.OpError
+			if errors.As(err, &netOpErr) {
+				return true
+			}
+		// 他のリトライ可能な標準エラーやカスタムエラーがあればここに追加
+		// 例: case "context.DeadlineExceeded": if errors.Is(err, context.DeadlineExceeded) { return true }
+		default:
+			// 未知の例外文字列はログに警告を出すか無視する
+			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。", re)
 		}
 	}
 	return false
 }
 
 // isSkippableException はエラーがスキップ可能かどうかを判定します。
-// BatchError のフラグを優先し、次に文字列比較を行います。
+// BatchError のフラグを優先し、次に具体的なエラー型をチェックします。
 func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []string) bool {
 	if err == nil {
 		return false
@@ -941,11 +955,17 @@ func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []s
 		return be.IsSkippable()
 	}
 
-	// それ以外のエラーは文字列比較で判定
-	errType := reflect.TypeOf(err).String()
+	// 設定されたスキップ可能な例外をチェック
 	for _, se := range skippableExceptions {
-		if errType == se {
-			return true
+		switch se {
+		case "json.UnmarshalTypeError":
+			var unmarshalTypeErr *json.UnmarshalTypeError
+			if errors.As(err, &unmarshalTypeErr) {
+				return true
+			}
+		// 他のスキップ可能な標準エラーやカスタムエラーがあればここに追加
+		default:
+			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。", se)
 		}
 	}
 	return false
