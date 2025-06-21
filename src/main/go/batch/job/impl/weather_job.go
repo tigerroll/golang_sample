@@ -322,17 +322,17 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 		if transition.End {
 			// End 遷移: ジョブを完了としてマークし、ループを終了
 			logger.Infof("遷移ルールにより Job '%s' (Execution ID: %s) を終了します。最終 ExitStatus: %s",
-				j.JobName(), jobExecution.ID, core.ExitStatusCompleted) // End 遷移は通常 COMPLETED
+				j.JobName(), jobExecution.ID, core.ExitStatusCompleted) // ここを修正
 			jobExecution.Status = core.JobStatusCompleted
-			jobExecution.ExitStatus = core.ExitStatusCompleted
+			jobExecution.ExitStatus = core.ExitStatusCompleted // ここを修正
 			currentElementName = "" // ループを終了するための条件を設定
 		} else if transition.Fail {
 			// Fail 遷移: ジョブを失敗としてマークし、ループを終了
 			logger.Errorf("遷移ルールにより Job '%s' (Execution ID: %s) を失敗とします。最終 ExitStatus: %s",
-				j.JobName(), jobExecution.ID, core.ExitStatusFailed) // Fail 遷移は通常 FAILED
+				j.JobName(), jobExecution.ID, core.ExitStatusFailed) // ここを修正
 			jobExecution.Status = core.JobStatusFailed
-			jobExecution.ExitStatus = core.ExitStatusFailed
-			jobExecution.AddFailureException(fmt.Errorf("遷移ルールによるジョブ失敗 (ExitStatus: %s)", core.ExitStatusFailed))
+			jobExecution.ExitStatus = core.ExitStatusFailed // ここを修正
+			jobExecution.AddFailureException(fmt.Errorf("遷移ルールによるジョブ失敗 (ExitStatus: %s)", core.ExitStatusFailed)) // ここを修正
 			currentElementName = "" // ループを終了するための条件を設定
 		} else if transition.Stop {
 			// Stop 遷移: ジョブを停止としてマークし、ループを終了
