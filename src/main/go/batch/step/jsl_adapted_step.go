@@ -7,7 +7,6 @@ import (
 	"net" // net.OpError のためにインポート
 	"fmt"
 	"io" // io パッケージをインポート
-	"reflect" // reflect パッケージをインポート
 	"time"
 
 	"sample/src/main/go/batch/config" // config パッケージをインポート
