@@ -10,9 +10,8 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート (JSL Decision の一時的な処理のため)
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
-	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
+	// exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート - 現在のコードでは未使用のため削除
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
-	// "gopkg.in/yaml.v3" // yaml パッケージをインポート (JSL Decision の一時的な処理のため) - 現在のコードでは未使用のため削除
 )
 
 // WeatherJob は天気予報データを取得・処理・保存するバッチジョブです。
