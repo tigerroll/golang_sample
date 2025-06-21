@@ -411,7 +411,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		// ダミー処理のロジックをここに実装
 		// 例: DummyReader から読み込み、DummyProcessor で処理し、DummyWriter で書き込む
 		// fetchWeatherDataStep と同様のチャンク処理ループを適用
-		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
+		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ { // 修正: for retryAttempt := 0; retryAttempt := 0; -> for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts;
 			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, retryConfig.MaxAttempts)
 
 			processedItemsChunk := make([]interface{}, 0, chunkSize) // DummyProcessor は interface{} を返す
