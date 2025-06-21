@@ -470,7 +470,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			return err
 		}
 
-		var chunkWriteError bool
+		var chunkWriteError bool = false // ★ ここで宣言を追加
 		var currentWriteCount int
 		// []*entity.WeatherDataToStore を []any に変換
 		itemsForWriter := make([]any, len(dataToStore))
