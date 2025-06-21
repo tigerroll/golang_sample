@@ -55,5 +55,10 @@ tasks:
       - rm -rf ./{{.BUILD_OUTPUT_DIR}}
       - rm -f src/main/go/batch/job/jsl/*.yaml # コピーしたJSLファイルを削除
       - rm -f src/main/go/batch/job/weather_job.go # 不要になったファイルを削除
-      #- go clean -modcache
-      #- go clean -cache -testcache
+
+  mod-tidy:
+    desc: "Add missing and remove unused go-modules."
+    cmds:
+      - go clean -modcache
+      - go clean -cache -testcache
+      - go mod tidy
