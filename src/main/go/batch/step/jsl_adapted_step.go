@@ -319,8 +319,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	}
 
 
-	// SaveDataStep の場合: ExecutionContext からデータを取得し、Writer で書き込み
-	if s.name == "saveWeatherDataStep" { // ★ 修正: "SaveDataStep" -> "saveWeatherDataStep"
+	else if s.name == "saveWeatherDataStep" { // ★ 修正: "SaveDataStep" -> "saveWeatherDataStep"
 		logger.Infof("ステップ '%s' は書き込み専用ステップです。ExecutionContext からデータを取得します。", s.name)
 		dataToStore, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
 		if !ok {
@@ -336,7 +335,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			logger.Infof("ステップ '%s': ExecutionContext に書き込むデータがありません。", s.name)
 			// データがない場合も正常完了とみなす
 			stepExecution.MarkAsCompleted()
-			return nil
 		}
 
 		// Writer でデータを書き込み (トランザクション内で実行)
@@ -408,9 +406,162 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		stepExecution.MarkAsCompleted() // Status = Completed, ExitStatus = Completed
 
 		return nil // 成功したら nil を返してメソッドを終了
+	} else if s.name == "processDummyDataStep" { // ★ 追加: processDummyDataStep の処理
+		logger.Infof("ステップ '%s' はダミー処理ステップです。ダミーデータを読み込み、処理します。", s.name)
+		// ダミー処理のロジックをここに実装
+		// 例: DummyReader から読み込み、DummyProcessor で処理し、DummyWriter で書き込む
+		// fetchWeatherDataStep と同様のチャンク処理ループを適用
+		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
+			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, retryConfig.MaxAttempts)
+
+			processedItemsChunk := make([]interface{}, 0, chunkSize) // DummyProcessor は interface{} を返す
+			itemCountInChunk := 0
+			chunkAttemptError := false
+			eofReached := false
+
+			tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
+			if err != nil {
+				logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
+				stepExecution.MarkAsFailed(fmt.Errorf("トランザクション開始エラー: %w", err))
+				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+				return err
+			}
+
+			for {
+				select {
+				case <-ctx.Done():
+					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断します: %v", s.name, ctx.Err())
+					stepExecution.MarkAsFailed(ctx.Err())
+					jobExecution.AddFailureException(ctx.Err())
+					tx.Rollback()
+					return ctx.Err()
+				default:
+				}
+
+				readItem, readerErr := s.reader.Read(ctx)
+				totalReadCount++
+				stepExecution.ReadCount = totalReadCount
+
+				if readerErr != nil {
+					if errors.Is(readerErr, io.EOF) {
+						eofReached = true
+						break
+					}
+					logger.Errorf("ステップ '%s' Reader error: %v", s.name, readerErr)
+					stepExecution.AddFailureException(readerErr)
+					chunkAttemptError = true
+					break
+				}
+
+				if readItem == nil {
+					continue
+				}
+
+				processedItem, processorErr := s.processor.Process(ctx, readItem)
+				if processorErr != nil {
+					logger.Errorf("ステップ '%s' Processor error: %v", s.name, processorErr)
+					stepExecution.AddFailureException(processorErr)
+					chunkAttemptError = true
+					break
+				}
+
+				if processedItem != nil {
+					processedItemsChunk = append(processedItemsChunk, processedItem)
+					itemCountInChunk = len(processedItemsChunk)
+				} else {
+					stepExecution.FilterCount++
+				}
+
+				if itemCountInChunk >= chunkSize || eofReached {
+					if len(processedItemsChunk) > 0 {
+						writeErr := s.writer.Write(ctx, processedItemsChunk)
+						if writeErr != nil {
+							logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
+							stepExecution.AddFailureException(writeErr)
+							chunkAttemptError = true
+							break
+						}
+						totalWriteCount += len(processedItemsChunk)
+						stepExecution.WriteCount = totalWriteCount
+					}
+
+					readerEC, err := s.reader.GetExecutionContext(ctx)
+					if err != nil {
+						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
+						chunkAttemptError = true
+						break
+					}
+					writerEC, err := s.writer.GetExecutionContext(ctx)
+					if err != nil {
+						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
+						chunkAttemptError = true
+						break
+					}
+					stepExecution.ExecutionContext.Put("reader_context", readerEC)
+					stepExecution.ExecutionContext.Put("writer_context", writerEC)
+
+					if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
+						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
+						chunkAttemptError = true
+						break
+					}
+					stepExecution.CommitCount++
+
+					processedItemsChunk = make([]interface{}, 0, chunkSize)
+					itemCountInChunk = 0
+
+					if eofReached {
+						break
+					}
+				}
+
+				if eofReached {
+					break
+				}
+			} // inner loop end
+
+			if chunkAttemptError {
+				tx.Rollback()
+				stepExecution.RollbackCount++
+				if retryAttempt < retryConfig.MaxAttempts-1 {
+					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
+					time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+					if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
+						s.reader.SetExecutionContext(ctx, readerEC)
+					} else {
+						s.reader.SetExecutionContext(ctx, core.NewExecutionContext())
+					}
+					s.writer.SetExecutionContext(ctx, core.NewExecutionContext())
+				} else {
+					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, retryConfig.MaxAttempts)
+					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts))
+					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts)
+				}
+			} else {
+				if err = tx.Commit(); err != nil {
+					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
+					stepExecution.MarkAsFailed(fmt.Errorf("トランザクションコミットエラー: %w", err))
+					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+					return err
+				}
+				stepExecution.CommitCount++
+				logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了しました。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d",
+					s.name, chunkCount, totalReadCount, totalWriteCount)
+				stepExecution.ReadCount = totalReadCount
+				stepExecution.WriteCount = totalWriteCount
+				stepExecution.MarkAsCompleted() // Mark as completed here for dummy step
+				return nil
+			}
+		} // retry loop end
+		return fmt.Errorf("ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
 	}
 
-	return nil // ここに到達した場合は、ステップが正常に完了したとみなす
+	// 未知のステップ名の場合
+	err := fmt.Errorf("ステップ '%s' の実行ロジックが定義されていません。", s.name)
+	stepExecution.MarkAsFailed(err)
+	jobExecution.AddFailureException(err)
+	return err
 }
 
 
