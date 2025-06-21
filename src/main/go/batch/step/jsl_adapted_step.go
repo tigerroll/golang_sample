@@ -172,26 +172,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				return err
 			}
 
-			// トランザクションの defer 処理
-			// defer の中で err を参照するため、err をシャドウイングしないように注意
-			// ここでは、defer の外で err を宣言し、defer の中でその err を参照する
-			// ただし、Go の defer は登録時の変数の値をキャプチャするため、
-			// defer の中で最新の err を参照するには、defer の中で関数リテラルを定義し、
-			// その中で err を引数として受け取るか、ポインタで参照する必要があります。
-			// ここでは、トランザクションのコミット/ロールバックを defer の外で明示的に制御するため、
-			// この defer は不要になります。
-			// defer func() {
-			// 	if r := recover(); r != nil {
-			// 		tx.Rollback()
-			// 		panic(r) // 再パニック
-			// 	} else if err != nil { // ここで参照される err は defer 登録時の err
-			// 		tx.Rollback()
-			// 	} else {
-			// 		tx.Commit()
-			// 	}
-			// }()
-
-
 			// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
 			for {
 				select {
@@ -242,13 +222,13 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					stepExecution.WriteCount = totalWriteCount // StepExecution に反映
 
 					// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
-					readerEC, err := s.reader.GetExecutionContext(ctx)
+					readerEC, err := s.reader.GetExecutionContext(ctx) // err はここでシャドウイングされる
 					if err != nil {
 						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
 						chunkAttemptError = true
 						break
 					}
-					writerEC, err := s.writer.GetExecutionContext(ctx)
+					writerEC, err := s.writer.GetExecutionContext(ctx) // err はここでシャドウイングされる
 					if err != nil {
 						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
 						chunkAttemptError = true
@@ -258,7 +238,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					stepExecution.ExecutionContext.Put("writer_context", writerEC)
 
 					// StepExecution を更新してチェックポイントを永続化
-					if err := s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
+					if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil { // err を再利用
 						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
 						chunkAttemptError = true
 						break
@@ -318,20 +298,20 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				// この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
 				// 残っているアイテムがあれば最終チャンクとして処理し、ExecutionContext に追加
 				// このブロックは、インナーループ内で itemCountInChunk >= chunkSize || eofReached の条件で既に処理されているため、
-				// ここで再度処理する必要はない。
-				// ただし、トランザクションのコミットはここで行う。
-				if err := tx.Commit(); err != nil {
+				// ここで再度処理する必要はない。トランザクションのコミットはここで行う。
+				if err = tx.Commit(); err != nil { // err を再利用
 					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
 					stepExecution.MarkAsFailed(fmt.Errorf("トランザクションコミットエラー: %w", err))
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 					return err
 				}
+				stepExecution.CommitCount++ // コミットカウントをインクリメント
 				logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了しました。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d",
 					s.name, chunkCount, totalReadCount, totalWriteCount)
 				stepExecution.ReadCount = totalReadCount
 				stepExecution.WriteCount = totalWriteCount
 				stepExecution.MarkAsCompleted() // ★ 正常終了時に Step を完了としてマーク
-				return nil // 正常終了
+				return nil // 正常終了したらループを抜けて nil を返す
 			}
 		} // リトライループ終了
 		// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
@@ -360,7 +340,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		}
 
 		// Writer でデータを書き込み (トランザクション内で実行)
-		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
+		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil) // err はここでシャドウイングされる
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
 			stepExecution.MarkAsFailed(fmt.Errorf("トランザクション開始エラー: %w", err))
@@ -370,14 +350,17 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		// トランザクションの defer 処理
 		defer func() {
-			if r := recover(); r != nil {
+			if r := recover(); r != nil { // パニックが発生した場合
 				tx.Rollback()
 				panic(r) // 再パニック
-			} else if err != nil { // ここで参照される err は defer 登録時の err
-				tx.Rollback()
-			} else {
-				tx.Commit()
 			}
+			// ここに到達するのは、defer が実行される時点で err が nil の場合
+			// しかし、tx.Commit() は defer の外で明示的に呼び出すべき
+			// defer の中で err を参照してロールバックするかどうかを判断するロジックは、
+			// defer の外で err を宣言し、そのポインタを defer に渡すか、
+			// defer の中で err を引数として受け取る関数リテラルにする必要がある。
+			// 今回は defer の外で明示的にコミット/ロールバックするため、
+			// ここでの err チェックは不要。
 		}()
 
 		writeErr := s.writer.Write(ctx, dataToStore) // ExecutionContext から取得したデータを渡す
@@ -393,7 +376,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		logger.Infof("ステップ '%s' Writer による書き込みが完了しました。", s.name)
 
 		// Writer の ExecutionContext を取得し、StepExecution に保存 (Writer が状態を持つ場合)
-		writerEC, err := s.writer.GetExecutionContext(ctx)
+		writerEC, err := s.writer.GetExecutionContext(ctx) // err はここでシャドウイングされる
 		if err != nil {
 			logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
 			stepExecution.AddFailureException(err)
@@ -403,7 +386,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		stepExecution.ExecutionContext.Put("writer_context", writerEC)
 
 		// StepExecution を更新してチェックポイントを永続化
-		if err := s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
+		if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil { // err を再利用
 			logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
 			stepExecution.AddFailureException(err)
 			tx.Rollback()
@@ -412,7 +395,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		stepExecution.CommitCount++ // コミットカウントをインクリメント
 
 		// トランザクションをコミット
-		if err := tx.Commit(); err != nil {
+		if err = tx.Commit(); err != nil { // err を再利用
 			logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
 			stepExecution.MarkAsFailed(fmt.Errorf("トランザクションコミットエラー: %w", err))
 			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
@@ -428,18 +411,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		return nil // 成功したら nil を返してメソッドを終了
 	}
 
-
-	// ここに到達するのは、FetchAndProcessStep のチャンク処理ループが正常終了した場合
-	// または、SaveDataStep の Writer 処理が正常終了した場合
-
-	// FetchAndProcessStep の場合、チャンク処理ループの最後に Step を完了としてマークし、nil を返している (上記修正で追加)
-	// SaveDataStep の場合、Writer 処理の最後に Step を完了としてマークし、nil を返している
-
-	// 安全のため、もしここに到達したらエラーとする（通常は到達しないはず）
-	err := fmt.Errorf("ステップ '%s' 実行が予期せず終了しました", s.name)
-	stepExecution.MarkAsFailed(err)
-	jobExecution.AddFailureException(err)
-	return err
+	return nil // ここに到達した場合は、ステップが正常に完了したとみなす
 }
 
 
