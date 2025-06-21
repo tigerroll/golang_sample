@@ -40,9 +40,9 @@ func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresReposi
 	return &PostgresRepository{db: db}, nil
 }
 
-// SaveWeatherData は加工済みの Open Meteo の天気予報データを PostgreSQL に保存します。
-// ctx context.Context を引数に追加
-func (r *PostgresRepository) SaveWeatherData(ctx context.Context, forecast entity.OpenMeteoForecast) error {
+// BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをPostgreSQLに保存します。
+// このメソッドは、ItemWriterから呼び出されることを想定しています。
+func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -50,34 +50,16 @@ func (r *PostgresRepository) SaveWeatherData(ctx context.Context, forecast entit
 	default:
 	}
 
+	if len(items) == 0 {
+		return nil // 書き込むデータがない場合は何もしない
+	}
+
 	// BeginTx に Context を渡す
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
-
-	// PrepareContext に Context を渡す
-	stmt, err := tx.PrepareContext(ctx, `
-		CREATE TABLE IF NOT EXISTS hourly_forecast (
-			time TIMESTAMP WITHOUT TIME ZONE,
-			weather_code INTEGER,
-			temperature_2m DOUBLE PRECISION,
-			latitude DOUBLE PRECISION,
-			longitude DOUBLE PRECISION,
-			collected_at TIMESTAMP WITHOUT TIME ZONE
-		);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare table creation statement: %w", err)
-	}
-	defer stmt.Close()
-
-	// ExecContext に Context を渡す
-	_, err = stmt.ExecContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
+	defer tx.Rollback() // エラー時はロールバック
 
 	// PrepareContext に Context を渡す
 	insertStmt, err := tx.PrepareContext(ctx, `
@@ -89,19 +71,7 @@ func (r *PostgresRepository) SaveWeatherData(ctx context.Context, forecast entit
 	}
 	defer insertStmt.Close()
 
-	// 設定のロードとタイムゾーン処理（この部分は Context と直接関連しませんが、既存コードに合わせて残します）
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("設定のロードに失敗しました: %w", err)
-	}
-	loc, err := time.LoadLocation(cfg.System.Timezone)
-	if err != nil {
-		return fmt.Errorf("タイムゾーン '%s' のロードに失敗しました: %w", cfg.System.Timezone, err)
-	}
-
-	collectedAt := time.Now().In(loc).Format(time.RFC3339) // RFC3339 形式はタイムゾーン情報を含むため TIMESTAMP WITH TIME ZONE の方が良い場合が多いですが、既存テーブル定義に合わせます
-
-	for i := range forecast.Hourly.Time {
+	for _, item := range items {
 		// ループ内でも Context の完了を定期的にチェック
 		select {
 		case <-ctx.Done():
@@ -114,15 +84,15 @@ func (r *PostgresRepository) SaveWeatherData(ctx context.Context, forecast entit
 		// ExecContext に Context を渡す
 		_, err = insertStmt.ExecContext(
 			ctx,
-			forecast.Hourly.Time[i], // timestamp without time zone の場合、タイムゾーン情報を考慮する必要があるか確認
-			forecast.Hourly.WeatherCode[i],
-			forecast.Hourly.Temperature2M[i],
-			forecast.Latitude,
-			forecast.Longitude,
-			collectedAt, // timestamp without time zone の場合、文字列形式のまま渡すか、time.Time に変換して渡すか確認
+			item.Time,
+			item.WeatherCode,
+			item.Temperature2M,
+			item.Latitude,
+			item.Longitude,
+			item.CollectedAt,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert data for time %s: %w", forecast.Hourly.Time[i], err)
+			return fmt.Errorf("failed to insert data for time %s: %w", item.Time, err)
 		}
 	}
 
@@ -131,8 +101,7 @@ func (r *PostgresRepository) SaveWeatherData(ctx context.Context, forecast entit
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	logger.Debugf("Open Meteo の天気予報データを PostgreSQL に保存しました: 緯度=%f, 経度=%f, データ数=%d",
-		forecast.Latitude, forecast.Longitude, len(forecast.Hourly.Time))
+	logger.Debugf("PostgreSQL に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
 }
 
@@ -147,4 +116,9 @@ func (r *PostgresRepository) Close() error {
 	return nil
 }
 
+// WeatherRepository インターフェースが実装されていることを確認
+// この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
+// またはインポート可能なパッケージで定義されていることを前提としています。
+// もしWeatherRepositoryが未定義であれば、別途定義が必要です。
 var _ WeatherRepository = (*PostgresRepository)(nil)
+

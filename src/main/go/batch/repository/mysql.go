@@ -40,9 +40,9 @@ func NewMySQLRepositoryFromConfig(cfg config.DatabaseConfig) (*MySQLRepository, 
 	return &MySQLRepository{db: db}, nil
 }
 
-// SaveWeatherData は加工済みの Open Meteo の天気予報データを MySQL に保存します。
-// ctx context.Context を引数に追加
-func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.OpenMeteoForecast) error {
+// BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをMySQLに保存します。
+// このメソッドは、ItemWriterから呼び出されることを想定しています。
+func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -50,34 +50,16 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
 	default:
 	}
 
+	if len(items) == 0 {
+		return nil // 書き込むデータがない場合は何もしない
+	}
+
 	// BeginTx に Context を渡す
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
-
-	// PrepareContext に Context を渡す
-	stmt, err := tx.PrepareContext(ctx, `
-		CREATE TABLE IF NOT EXISTS hourly_forecast (
-			time TIMESTAMP,
-			weather_code INTEGER,
-			temperature_2m DOUBLE PRECISION,
-			latitude DOUBLE PRECISION,
-			longitude DOUBLE PRECISION,
-			collected_at TIMESTAMP
-		);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare table creation statement: %w", err)
-	}
-	defer stmt.Close()
-
-	// ExecContext に Context を渡す
-	_, err = stmt.ExecContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
+	defer tx.Rollback() // エラー時はロールバック
 
 	// PrepareContext に Context を渡す
 	insertStmt, err := tx.PrepareContext(ctx, `
@@ -89,19 +71,7 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
 	}
 	defer insertStmt.Close()
 
-	// 設定のロードとタイムゾーン処理（この部分は Context と直接関連しませんが、既存コードに合わせて残します）
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("設定のロードに失敗しました: %w", err)
-	}
-	loc, err := time.LoadLocation(cfg.System.Timezone)
-	if err != nil {
-		return fmt.Errorf("タイムゾーン '%s' のロードに失敗しました: %w", cfg.System.Timezone, err)
-	}
-
-	collectedAt := time.Now().In(loc).Format(time.RFC3339)
-
-	for i := range forecast.Hourly.Time {
+	for _, item := range items {
 		// ループ内でも Context の完了を定期的にチェック
 		select {
 		case <-ctx.Done():
@@ -111,26 +81,18 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
 		default:
 		}
 
-		parsedTime, err := time.Parse(time.RFC3339, forecast.Hourly.Time[i])
-		if err != nil {
-			parsedTime, err = time.Parse("2006-01-02T15:04", forecast.Hourly.Time[i])
-			if err != nil {
-				return fmt.Errorf("failed to parse time '%s': %w", forecast.Hourly.Time[i], err)
-			}
-		}
-
 		// ExecContext に Context を渡す
 		_, err = insertStmt.ExecContext(
 			ctx,
-			parsedTime,
-			forecast.Hourly.WeatherCode[i],
-			forecast.Hourly.Temperature2M[i],
-			forecast.Latitude,
-			forecast.Longitude,
-			collectedAt,
+			item.Time,
+			item.WeatherCode,
+			item.Temperature2M,
+			item.Latitude,
+			item.Longitude,
+			item.CollectedAt,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert data for time %s: %w", forecast.Hourly.Time[i], err)
+			return fmt.Errorf("failed to insert data for time %s: %w", item.Time, err)
 		}
 	}
 
@@ -139,8 +101,7 @@ func (r *MySQLRepository) SaveWeatherData(ctx context.Context, forecast entity.O
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	logger.Debugf("Open Meteo の天気予報データを MySQL に保存しました: 緯度=%f, 経度=%f, データ数=%d",
-		forecast.Latitude, forecast.Longitude, len(forecast.Hourly.Time))
+	logger.Debugf("MySQL に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
 }
 
@@ -155,4 +116,9 @@ func (r *MySQLRepository) Close() error {
 	return nil
 }
 
+// WeatherRepository インターフェースが実装されていることを確認
+// この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
+// またはインポート可能なパッケージで定義されていることを前提としています。
+// もしWeatherRepositoryが未定義であれば、別途定義が必要です。
 var _ WeatherRepository = (*MySQLRepository)(nil)
+
