@@ -11,7 +11,7 @@ import (
 	"sample/src/main/go/batch/domain/entity" // entity パッケージをインポート
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepListener "sample/src/go/batch/step/listener" // stepListener パッケージをインポート
+	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
 	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
 	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
 	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
