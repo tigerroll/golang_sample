@@ -28,22 +28,22 @@ tasks:
       - go build -v -gcflags="all=-N -l" -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.SRC_DIR}}
       - rm src/main/go/batch/config/application.yaml
       # JSLでジョブ定義を管理するため、weather.yamlの削除は不要になります
-      # - rm src/main/go/batch/job/weather.yaml
+      # - rm src/main/go/batch/jobs/weather.yaml
       - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     generates:
       - "{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     sources:
       - "{{.SRC_DIR}}/**/*.go" # Goソースファイル全体を対象に含める
       - src/main/resources/application.yaml
-      - src/main/resources/job/*.yaml # JSLファイルもソースに含める
+      - src/main/resources/jobs/*.yaml # JSLファイルもソースに含める
 
   copy-jsl:
     desc: "JSL YAML ファイルを Go の embed ディレクトリにコピーします"
     cmds:
       - mkdir -p src/main/go/batch/job/jsl # ターゲットディレクトリが存在することを確認
-      - cp src/main/resources/job/*.yaml src/main/go/batch/job/jsl/
+      - cp src/main/resources/jobs/*.yaml src/main/go/batch/job/jsl/
     sources:
-      - src/main/resources/job/*.yaml
+      - src/main/resources/jobs/*.yaml
     generates:
       - src/main/go/batch/job/jsl/*.yaml
 
