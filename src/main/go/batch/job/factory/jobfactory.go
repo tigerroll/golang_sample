@@ -10,9 +10,6 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
-	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
-	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 
@@ -20,11 +17,9 @@ import (
 	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
 	itemListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemListener パッケージをインポート
 	itemRetryListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemRetryListener パッケージをインポート
-	step "sample/src/main/go/batch/step" // JSLAdaptedStep をインポート
 	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
-	entity "sample/src/main/go/batch/domain/entity" // entity パッケージをインポート (型引数用)
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
@@ -67,15 +62,15 @@ func (f *JobFactory) registerComponentBuilders() {
 			APIKey:      cfg.Batch.APIKey,
 		}
 		// Reader[*entity.OpenMeteoForecast] を返す
-		return stepReader.NewWeatherReader(weatherReaderCfg), nil
+		return NewWeatherReader(weatherReaderCfg), nil
 	}
 	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] を返す
-		return stepProcessor.NewWeatherProcessor(), nil
+		return NewWeatherProcessor(), nil
 	}
 	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Writer[*entity.WeatherDataToStore] を返す
-		return stepWriter.NewWeatherWriter(repo), nil
+		return NewWeatherWriter(repo), nil
 	}
 	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Reader[any] を返す
