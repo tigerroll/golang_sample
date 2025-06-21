@@ -18,7 +18,6 @@ import (
 	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // Alias for clarity
 	logger "sample/src/main/go/batch/util/logger"       // Alias for clarity
-	entity "sample/src/main/go/batch/domain/entity" // entity パッケージをインポート (型引数用)
 )
 
 //go:embed *.yaml
