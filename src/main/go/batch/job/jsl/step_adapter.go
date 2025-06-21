@@ -3,6 +3,7 @@ package jsl
 import (
 	"context"
 	"fmt"
+	"reflect" // reflect パッケージをインポート
 
 	"sample/src/main/go/batch/job/core"
 	"sample/src/main/go/batch/step/processor"
@@ -61,11 +62,12 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		item, err := s.reader.Read(ctx)
 		if err != nil {
 			// リーダーがアイテムを使い果たしたことを示す特定のエラーをチェック
-			// 例: exception.NewBatchError("reader", "No more items", nil) のようなエラーを返す場合
-			if batchErr, ok := err.(*exception.BatchError); ok && batchErr.Message == "No more items" {
-				logger.Debugf("リーダーがアイテムを使い果たしました。")
+			// io.EOF は正常な終端を示すため、エラーとして扱わない
+			if err == io.EOF { // io パッケージをインポートする必要がある
+				logger.Debugf("リーダーがアイテムを使い果たしました (EOF)。")
 				break // 読み込むアイテムがもうない
 			}
+			// その他のエラーは失敗として記録
 			stepExecution.AddFailureException(err)
 			stepExecution.MarkAsFailed(err)
 			return exception.NewBatchError("jsl_step", fmt.Sprintf("ステップ '%s' の読み込み中にエラーが発生しました", s.id), err)
@@ -88,7 +90,19 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		}
 
 		if processedItem != nil {
-			items = append(items, processedItem)
+			// プロセッサーがスライスを返した場合（1対N変換）に対応
+			val := reflect.ValueOf(processedItem)
+			if val.Kind() == reflect.Slice {
+				for i := 0; i < val.Len(); i++ {
+					elem := val.Index(i).Interface()
+					if elem != nil {
+						items = append(items, elem) // 個々の要素をチャンクに追加
+					}
+				}
+			} else {
+				// プロセッサーが単一のアイテムを返した場合
+				items = append(items, processedItem)
+			}
 		}
 
 		// Write in chunks
