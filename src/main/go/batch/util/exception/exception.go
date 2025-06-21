@@ -13,8 +13,8 @@ type BatchError struct {
 	Module      string // エラーが発生したモジュール (例: "reader", "processor", "writer", "config")
 	Message     string // エラーの簡潔な説明
 	OriginalErr error  // ラップされた元のエラー
-	IsRetryable bool   // このエラーがリトライ可能か
-	IsSkippable bool   // このエラーがスキップ可能か
+	isRetryable bool   // このエラーがリトライ可能か
+	isSkippable bool   // このエラーがスキップ可能か
 	StackTrace  string // スタックトレース (デバッグ用)
 }
 
@@ -30,8 +30,8 @@ func NewBatchError(module, message string, originalErr error, isRetryable, isSki
 		Module:      module,
 		Message:     message,
 		OriginalErr: originalErr,
-		IsRetryable: isRetryable,
-		IsSkippable: isSkippable,
+		isRetryable: isRetryable, // This refers to the field
+		isSkippable: isSkippable, // This refers to the field
 		StackTrace:  stackTrace,
 	}
 }
@@ -59,8 +59,8 @@ func NewBatchErrorf(module, format string, a ...interface{}) *BatchError {
 		Module:      module,
 		Message:     message,
 		OriginalErr: originalErr,
-		IsRetryable: false, // デフォルトは false
-		IsSkippable: false, // デフォルトは false
+		isRetryable: false, // デフォルトは false
+		isSkippable: false, // デフォルトは false
 		StackTrace:  stackTrace,
 	}
 }
@@ -80,12 +80,12 @@ func (e *BatchError) Unwrap() error {
 
 // IsRetryable はこのエラーがリトライ可能かどうかを返します。
 func (e *BatchError) IsRetryable() bool {
-	return e.IsRetryable
+	return e.isRetryable
 }
 
 // IsSkippable はこのエラーがスキップ可能かどうかを返します。
 func (e *BatchError) IsSkippable() bool {
-	return e.IsSkippable
+	return e.isSkippable
 }
 
 // IsTemporary は一時的なエラーかどうかを判定します。
