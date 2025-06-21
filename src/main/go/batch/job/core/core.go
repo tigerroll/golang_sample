@@ -213,7 +213,7 @@ func (jp JobParameters) GetBool(key string) (bool, bool) {
 // GetFloat64 は指定されたキーの値をfloat64として取得します。
 // 存在しない場合や型が異なる場合は 0.0 と false を返します。
 func (jp JobParameters) GetFloat64(key string) (float64, bool) {
-	val, ok := jp[key]
+	val, ok := jp.Params[key] // ここを修正: jp.Params[key]
 	if !ok {
 		return 0.0, false
 	}
