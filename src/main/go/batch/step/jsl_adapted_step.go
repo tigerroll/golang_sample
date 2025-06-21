@@ -290,7 +290,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					// ロールバックされたチャンクのデータは ExecutionContext に追加されない。
 					// Reader の currentIndex はロールバックされたチャンクの開始時点に戻るべきだが、
 					// 現在の Reader 実装では Read が進んでしまうため、SetExecutionContext で明示的に戻す必要がある。
-					// これは Reader の SetExecutionContext が currentIndex を EC から復元することで対応される。
+					// これは Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 					// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
 					// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 					if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
