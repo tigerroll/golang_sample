@@ -87,11 +87,17 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
 		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
 	}
-	// アイテムレベルリスナーを StepExecutionListener のリストに追加 (型アサーションで判別するため)
-	stepListeners = append(stepListeners, itemListener.NewLoggingSkipListener())
-	stepListeners = append(stepListeners, itemRetryListener.NewLoggingRetryItemListener())
+	itemReadListeners := []core.ItemReadListener{}
+	itemProcessListeners := []core.ItemProcessListener{}
+	itemWriteListeners := []core.ItemWriteListener{}
+	skipListeners := []stepListener.SkipListener{
+		itemListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
+	}
+	retryItemListeners := []stepListener.RetryItemListener{
+		itemRetryListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
+	}
 
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners)
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
 	if err != nil {
 		return nil, fmt.Errorf("JSL ジョブ '%s' のフロー変換に失敗しました: %w", jobName, err)
 	}
