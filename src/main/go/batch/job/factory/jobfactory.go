@@ -77,7 +77,12 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 
 	// 3. JSL Flow を core.FlowDefinition に変換
 	// jobRepository を ConvertJSLToCoreFlow に渡す
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository)
+	// StepExecutionListener を生成
+	stepListeners := []stepListener.StepExecutionListener{
+		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
+		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
+	}
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, stepListeners)
 	if err != nil {
 		return nil, fmt.Errorf("JSL ジョブ '%s' のフロー変換に失敗しました: %w", jobName, err)
 	}

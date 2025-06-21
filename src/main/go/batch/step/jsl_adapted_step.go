@@ -45,6 +45,7 @@ func NewJSLAdaptedStep(
 	chunkSize int,
 	retryConfig *config.RetryConfig,
 	jobRepository repository.JobRepository, // JobRepository を追加
+	listeners []stepListener.StepExecutionListener, // ★ 追加: リスナーリスト
 ) *JSLAdaptedStep {
 	return &JSLAdaptedStep{
 		name:          name,
@@ -53,7 +54,7 @@ func NewJSLAdaptedStep(
 		writer:        writer,
 		chunkSize:     chunkSize,
 		retryConfig:   retryConfig,
-		listeners:     make([]stepListener.StepExecutionListener, 0), // リスナーリストを初期化
+		listeners:     listeners, // ★ 修正: 受け取ったリスナーを設定
 		jobRepository: jobRepository, // JobRepository を設定
 	}
 }
