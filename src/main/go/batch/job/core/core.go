@@ -321,8 +321,8 @@ type JobExecution struct {
 	StepExecutions []*StepExecution // このジョブ実行に関連するステップ実行
 	ExecutionContext ExecutionContext // ジョブレベルのコンテキスト
 	CurrentStepName string // 現在実行中のステップ名 (リスタート時に使用)
-	# TODO: JobInstance への参照を追加 (JobInstance オブジェクト自体を持つか、ID だけ持つか検討)
-	#       ID だけ持つ設計（今回採用）が循環参照を防ぎやすい。必要に応じて JobRepository で JobInstance を取得する。
+	// TODO: JobInstance への参照を追加 (JobInstance オブジェクト自体を持つか、ID だけ持つか検討)
+	//       ID だけ持つ設計（今回採用）が循環参照を防ぎやすい。必要に応じて JobRepository で JobInstance を取得する。
 }
 
 // NewJobExecution は新しい JobExecution のインスタンスを作成します。
