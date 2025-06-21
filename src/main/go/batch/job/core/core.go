@@ -548,7 +548,7 @@ func (fd *FlowDefinition) AddElement(name string, element interface{}) error {
 	if _, exists := fd.Elements[name]; exists {
 		err := fmt.Errorf("フロー要素名 '%s' は既に存在します", name)
 		logger.Errorf("%v", err) // エラーログを追加
-		return exception.NewBatchError(module, fmt.Sprintf("フロー要素名 '%s' は既に存在します", name), err) // BatchError でラップ
+		return exception.NewBatchError(module, fmt.Sprintf("フロー要素名 '%s' は既に存在します", name), err, false, false) // BatchError でラップ
 	}
 	fd.Elements[name] = element
 	logger.Debugf("フローに要素 '%s' を追加しました。", name) // 成功ログを追加
