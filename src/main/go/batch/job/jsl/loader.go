@@ -130,20 +130,20 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 // convertJSLStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation.
 // jobRepository を引数に追加
 func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, stepListeners []stepListener.StepExecutionListener) (core.Step, error) {
-	r, ok := componentRegistry[jslStep.Reader.Ref].(reader.Reader)
+	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader)
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil)
 	}
 
-	var p processor.Processor
+	var p stepProcessor.Processor
 	if jslStep.Processor.Ref != "" {
-		p, ok = componentRegistry[jslStep.Processor.Ref].(processor.Processor)
+		p, ok = componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor)
 		if !ok {
 			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です", jslStep.Processor.Ref), nil)
 		}
 	}
 
-	w, ok := componentRegistry[jslStep.Writer.Ref].(writer.Writer)
+	w, ok := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer)
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です", jslStep.Writer.Ref), nil)
 	}
