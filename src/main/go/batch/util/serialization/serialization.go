@@ -24,7 +24,7 @@ func MarshalExecutionContext(ctx core.ExecutionContext) ([]byte, error) {
   if err != nil {
     // シリアライズ失敗時はエラーを返す
     logger.Errorf("ExecutionContext のシリアライズに失敗しました: %v", err)
-    return nil, exception.NewBatchError(module, "ExecutionContext のシリアライズに失敗しました", err) // BatchError でラップ
+    return nil, exception.NewBatchError(module, "ExecutionContext のシリアライズに失敗しました", err, false, false) // BatchError でラップ
   }
   logger.Debugf("ExecutionContext のシリアライズが完了しました。")
   return data, nil
@@ -70,7 +70,7 @@ func UnmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error {
   if err != nil {
     // デシリアライズ失敗時はエラーを返す
     logger.Errorf("ExecutionContext のデシリアライズに失敗しました: %v", err)
-    return exception.NewBatchError(module, "ExecutionContext のデシリアライズに失敗しました", err) // BatchError でラップ
+    return exception.NewBatchError(module, "ExecutionContext のデシリアライズに失敗しました", err, false, false) // BatchError でラップ
   }
   logger.Debugf("ExecutionContext のデシリアライズが完了しました。")
   return nil

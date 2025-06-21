@@ -9,6 +9,7 @@ import (
   core "sample/src/main/go/batch/job/core"
   factory "sample/src/main/go/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
   "sample/src/main/go/batch/repository"
+  exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
   logger "sample/src/main/go/batch/util/logger"
 )
 
@@ -43,7 +44,7 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
   if err != nil {
     // 検索エラーが発生した場合
     logger.Errorf("JobInstance (JobName: %s, Parameters: %+v) の検索に失敗しました: %v", jobName, params, err)
-    return nil, fmt.Errorf("起動処理エラー: JobInstance の検索に失敗しました: %w", err)
+    return nil, exception.NewBatchError("job_operator", "起動処理エラー: JobInstance の検索に失敗しました", err, false, false)
   }
 
   if jobInstance == nil {
@@ -54,7 +55,7 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
     if err != nil {
       // JobInstance の保存に失敗した場合
       logger.Errorf("新しい JobInstance (ID: %s) の保存に失敗しました: %v", jobInstance.ID, err)
-      return nil, fmt.Errorf("起動処理エラー: 新しい JobInstance の保存に失敗しました: %w", err)
+      return nil, exception.NewBatchError("job_operator", "起動処理エラー: 新しい JobInstance の保存に失敗しました", err, false, false)
     }
     logger.Infof("新しい JobInstance (ID: %s, JobName: %s) を作成し保存しました。", jobInstance.ID, jobInstance.JobName)
   } else {
@@ -82,7 +83,7 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
   if err != nil {
     // 保存に失敗した場合は、ジョブ実行を開始せずにエラーを返します。
     logger.Errorf("JobExecution (ID: %s) の初期永続化に失敗しました: %v", jobExecution.ID, err)
-    return jobExecution, fmt.Errorf("起動処理エラー: JobExecution の初期保存に失敗しました: %w", err)
+    return jobExecution, exception.NewBatchError("job_operator", "起動処理エラー: JobExecution の初期保存に失敗しました", err, false, false)
   }
   logger.Debugf("JobExecution (ID: %s) を JobRepository に初期保存しました。", jobExecution.ID)
 
@@ -97,7 +98,7 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
     // エラーを記録し、ジョブ実行自体は進めますが、最終的な JobExecution を返す際にエラー情報を含めるべきです。
     logger.Errorf("JobExecution (ID: %s) の Started 状態への更新に失敗しました: %v", jobExecution.ID, err)
     // JobExecution に永続化エラーを追加することも検討
-    jobExecution.AddFailureException(fmt.Errorf("JobExecution 状態更新エラー (Started): %w", err))
+    jobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 状態更新エラー (Started)", err, false, false))
     // エラーはログ出力に留め、ジョブの Run 処理に進みます。
   } else {
     logger.Debugf("JobExecution (ID: %s) を JobRepository で Started に更新しました。", jobExecution.ID, jobExecution.Status)
@@ -109,14 +110,14 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
     // Job オブジェクトの作成に失敗した場合
     logger.Errorf("Job '%s' の作成に失敗しました: %v", jobName, err)
     // JobExecution を FAILED としてマークし、永続化
-    jobExecution.MarkAsFailed(fmt.Errorf("Job オブジェクトの作成に失敗しました: %w", err))
+    jobExecution.MarkAsFailed(exception.NewBatchError("job_operator", "Job オブジェクトの作成に失敗しました", err, false, false))
     // エラー発生時の JobExecution の最終状態を JobRepository で更新
     updateErr := o.jobRepository.UpdateJobExecution(ctx, jobExecution)
     if updateErr != nil {
       logger.Errorf("JobExecution (ID: %s) の最終状態更新に失敗しました (Job作成エラー後): %v", jobExecution.ID, updateErr)
-      jobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー (Job作成エラー後): %w", updateErr))
+      jobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 最終状態更新エラー (Job作成エラー後)", updateErr, false, false))
     }
-    return jobExecution, fmt.Errorf("Job '%s' の作成に失敗しました: %w", jobName, err)
+    return jobExecution, exception.NewBatchError("job_operator", fmt.Sprintf("Job '%s' の作成に失敗しました", jobName), err, false, false)
   }
 
 
@@ -142,13 +143,13 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
     // 最終状態の永続化に失敗した場合
     logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", jobExecution.ID, updateErr)
     // このエラーを JobExecution に追加
-    jobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー: %w", updateErr))
+    jobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 最終状態更新エラー", updateErr, false, false))
     // もし Run メソッドが成功していたとしても、永続化エラーがあれば JobOperator レベルではエラーとみなす
     if runErr == nil {
-      runErr = fmt.Errorf("JobExecution 最終状態の永続化に失敗しました: %w", updateErr)
+      runErr = exception.NewBatchError("job_operator", "JobExecution 最終状態の永続化に失敗しました", updateErr, false, false)
     } else {
       // Run エラーと永続化エラーをラップすることも検討
-      runErr = fmt.Errorf("Job実行エラー (%w), 永続化エラー (%w)", runErr, updateErr)
+      runErr = exception.NewBatchError("job_operator", fmt.Sprintf("Job実行エラー (%v), 永続化エラー (%v)", runErr, updateErr), runErr, false, false)
     }
   } else {
     logger.Debugf("JobExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", jobExecution.ID, jobExecution.Status)
@@ -167,26 +168,26 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
   // 1. 前回の JobExecution をロード
   prevJobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
   if err != nil {
-    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) のロードに失敗しました: %w", executionID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("再起動処理エラー: JobExecution (ID: %s) のロードに失敗しました", executionID), err, false, false)
   }
   if prevJobExecution == nil {
-    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) が見つかりませんでした", executionID)
+    return nil, exception.NewBatchErrorf("job_operator", "再起動処理エラー: JobExecution (ID: %s) が見つかりませんでした", executionID)
   }
 
   // 2. 再起動可能状態かチェック
   // JSR352 では FAILED または STOPPED 状態の JobExecution のみ再起動可能です。
   if prevJobExecution.Status != core.JobStatusFailed && prevJobExecution.Status != core.JobStatusStopped {
-    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) は再起動可能な状態ではありません (現在の状態: %s)", executionID, prevJobExecution.Status)
+    return nil, exception.NewBatchErrorf("job_operator", "再起動処理エラー: JobExecution (ID: %s) は再起動可能な状態ではありません (現在の状態: %s)", executionID, prevJobExecution.Status)
   }
   logger.Infof("JobExecution (ID: %s) は再起動可能な状態 (%s) です。", executionID, prevJobExecution.Status)
 
   // 3. JobInstance をロード
   jobInstance, err := o.jobRepository.FindJobInstanceByID(ctx, prevJobExecution.JobInstanceID)
   if err != nil {
-    return nil, fmt.Errorf("再起動処理エラー: JobInstance (ID: %s) のロードに失敗しました: %w", prevJobExecution.JobInstanceID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("再起動処理エラー: JobInstance (ID: %s) のロードに失敗しました", prevJobExecution.JobInstanceID), err, false, false)
   }
   if jobInstance == nil {
-    return nil, fmt.Errorf("再起動処理エラー: JobInstance (ID: %s) が見つかりませんでした", prevJobExecution.JobInstanceID)
+    return nil, exception.NewBatchErrorf("job_operator", "再起動処理エラー: JobInstance (ID: %s) が見つかりませんでした", prevJobExecution.JobInstanceID)
   }
 
   // 4. 新しい JobExecution を作成 (同じ JobInstance に紐づく)
@@ -216,7 +217,7 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
   err = o.jobRepository.SaveJobExecution(ctx, newJobExecution)
   if err != nil {
     logger.Errorf("再起動処理エラー: 新しい JobExecution (ID: %s) の初期永続化に失敗しました: %v", newJobExecution.ID, err)
-    return newJobExecution, fmt.Errorf("再起動処理エラー: 新しい JobExecution の初期保存に失敗しました: %w", err)
+    return newJobExecution, exception.NewBatchError("job_operator", fmt.Sprintf("再起動処理エラー: 新しい JobExecution (ID: %s) の初期保存に失敗しました", newJobExecution.ID), err, false, false)
   }
   logger.Debugf("新しい JobExecution (ID: %s) を JobRepository に初期保存しました。", newJobExecution.ID)
 
@@ -225,7 +226,7 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
   err = o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
   if err != nil {
     logger.Errorf("再起動処理エラー: 新しい JobExecution (ID: %s) の Started 状態への更新に失敗しました: %v", newJobExecution.ID, err)
-    newJobExecution.AddFailureException(fmt.Errorf("JobExecution 状態更新エラー (Started): %w", err))
+    newJobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 状態更新エラー (Started)", err, false, false))
   } else {
     logger.Debugf("新しい JobExecution (ID: %s) を JobRepository で Started に更新しました。", newJobExecution.ID)
   }
@@ -234,13 +235,13 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
   batchJob, err := o.jobFactory.CreateJob(newJobExecution.JobName)
   if err != nil {
     logger.Errorf("再起動処理エラー: Job '%s' の作成に失敗しました: %v", newJobExecution.JobName, err)
-    newJobExecution.MarkAsFailed(fmt.Errorf("Job オブジェクトの作成に失敗しました: %w", err))
+    newJobExecution.MarkAsFailed(exception.NewBatchError("job_operator", "Job オブジェクトの作成に失敗しました", err, false, false))
     updateErr := o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
     if updateErr != nil {
       logger.Errorf("JobExecution (ID: %s) の最終状態更新に失敗しました (Job作成エラー後): %v", newJobExecution.ID, updateErr)
-      newJobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー (Job作成エラー後): %w", updateErr))
+      newJobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 最終状態更新エラー (Job作成エラー後)", updateErr, false, false))
     }
-    return newJobExecution, fmt.Errorf("Job '%s' の作成に失敗しました: %w", newJobExecution.JobName, err)
+    return newJobExecution, exception.NewBatchError("job_operator", fmt.Sprintf("Job '%s' の作成に失敗しました", newJobExecution.JobName), err, false, false)
   }
 
   logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) の再実行を開始します。", newJobExecution.JobName, newJobExecution.ID, jobInstance.ID)
@@ -252,11 +253,11 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
   updateErr := o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
   if updateErr != nil {
     logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", newJobExecution.ID, updateErr)
-    newJobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー: %w", updateErr))
+    newJobExecution.AddFailureException(exception.NewBatchError("job_operator", "JobExecution 最終状態更新エラー", updateErr, false, false))
     if runErr == nil {
-      runErr = fmt.Errorf("JobExecution 最終状態の永続化に失敗しました: %w", updateErr)
+      runErr = exception.NewBatchError("job_operator", "JobExecution 最終状態の永続化に失敗しました", updateErr, false, false)
     } else {
-      runErr = fmt.Errorf("Job実行エラー (%w), 永続化エラー (%w)", runErr, updateErr)
+      runErr = exception.NewBatchError("job_operator", fmt.Sprintf("Job実行エラー (%v), 永続化エラー (%v)", runErr, updateErr), runErr, false, false)
     }
   } else {
     logger.Debugf("JobExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", newJobExecution.ID, newJobExecution.Status)
@@ -270,7 +271,7 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
 func (o *DefaultJobOperator) Stop(ctx context.Context, executionID string) error {
   logger.Infof("JobOperator: Stop メソッドが呼び出されました。Execution ID: %s", executionID)
   // TODO: 実行中のジョブに停止を通知するロジックを実装
-  return fmt.Errorf("Stop メソッドはまだ実装されていません")
+  return exception.NewBatchErrorf("job_operator", "Stop メソッドはまだ実装されていません")
 }
 
 // Abandon は指定された JobExecution を放棄します。
@@ -278,7 +279,7 @@ func (o *DefaultJobOperator) Stop(ctx context.Context, executionID string) error
 func (o *DefaultJobOperator) Abandon(ctx context.Context, executionID string) error {
   logger.Infof("JobOperator: Abandon メソッドが呼び出されました。Execution ID: %s", executionID)
   // TODO: JobExecution を放棄状態に更新するロジックを実装
-  return fmt.Errorf("Abandon メソッドはまだ実装されていません")
+  return exception.NewBatchErrorf("job_operator", "Abandon メソッドはまだ実装されていません")
 }
 
 // GetJobExecution は指定された ID の JobExecution を取得します。
@@ -289,7 +290,7 @@ func (o *DefaultJobOperator) GetJobExecution(ctx context.Context, executionID st
   jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
   if err != nil {
     // JobRepository からのエラーをそのまま返す
-    return nil, fmt.Errorf("JobExecution (ID: %s) の取得に失敗しました: %w", executionID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobExecution (ID: %s) の取得に失敗しました", executionID), err, false, false)
   }
   logger.Debugf("JobExecution (ID: %s) を JobRepository から取得しました。", executionID)
   return jobExecution, nil
@@ -304,7 +305,7 @@ func (o *DefaultJobOperator) GetJobExecutions(ctx context.Context, instanceID st
   jobInstance, err := o.jobRepository.FindJobInstanceByID(ctx, instanceID)
   if err != nil {
     // JobInstance が見つからない場合や取得エラーの場合
-    return nil, fmt.Errorf("JobInstance (ID: %s) の取得に失敗しました: %w", instanceID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobInstance (ID: %s) の取得に失敗しました", instanceID), err, false, false)
   }
   if jobInstance == nil {
     // JobInstance が見つからなかった場合
@@ -316,7 +317,7 @@ func (o *DefaultJobOperator) GetJobExecutions(ctx context.Context, instanceID st
   jobExecutions, err := o.jobRepository.FindJobExecutionsByJobInstance(ctx, jobInstance)
   if err != nil {
     // JobRepository からのエラーをそのまま返す
-    return nil, fmt.Errorf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました: %w", instanceID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました", instanceID), err, false, false)
   }
 
   logger.Debugf("JobInstance (ID: %s) に関連する %d 件の JobExecution を取得しました。", instanceID, len(jobExecutions))
@@ -333,7 +334,7 @@ func (o *DefaultJobOperator) GetLastJobExecution(ctx context.Context, instanceID
   if err != nil {
     // JobRepository からのエラーをそのまま返す
     // JobExecution が見つからない場合も JobRepository が nil, sql.ErrNoRows を返す想定
-    return nil, fmt.Errorf("JobInstance (ID: %s) の最新 JobExecution の取得に失敗しました: %w", instanceID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobInstance (ID: %s) の最新 JobExecution の取得に失敗しました", instanceID), err, false, false)
   }
   // JobExecution が見つからなかった場合は nil が返される
 
@@ -355,7 +356,7 @@ func (o *DefaultJobOperator) GetJobInstance(ctx context.Context, instanceID stri
   if err != nil {
     // JobRepository からのエラーをそのまま返す
     // JobInstance が見つからない場合も JobRepository が nil, sql.ErrNoRows を返す想定
-    return nil, fmt.Errorf("JobInstance (ID: %s) の取得に失敗しました: %w", instanceID, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobInstance (ID: %s) の取得に失敗しました", instanceID), err, false, false)
   }
   // JobInstance が見つからなかった場合は nil が返される
 
@@ -383,7 +384,7 @@ func (o *DefaultJobOperator) GetJobInstances(ctx context.Context, jobName string
   jobInstance, err := o.jobRepository.FindJobInstanceByJobNameAndParameters(ctx, jobName, params)
   if err != nil {
     // JobRepository からのエラーをそのまま返す
-    return nil, fmt.Errorf("JobInstance (JobName: %s, Parameters: %+v) の検索に失敗しました: %w", jobName, params, err)
+    return nil, exception.NewBatchError("job_operator", fmt.Sprintf("JobInstance (JobName: %s, Parameters: %+v) の検索に失敗しました", jobName, params), err, false, false)
   }
 
   var jobInstances []*core.JobInstance
@@ -407,7 +408,7 @@ func (o *DefaultJobOperator) GetJobNames(ctx context.Context) ([]string, error) 
   jobNames, err := o.jobRepository.GetJobNames(ctx)
   if err != nil {
     // JobRepository からのエラーをそのまま返す
-    return nil, fmt.Errorf("登録されているジョブ名の取得に失敗しました: %w", err)
+    return nil, exception.NewBatchError("job_operator", "登録されているジョブ名の取得に失敗しました", err, false, false)
   }
   logger.Debugf("%d 件のジョブ名を取得しました。", len(jobNames))
   return jobNames, nil
@@ -422,12 +423,12 @@ func (o *DefaultJobOperator) GetParameters(ctx context.Context, executionID stri
   jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
   if err != nil {
     // JobExecution が見つからない場合や取得エラーの場合
-    return core.NewJobParameters(), fmt.Errorf("JobExecution (ID: %s) の取得に失敗しました: %w", executionID, err)
+    return core.NewJobParameters(), exception.NewBatchError("job_operator", fmt.Sprintf("JobExecution (ID: %s) の取得に失敗しました", executionID), err, false, false)
   }
   if jobExecution == nil {
     // JobExecution が見つからなかった場合
     logger.Warnf("JobExecution (ID: %s) が見つかりませんでした。", executionID)
-    return core.NewJobParameters(), fmt.Errorf("JobExecution (ID: %s) が見つかりませんでした", executionID) // エラーとして返す
+    return core.NewJobParameters(), exception.NewBatchErrorf("job_operator", "JobExecution (ID: %s) が見つかりませんでした", executionID) // エラーとして返す
   }
 
   logger.Debugf("JobExecution (ID: %s) の JobParameters を取得しました。", executionID)

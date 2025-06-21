@@ -31,7 +31,7 @@ func LoadJSLDefinitions() error {
 	logger.Infof("JSL 定義のロードを開始します。")
 	files, err := jslFS.ReadDir(".")
 	if err != nil {
-		return exception.NewBatchError("jsl_loader", "JSL ディレクトリの読み込みに失敗しました", err)
+		return exception.NewBatchError("jsl_loader", "JSL ディレクトリの読み込みに失敗しました", err, false, false)
 	}
 
 	for _, file := range files {
@@ -43,20 +43,20 @@ func LoadJSLDefinitions() error {
 		logger.Debugf("JSL ファイルを読み込み中: %s", filePath)
 		data, err := jslFS.ReadFile(filePath)
 		if err != nil {
-			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' の読み込みに失敗しました", filePath), err)
+			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' の読み込みに失敗しました", filePath), err, false, false)
 		}
 
 		var jobDef Job
 		if err := yaml.Unmarshal(data, &jobDef); err != nil {
-			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' のパースに失敗しました", filePath), err)
+			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' のパースに失敗しました", filePath), err, false, false)
 		}
 
 		if jobDef.ID == "" {
-			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' に 'id' が定義されていません", filePath), nil)
+			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' に 'id' が定義されていません", filePath), nil, false, false)
 		}
 
 		if _, exists := LoadedJobDefinitions[jobDef.ID]; exists {
-			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ジョブID '%s' が重複しています", jobDef.ID), nil)
+			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ジョブID '%s' が重複しています", jobDef.ID), nil, false, false)
 		}
 
 		LoadedJobDefinitions[jobDef.ID] = jobDef
@@ -87,7 +87,7 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 		// We need to re-marshal and unmarshal to the specific JSL type (Step or Decision).
 		elemBytes, err := yaml.Marshal(elem)
 		if err != nil {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の再マーシャルに失敗しました", id), err)
+			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の再マーシャルに失敗しました", id), err, false, false)
 		}
 
 		// Try to unmarshal as Step
@@ -122,7 +122,7 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 			continue
 		}
 
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("不明なフロー要素の型または必須フィールドが不足しています (ID: %s, Type: %s)", id, reflect.TypeOf(elem)), nil)
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("不明なフロー要素の型または必須フィールドが不足しています (ID: %s, Type: %s)", id, reflect.TypeOf(elem)), nil, false, false)
 	}
 	return coreFlow, nil
 }
@@ -132,20 +132,20 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
 	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader)
 	if !ok {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil)
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil, false, false)
 	}
 
 	var p stepProcessor.Processor
 	if jslStep.Processor.Ref != "" {
 		p, ok = componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor)
 		if !ok {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です", jslStep.Processor.Ref), nil)
+			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です", jslStep.Processor.Ref), nil, false, false)
 		}
 	}
 
 	w, ok := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer)
 	if !ok {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です", jslStep.Writer.Ref), nil)
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です", jslStep.Writer.Ref), nil, false, false)
 	}
 
 	chunkSize := 1 // Default chunk size
