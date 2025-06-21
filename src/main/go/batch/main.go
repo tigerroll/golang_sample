@@ -91,9 +91,9 @@ func main() {
 			logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s",
 				jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
-			if len(jobExecution.Failureliye) > 0 {
+			if len(jobExecution.Failures) > 0 {
 				logger.Errorf("Job '%s' (Execution ID: %s) の失敗例外: %v",
-					jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+					jobExecution.JobName, jobExecution.ID, jobExecution.Failures)
 			}
 		} else {
 			logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, startErr)
@@ -116,9 +116,9 @@ func main() {
 			jobExecution.JobName,
 			jobExecution.ID,
 		)
-		if len(jobExecution.Failureliye) > 0 {
+		if len(jobExecution.Failures) > 0 {
 			logger.Errorf("Job '%s' (Execution ID: %s) の失敗例外: %v",
-				jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+				jobExecution.JobName, jobExecution.ID, jobExecution.Failures)
 		}
 
 		os.Exit(1)
