@@ -20,14 +20,17 @@ import (
 	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
 	itemListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemListener パッケージをインポート
 	itemRetryListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemRetryListener パッケージをインポート
+	step "sample/src/main/go/batch/step" // JSLAdaptedStep をインポート
 	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
+	entity "sample/src/main/go/batch/domain/entity" // entity パッケージをインポート (型引数用)
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
 // 依存関係（Config, Repositoryなど）を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
-type ComponentBuilder func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error)
+// ジェネリックインターフェースを返すため、any を使用します。
+type ComponentBuilder func(cfg *config.Config, repo repository.WeatherRepository) (any, error)
 
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
@@ -58,26 +61,32 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 
 // registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を登録します。
 func (f *JobFactory) registerComponentBuilders() {
-	f.componentBuilders["weatherReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["weatherReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		weatherReaderCfg := &config.WeatherReaderConfig{
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
+		// Reader[*entity.OpenMeteoForecast] を返す
 		return stepReader.NewWeatherReader(weatherReaderCfg), nil
 	}
-	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] を返す
 		return stepProcessor.NewWeatherProcessor(), nil
 	}
-	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Writer[*entity.WeatherDataToStore] を返す
 		return stepWriter.NewWeatherWriter(repo), nil
 	}
-	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Reader[any] を返す
 		return dummyReader.NewDummyReader(), nil
 	}
-	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Processor[any, any] を返す
 		return dummyProcessor.NewDummyProcessor(), nil
 	}
-	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Writer[any] を返す
 		return dummyWriter.NewDummyWriter(), nil
 	}
 	// 他のコンポーネントがあればここに追加登録
@@ -95,7 +104,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 
 	// 2. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
-	componentRegistry := make(map[string]interface{})
+	componentRegistry := make(map[string]any) // map[string]any に変更
 
 	// WeatherRepository は WeatherWriter が必要とするので、ここで作成する。
 	weatherRepo, err := repository.NewWeatherRepository(context.Background(), *f.config)
@@ -133,6 +142,8 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		itemRetryListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
 	}
 
+	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
+	// そして、JSLAdaptedStep のコンストラクタに渡す際に、適切な型アサーションを行う
 	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
 	if err != nil {
 		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JSL ジョブ '%s' のフロー変換に失敗しました", jobName), err, false, false)

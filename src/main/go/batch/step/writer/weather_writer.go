@@ -25,22 +25,22 @@ func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
 	}
 }
 
-// Write メソッドが Writer インターフェースを満たすように修正
+// Write メソッドが Writer[*entity.WeatherDataToStore] インターフェースを満たすように修正
 // このステップでは、JSLAdaptedStep から渡された単一のアイテムを書き込みます。
-func (w *WeatherWriter) Write(ctx context.Context, item interface{}) error {
+func (w *WeatherWriter) Write(ctx context.Context, item *entity.WeatherDataToStore) error { // I は *entity.WeatherDataToStore
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	// 渡されたアイテムを []*entity.WeatherDataToStore に型アサーション
-	dataToStore, ok := item.(*entity.WeatherDataToStore)
-	if !ok {
-		return fmt.Errorf("WeatherWriter: 予期しない入力型です: %T, 期待される型: *entity.WeatherDataToStore", item)
-	}
+	// 渡されたアイテムは既に *entity.WeatherDataToStore 型として受け取られるため、型アサーションは不要
+	// dataToStore, ok := item.(*entity.WeatherDataToStore)
+	// if !ok {
+	// 	return fmt.Errorf("WeatherWriter: 予期しない入力型です: %T, 期待される型: *entity.WeatherDataToStore", item)
+	// }
 
-	if dataToStore == nil {
+	if item == nil { // item は dataToStore にリネームされた
 		logger.Debugf("WeatherWriter: 書き込むデータが nil です。")
 		return nil // 書き込むデータが nil の場合は何もしない
 	}
@@ -50,18 +50,18 @@ func (w *WeatherWriter) Write(ctx context.Context, item interface{}) error {
 	// WeatherDataToStore から OpenMeteoForecast 形式に変換して保存
 	// Repository は OpenMeteoForecast 形式を期待しているため
 	forecast := entity.OpenMeteoForecast{
-		Latitude:  dataToStore.Latitude,
-		Longitude: dataToStore.Longitude,
+		Latitude:  item.Latitude,
+		Longitude: item.Longitude,
 		Hourly: entity.Hourly{
-			Time:          []string{dataToStore.Time.Format(time.RFC3339)}, // time.Time から string に変換
-			WeatherCode:   []int{dataToStore.WeatherCode},
-			Temperature2M: []float64{dataToStore.Temperature2M},
+			Time:          []string{item.Time.Format(time.RFC3339)}, // time.Time から string に変換
+			WeatherCode:   []int{item.WeatherCode},
+			Temperature2M: []float64{item.Temperature2M},
 		},
 	}
 	// リポジトリのメソッドに Context を渡す
 	if err := w.repo.SaveWeatherData(ctx, forecast); err != nil {
 		// 個別アイテムの保存エラーは、Writer エラーとして返す
-		return fmt.Errorf("データの保存に失敗しました (アイテム: %+v): %w", dataToStore, err)
+		return fmt.Errorf("データの保存に失敗しました (アイテム: %+v): %w", item, err)
 	}
 
 	logger.Debugf("WeatherWriter: 1 件のアイテムをリポジトリに書き込み完了しました。")
@@ -105,5 +105,5 @@ func (w *WeatherWriter) GetExecutionContext(ctx context.Context) (core.Execution
   return w.executionContext, nil
 }
 
-// WeatherWriter が Writer インターフェースを満たすことを確認
-var _ Writer = (*WeatherWriter)(nil)
+// WeatherWriter が Writer[*entity.WeatherDataToStore] インターフェースを満たすことを確認
+var _ Writer[*entity.WeatherDataToStore] = (*WeatherWriter)(nil)

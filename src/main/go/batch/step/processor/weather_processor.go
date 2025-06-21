@@ -21,18 +21,19 @@ func NewWeatherProcessor(/* cfg *config.WeatherProcessorConfig */) *WeatherProce
 	}
 }
 
-// Process メソッドが Processor インターフェースを満たすように修正
-func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (interface{}, error) {
+// Process メソッドが Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすように修正
+func (p *WeatherProcessor) Process(ctx context.Context, forecast *entity.OpenMeteoForecast) ([]*entity.WeatherDataToStore, error) { // I は *entity.OpenMeteoForecast, O は []*entity.WeatherDataToStore
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	forecast, ok := item.(*entity.OpenMeteoForecast)
-	if !ok {
-		return nil, fmt.Errorf("予期しない入力型です: %T, 期待される型: *entity.OpenMeteoForecast", item)
-	}
+	// forecast は既に *entity.OpenMeteoForecast 型として受け取られるため、型アサーションは不要
+	// forecast, ok := item.(*entity.OpenMeteoForecast)
+	// if !ok {
+	// 	return nil, fmt.Errorf("予期しない入力型です: %T, 期待される型: *entity.OpenMeteoForecast", item)
+	// }
 
 	var dataToStore []*entity.WeatherDataToStore
 	// CollectedAt は現在時刻を使用しているため、設定は不要
@@ -49,7 +50,7 @@ func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (inter
 		if err != nil {
 			parsedTime, err = time.Parse(time.RFC3339, forecast.Hourly.Time[i])
 			if err != nil {
-				return nil, fmt.Errorf("時間のパースに失敗しました: %w", err)
+				return nil, fmt.Errorf("時間のパースに失敗しました: %w", forecast.Hourly.Time[i], err) // エラーメッセージに元の時刻文字列を追加
 			}
 		}
 		data := &entity.WeatherDataToStore{
@@ -63,10 +64,9 @@ func (p *WeatherProcessor) Process(ctx context.Context, item interface{}) (inter
 		dataToStore = append(dataToStore, data)
 	}
 
-	// ここで []*entity.WeatherDataToStore を interface{} として返します。
-	// JSLAdaptedStep はこのスライスを展開して個々のアイテムをチャンクに追加する必要があります。
+	// ここで []*entity.WeatherDataToStore を返します。
 	return dataToStore, nil
 }
 
-// WeatherProcessor が Processor インターフェースを満たすことを確認
-var _ Processor = (*WeatherProcessor)(nil)
+// WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認
+var _ Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] = (*WeatherProcessor)(nil)

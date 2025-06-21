@@ -15,7 +15,7 @@ import (
 )
 
 // WeatherReader は天気予報データを外部APIから読み込む Reader です。
-// step.ItemReader インターフェースを実装します。
+// Reader[*entity.OpenMeteoForecast] インターフェースを実装します。
 type WeatherReader struct {
 	config *config.WeatherReaderConfig // 小さい設定構造体を使用
 	client *http.Client
@@ -37,7 +37,7 @@ func NewWeatherReader(cfg *config.WeatherReaderConfig) *WeatherReader {
 
 // Read メソッドが Reader インターフェースを満たすように修正
 // アイテムを一つずつ返すように変更
-func (r *WeatherReader) Read(ctx context.Context) (interface{}, error) {
+func (r *WeatherReader) Read(ctx context.Context) (*entity.OpenMeteoForecast, error) { // O は *entity.OpenMeteoForecast
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -108,7 +108,7 @@ func (r *WeatherReader) Read(ctx context.Context) (interface{}, error) {
 	r.currentIndex++ // インデックスをインクリメント
 
 	//logger.Debugf("Read item at index %d: %+v", r.currentIndex-1, itemToProcess)
-	return itemToProcess, nil // interface{} 型として返す
+	return itemToProcess, nil // *entity.OpenMeteoForecast 型として返す
 }
 
 // Close は Reader インターフェースの実装です。
@@ -184,5 +184,5 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
   return newEC, nil
 }
 
-// WeatherReader が Reader インターフェースを満たすことを確認
-var _ Reader = (*WeatherReader)(nil)
+// WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
+var _ Reader[*entity.OpenMeteoForecast] = (*WeatherReader)(nil)

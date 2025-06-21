@@ -8,7 +8,7 @@ import (
 )
 
 // DummyProcessor は入力アイテムをそのまま返すダミーの Processor です。
-// Processor インターフェース (step/processor/processor.go で定義) を実装します。
+// Processor[any, any] インターフェースを実装します。
 type DummyProcessor struct{}
 
 // NewDummyProcessor は新しい DummyProcessor のインスタンスを作成します。
@@ -17,7 +17,7 @@ func NewDummyProcessor() *DummyProcessor { return &DummyProcessor{} }
 // Process は Processor インターフェースの実装です。
 // 入力として受け取ったアイテムを []*entity.WeatherDataToStore 型に変換して返します。
 // これは JSLAdaptedStep が期待する型に合わせるためのダミー実装です。
-func (p *DummyProcessor) Process(ctx context.Context, item interface{}) (interface{}, error) {
+func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { // I は any, O は any
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -41,5 +41,5 @@ func (p *DummyProcessor) Process(ctx context.Context, item interface{}) (interfa
 	return []*entity.WeatherDataToStore{dummyData}, nil
 }
 
-// DummyProcessor が Processor インターフェースを満たすことを確認
-var _ Processor = (*DummyProcessor)(nil)
+// DummyProcessor が Processor[any, any] インターフェースを満たすことを確認
+var _ Processor[any, any] = (*DummyProcessor)(nil)

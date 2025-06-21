@@ -8,7 +8,7 @@ import (
 )
 
 // DummyReader は常に io.EOF を返すダミーの Reader です。
-// Reader インターフェース (step/reader/reader.go で定義) を実装します。
+// Reader[any] インターフェースを実装します。
 type DummyReader struct{
   // ExecutionContext を保持するためのフィールド
   executionContext core.ExecutionContext
@@ -23,7 +23,7 @@ func NewDummyReader() *DummyReader {
 
 // Read は Reader インターフェースの実装です。
 // 常に io.EOF を返してデータの終端を示します。
-func (r *DummyReader) Read(ctx context.Context) (interface{}, error) {
+func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any
   // Context の完了をチェック
   select {
   case <-ctx.Done():
@@ -74,5 +74,5 @@ func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionCo
   return r.executionContext, nil
 }
 
-// DummyReader が Reader インターフェースを満たすことを確認
-var _ Reader = (*DummyReader)(nil)
+// DummyReader が Reader[any] インターフェースを満たすことを確認
+var _ Reader[any] = (*DummyReader)(nil)
