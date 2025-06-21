@@ -17,6 +17,7 @@ import (
 
 	// ★ ダミーコンポーネントをそれぞれのパッケージからインポート ★
 	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
+	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
 )
