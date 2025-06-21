@@ -506,6 +506,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 						break
 					}
 					stepExecution.CommitCount++
+					chunkCount++ // チャンク処理成功
 
 					processedItemsChunk = make([]interface{}, 0, chunkSize)
 					itemCountInChunk = 0
