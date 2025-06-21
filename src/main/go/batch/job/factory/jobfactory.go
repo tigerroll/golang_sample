@@ -76,7 +76,8 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	componentRegistry["dummyWriter"] = dummyWriter.NewDummyWriter()
 
 	// 3. JSL Flow を core.FlowDefinition に変換
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry)
+	// jobRepository を ConvertJSLToCoreFlow に渡す
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository)
 	if err != nil {
 		return nil, fmt.Errorf("JSL ジョブ '%s' のフロー変換に失敗しました: %w", jobName, err)
 	}

@@ -9,9 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"sample/src/main/go/batch/job/core"
-	"sample/src/main/go/batch/step/processor"
-	"sample/src/main/go/batch/step/reader"
-	"sample/src/main/go/batch/step/writer"
+	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
+	stepProcessor "sample/src/main/go/batch/step/processor"
+	stepReader "sample/src/main/go/batch/step/reader"
+	step "sample/src/main/go/batch/step" // JSLAdaptedStep をインポート
+	stepWriter "sample/src/main/go/batch/step/writer"
 	exception "sample/src/main/go/batch/util/exception" // Alias for clarity
 	logger "sample/src/main/go/batch/util/logger"       // Alias for clarity
 )
@@ -70,7 +72,8 @@ func GetJobDefinition(jobID string) (Job, bool) {
 
 // ConvertJSLToCoreFlow converts a JSL Flow definition into a core.FlowDefinition.
 // componentRegistry maps string names (from JSL) to actual Go component instances (Reader, Processor, Writer).
-func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}) (*core.FlowDefinition, error) {
+// jobRepository は JSLAdaptedStep の初期化に必要
+func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}, jobRepository repository.JobRepository) (*core.FlowDefinition, error) {
 	coreFlow := &core.FlowDefinition{
 		StartElement:    jslFlow.StartElement,
 		Elements:        make(map[string]interface{}),
@@ -89,7 +92,8 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 		var jslStep Step
 		if err := yaml.Unmarshal(elemBytes, &jslStep); err == nil && jslStep.ID != "" && jslStep.Reader.Ref != "" && jslStep.Writer.Ref != "" {
 			// Successfully unmarshaled as Step
-			coreStep, err := convertJSLStepToCoreStep(jslStep, componentRegistry)
+			// JSLAdaptedStep の初期化に jobRepository を渡す
+			coreStep, err := convertJSLStepToCoreStep(jslStep, componentRegistry, jobRepository)
 			if err != nil {
 				return nil, err
 			}
@@ -122,7 +126,8 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 }
 
 // convertJSLStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation.
-func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}) (core.Step, error) {
+// jobRepository を引数に追加
+func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}, jobRepository repository.JobRepository) (core.Step, error) {
 	r, ok := componentRegistry[jslStep.Reader.Ref].(reader.Reader)
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil)
@@ -147,5 +152,6 @@ func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interfa
 	}
 
 	// Create an instance of JSLAdaptedStep which implements core.Step
-	return NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize), nil
+	// NewJSLAdaptedStep に jobRepository を渡す
+	return step.NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize, nil, jobRepository), nil // retryConfig は JSLAdaptedStep 内部で設定されるべきか、JSLから渡すか検討
 }
