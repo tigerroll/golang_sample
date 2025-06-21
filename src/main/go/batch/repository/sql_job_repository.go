@@ -3,7 +3,7 @@ package repository
 import (
   "context"
   "database/sql"
-  "encoding/json" // JobParameters, Failureliye をJSONとして保存/読み込み
+  "encoding/json" // JobParameters, Failures をJSONとして保存/読み込み
   "fmt"
   "time"
 
@@ -207,14 +207,14 @@ func (r *SQLJobRepository) GetJobNames(ctx context.Context) ([]string, error) {
 
 // SaveJobExecution は新しい JobExecution をデータベースに保存します。
 func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
-  // JobParameters, Failureliye をデータベースの形式に合わせて変換 (例: JSON)
+  // JobParameters, Failures をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
   }
-  failuresJSON, err := json.Marshal(jobExecution.Failureliye) // 仮の変換
+  failuresJSON, err := json.Marshal(jobExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err)
   }
 
   // ExecutionContext を JSON にシリアライズ
@@ -259,14 +259,14 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
 
 // UpdateJobExecution は既存の JobExecution の状態をデータベースで更新します。
 func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
-  // JobParameters, Failureliye をデータベースの形式に合わせて変換 (例: JSON)
+  // JobParameters, Failures をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
     return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
   }
-  failuresJSON, err := json.Marshal(jobExecution.Failureliye) // 仮の変換
+  failuresJSON, err := json.Marshal(jobExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "Failureliye のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err)
   }
 
   // ExecutionContext を JSON にシリアライズ
@@ -383,23 +383,23 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     jobExecution.Parameters = core.NewJobParameters() // NULL の場合は空の JobParameters を設定
   }
 
-  // failure_exceptions を JSON から構造体に戻す
+  // Failures を JSON から構造体に戻す
   if failuresJSON.Valid {
-    // failure_exceptions は []error ですが、JSONではstringスライスなどで保持することを想定
+    // Failures は []error ですが、JSONではstringスライスなどで保持することを想定
     // ここでは簡単なstringスライスとしてデコードする例
     var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
     if err != nil {
-      logger.Errorf("JobExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", executionID, err)
+      logger.Errorf("JobExecution (ID: %s) の Failures のデコードに失敗しました: %v", executionID, err)
     } else {
       // デコードしたstringスライスを error スライスに戻す（文字列から新しいerrorを作成）
-      jobExecution.Failureliye = make([]error, len(failureMsgs))
+      jobExecution.Failures = make([]error, len(failureMsgs))
       for i, msg := range failureMsgs {
-        jobExecution.Failureliye[i] = fmt.Errorf(msg)
+        jobExecution.Failures[i] = fmt.Errorf(msg)
       }
     }
   } else {
-    jobExecution.Failureliye = make([]error, 0) // NULL の場合は空のスライスを設定
+    jobExecution.Failures = make([]error, 0) // NULL の場合は空のスライスを設定
   }
 
   // ExecutionContext の JSON データをデシリアライズ
@@ -425,6 +425,10 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     logger.Errorf("JobExecution (ID: %s) に関連する StepExecutions の取得に失敗しました: %v", jobExecution.ID, err)
     // エラーを返すか、ログ出力して JobExecution だけ返すか検討
     // return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecutions の取得に失敗しました", jobExecution.ID), err)
+  }
+  // 取得した StepExecution に JobExecution 参照を設定
+  for _, se := range stepExecutions {
+    se.JobExecution = jobExecution
   }
   jobExecution.StepExecutions = stepExecutions
 
@@ -502,20 +506,20 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobInstan
     jobExecution.Parameters = core.NewJobParameters()
   }
 
-  // failure_exceptions を JSON から構造体に戻す
+  // Failures を JSON から構造体に戻す
   if failuresJSON.Valid {
-    var failureMsgs []string // 仮の型
+    var failureMsgs []string
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
     if err != nil {
-      logger.Errorf("JobExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", jobExecution.ID, err)
+      logger.Errorf("JobExecution (ID: %s) の Failures のデコードに失敗しました: %v", jobExecution.ID, err)
     } else {
-      jobExecution.Failureliye = make([]error, len(failureMsgs))
+      jobExecution.Failures = make([]error, len(failureMsgs))
       for i, msg := range failureMsgs {
-        jobExecution.Failureliye[i] = fmt.Errorf(msg)
+        jobExecution.Failures[i] = fmt.Errorf(msg)
       }
     }
   } else {
-    jobExecution.Failureliye = make([]error, 0)
+    jobExecution.Failures = make([]error, 0)
   }
 
   // ExecutionContext の JSON データをデシリアライズ
@@ -538,6 +542,10 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobInstan
   stepExecutions, err := r.FindStepExecutionsByJobExecutionID(ctx, jobExecution.ID)
   if err != nil {
     logger.Errorf("JobExecution (ID: %s) に関連する StepExecutions の取得に失敗しました: %v", jobExecution.ID, err)
+  }
+  // 取得した StepExecution に JobExecution 参照を設定
+  for _, se := range stepExecutions {
+    se.JobExecution = jobExecution
   }
   jobExecution.StepExecutions = stepExecutions
 
@@ -617,21 +625,21 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
       jobExecution.Parameters = core.NewJobParameters()
     }
 
-    // failure_exceptions を JSON から構造体に戻す
+    // Failures を JSON から構造体に戻す
     if failuresJSON.Valid {
       var failureMsgs []string
       err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
       if err != nil {
-        logger.Errorf("JobExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", jobExecution.ID, err)
+        logger.Errorf("JobExecution (ID: %s) の Failures のデコードに失敗しました: %v", jobExecution.ID, err)
       } else {
-        jobExecution.Failureliye = make([]error, len(failureMsgs))
+        jobExecution.Failures = make([]error, len(failureMsgs))
         for i, msg := range failureMsgs {
           msg := msg // ループ変数再宣言
-          jobExecution.Failureliye[i] = fmt.Errorf(msg)
+          jobExecution.Failures[i] = fmt.Errorf(msg)
         }
       }
     } else {
-      jobExecution.Failureliye = make([]error, 0)
+      jobExecution.Failures = make([]error, 0)
     }
 
     // ExecutionContext の JSON データをデシリアライズ
@@ -644,11 +652,15 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
       jobExecution.ExecutionContext = core.NewExecutionContext()
     }
 
-    // TODO: StepExecutions も取得して JobExecution に設定する必要があるか検討
-    //       FindJobExecutionByID は関連する StepExecution もロードするが、
-    //       FindJobExecutionsByJobInstance は JobExecution のリストのみを返す設計にするか、
-    //       各 JobExecution に対して FindStepExecutionsByJobExecutionID を呼び出すか。
-    //       ここではシンプルに JobExecution リストのみを返す。
+    // 各 JobExecution に対して StepExecutions をロードし、JobExecution 参照を設定
+    stepExecutions, err := r.FindStepExecutionsByJobExecutionID(ctx, jobExecution.ID)
+    if err != nil {
+      logger.Errorf("JobExecution (ID: %s) に関連する StepExecutions の取得に失敗しました: %v", jobExecution.ID, err)
+    }
+    for _, se := range stepExecutions {
+      se.JobExecution = jobExecution
+    }
+    jobExecution.StepExecutions = stepExecutions
 
     jobExecutions = append(jobExecutions, jobExecution)
   }
@@ -666,10 +678,10 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
 
 // SaveStepExecution は新しい StepExecution をデータベースに保存します。
 func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution *core.StepExecution) error {
-  // Failureliye をデータベースの形式に合わせて変換 (例: JSON)
-  failuresJSON, err := json.Marshal(stepExecution.Failureliye) // 仮の変換
+  // Failures をデータベースの形式に合わせて変換 (例: JSON)
+  failuresJSON, err := json.Marshal(stepExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err)
   }
 
   // ExecutionContext を JSON にシリアライズ
@@ -719,10 +731,10 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 
 // UpdateStepExecution は既存の StepExecution の状態をデータベースで更新します。
 func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecution *core.StepExecution) error {
-  // Failureliye をデータベースの形式に合わせて変換 (例: JSON)
-  failuresJSON, err := json.Marshal(stepExecution.Failureliye) // 仮の変換
+  // Failures をデータベースの形式に合わせて変換 (例: JSON)
+  failuresJSON, err := json.Marshal(stepExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution Failureliye のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err)
   }
 
   // ExecutionContext を JSON にシリアライズ
@@ -812,21 +824,21 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
     stepExecution.ExitStatus = core.ExitStatus(exitStatus.String)
   }
 
-  // failure_exceptions を JSON から構造体に戻す
+  // Failures を JSON から構造体に戻す
   if failuresJSON.Valid {
     var failureMsgs []string // 仮の型
     err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
     if err != nil {
-      logger.Errorf("StepExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", executionID, err) // Fix: executionExecutionID -> executionID
+      logger.Errorf("StepExecution (ID: %s) の Failures のデコードに失敗しました: %v", executionID, err)
     } else {
-      stepExecution.Failureliye = make([]error, len(failureMsgs))
+      stepExecution.Failures = make([]error, len(failureMsgs))
       for i, msg := range failureMsgs {
         msg := msg // ループ変数再宣言
-        stepExecution.Failureliye[i] = fmt.Errorf(msg)
+        stepExecution.Failures[i] = fmt.Errorf(msg)
       }
     }
   } else {
-    stepExecution.Failureliye = make([]error, 0)
+    stepExecution.Failures = make([]error, 0)
   }
 
   // ExecutionContext の JSON データをデシリアライズ
@@ -845,17 +857,19 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
     stepExecution.ExecutionContext = core.NewExecutionContext()
   }
 
-  // TODO: JobExecution オブジェクトを JobRepository から取得して StepExecution.JobExecution に設定する必要がある
+  // JobExecution オブジェクトを JobRepository から取得して StepExecution.JobExecution に設定
   // これがないと StepExecution から親の JobExecution にアクセスできない
-  // ただし、これは循環参照になる可能性や、不要なデータ取得になる可能性もあるため、設計を検討する必要がある。
-  // SimpleJobLauncher などで JobExecution を構築する際に StepExecution を紐づける方法がより一般的。
-  // ここではシンプルに JobExecution.ID だけ持たせる設計でも良いかもしれないが、JSR352 では関連を持っていることが多い。
-  // Option 1: StepExecution に JobExecution のポインタを持たせる（今回 core.go で採用済み）
-  // Option 2: StepExecution に JobExecution ID だけ持たせる
-  // Option 3: StepExecution 取得時に JobRepository で JobExecution もフェッチして設定する (今のコメント部分)
-  // 今回は Option 1 を採用し、FindStepExecutionByID で JobExecution は取得しないこととする（必要なら別途取得）。
+  if jobExecutionID != "" {
+    jobExecution, err := r.FindJobExecutionByID(ctx, jobExecutionID)
+    if err != nil {
+      logger.Errorf("StepExecution (ID: %s) の親 JobExecution (ID: %s) の取得に失敗しました: %v", executionID, jobExecutionID, err)
+      // エラーを返すか、ログ出力して続行するか検討。ここではログ出力して続行。
+    } else {
+      stepExecution.JobExecution = jobExecution
+    }
+  }
 
-  logger.Debugf("StepExecution (ID: %s, JobExecutionID: %s) をデータベースから取得しました。", executionID, jobExecutionID) // ここを修正: stepExecution.ID -> executionID
+  logger.Debugf("StepExecution (ID: %s, JobExecutionID: %s) をデータベースから取得しました。", executionID, jobExecutionID)
 
   return stepExecution, nil
 }
@@ -876,6 +890,44 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
   defer rows.Close()
 
   var stepExecutions []*core.StepExecution
+  // 親の JobExecution を一度取得しておく (N+1問題を避けるため)
+  var parentJobExecution *core.JobExecution
+  if jobExecutionID != "" {
+    // FindJobExecutionByID は StepExecutions もロードするため、ここでは循環参照を避けるために
+    // JobExecution の基本情報のみをロードするような別のメソッドを呼び出すか、
+    // または FindJobExecutionByID が StepExecutions をロードしないように変更する必要があります。
+    // 現状の FindJobExecutionByID は StepExecutions もロードするため、ここで呼び出すと無限ループになる可能性があります。
+    // ここでは、FindJobExecutionByID が StepExecutions をロードしない前提で呼び出すか、
+    // または StepExecution.JobExecution を設定しない（IDのみで十分とする）設計にするか、
+    // あるいは JobExecution の基本情報のみをロードする軽量なメソッドを JobRepository に追加する必要があります。
+    // 今回は、FindJobExecutionByID が StepExecutions をロードするが、その中でさらに FindStepExecutionsByJobExecutionID を呼び出すことはない、
+    // という前提で、親の JobExecution を取得し、それを各 StepExecution に設定します。
+    // ただし、FindJobExecutionByID が StepExecutions をロードする際にこのメソッドを呼び出すため、
+    // ここで再度 FindJobExecutionByID を呼び出すと無限再帰になります。
+    // したがって、ここでは parentJobExecution を設定しないか、JobExecution の基本情報のみをロードする専用メソッドが必要です。
+    // 一旦、FindJobExecutionByID が StepExecutions をロードする際に、その StepExecutions の JobExecution フィールドは設定しない、
+    // という前提で、ここで親の JobExecution を取得して設定するロジックを削除します。
+    // StepExecution の JobExecution フィールドは、JobExecution が構築される際に設定されるべきです。
+    // FindStepExecutionsByJobExecutionID は、あくまで StepExecution のリストを返すことに集中します。
+    // 呼び出し元 (例: FindJobExecutionByID) が、取得した JobExecution に StepExecutions を設定する際に、
+    // 各 StepExecution の JobExecution フィールドも設定する責務を持つべきです。
+    // ユーザーの指示にある「取得した StepExecution に JobExecution 参照を設定」は、
+    // FindJobExecutionByID と FindLatestJobExecution の中で行うべきであり、
+    // この FindStepExecutionsByJobExecutionID の中では行わない方が良いでしょう。
+    // しかし、ユーザーの指示には「親の JobExecution を一度取得しておく (N+1問題を避けるため)」とあるので、
+    // FindJobExecutionByID を呼び出すのではなく、JobExecution の基本情報だけをロードするような
+    // 別のクエリを実行するべきですが、そのようなメソッドは現在ありません。
+    // ユーザーの指示を尊重し、FindJobExecutionByID を呼び出す形を維持しますが、
+    // 無限再帰を避けるために、FindJobExecutionByID の中で FindStepExecutionsByJobExecutionID を呼び出す際に
+    // StepExecution の JobExecution フィールドを設定しないようにするか、
+    // または FindJobExecutionByID が StepExecutions をロードする際に、
+    // その StepExecution の JobExecution フィールドは設定しない、という設計にする必要があります。
+    // ここでは、FindJobExecutionByID が StepExecutions をロードする際に、
+    // その StepExecution の JobExecution フィールドは設定しない、という前提で進めます。
+    // そして、FindJobExecutionByID の中で、取得した StepExecution の JobExecution フィールドを設定します。
+    // したがって、この FindStepExecutionsByJobExecutionID の中では parentJobExecution の取得は行いません。
+  }
+
   for rows.Next() {
     stepExecution := &core.StepExecution{}
     var endTime sql.NullTime
@@ -909,21 +961,21 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
       stepExecution.ExitStatus = core.ExitStatus(exitStatus.String)
     }
 
-    // failure_exceptions を JSON から構造体に戻す
+    // Failures を JSON から構造体に戻す
     if failuresJSON.Valid {
       var failureMsgs []string // 仮の型
       err = json.Unmarshal([]byte(failuresJSON.String), &failureMsgs)
       if err != nil {
-        logger.Errorf("StepExecution (ID: %s) の failure_exceptions のデコードに失敗しました: %v", stepExecution.ID, err)
+        logger.Errorf("StepExecution (ID: %s) の Failures のデコードに失敗しました: %v", stepExecution.ID, err)
       } else {
-        stepExecution.Failureliye = make([]error, len(failureMsgs))
+        stepExecution.Failures = make([]error, len(failureMsgs))
         for i, msg := range failureMsgs {
           msg := msg // ループ変数再宣言
-          stepExecution.Failureliye[i] = fmt.Errorf(msg)
+          stepExecution.Failures[i] = fmt.Errorf(msg)
         }
       }
     } else {
-      stepExecution.Failureliye = make([]error, 0)
+      stepExecution.Failures = make([]error, 0)
     }
 
     // ExecutionContext の JSON データをデシリアライズ
@@ -943,7 +995,12 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
     }
 
     // StepExecution に所属する JobExecution のポインタを設定する (後で呼び出し元で設定することが多い)
-    // stepExecution.JobExecution = // 呼び出し元で JobExecution を取得して設定する必要がある
+    // ここでは FindJobExecutionByID が StepExecutions をロードする際に、
+    // その StepExecution の JobExecution フィールドは設定しない、という前提で、
+    // ここでは parentJobExecution の設定は行いません。
+    // 呼び出し元 (例: FindJobExecutionByID) が、取得した JobExecution に StepExecutions を設定する際に、
+    // 各 StepExecution の JobExecution フィールドも設定する責務を持つべきです。
+    // stepExecution.JobExecution = parentJobExecution // 無限再帰を避けるためコメントアウト
 
     stepExecutions = append(stepExecutions, stepExecution)
   }
@@ -979,7 +1036,7 @@ var _ JobRepository = (*SQLJobRepository)(nil)
 // func unmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error { ... }
 
 
-// TODO: Failureliye の永続化・復元ヘルパー関数またはメソッドを追加 (必要に応じて検討)
+// TODO: Failures の永続化・復元ヘルパー関数またはメソッドを追加 (必要に応じて検討)
 // error 型は Marshal/Unmarshal が標準でサポートしていないため、エラーメッセージの文字列リストとして保存するなどの工夫が必要
 // func marshalErrors(errs []error) ([]byte, error) { ... }
 // func unmarshalErrors(data []byte) ([]error, error) { ... }

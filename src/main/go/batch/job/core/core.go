@@ -149,6 +149,17 @@ func (ec ExecutionContext) GetFloat64(key string) (float64, bool) {
 	return f, ok
 }
 
+// Copy は ExecutionContext のシャローコピーを作成します。
+// マップのキーと値のペアを新しいマップにコピーします。
+// 値が参照型の場合、参照先は元のマップと共有されます。
+func (ec ExecutionContext) Copy() ExecutionContext {
+	newEC := make(ExecutionContext, len(ec))
+	for k, v := range ec {
+		newEC[k] = v
+	}
+	return newEC
+}
+
 
 // JobParameters はジョブ実行時のパラメータを保持する構造体です。
 // JSR352 に近づけるため map[string]interface{} とし、型安全な取得メソッドを追加します。
@@ -282,7 +293,7 @@ type JobExecution struct {
 	Status         JobStatus      // BatchStatus に相当
 	ExitStatus     ExitStatus     // 終了時の詳細ステータス
 	ExitCode       int            // 終了コード (ここでは単純化のため未使用)
-	Failureliye    []error        // 発生したエラー (複数保持できるようにスライスとする)
+	Failures       []error        // 発生したエラー (複数保持できるようにスライスとする)
 	Version        int            // バージョン (ここでは単純化のため未使用)
 	CreateTime     time.Time
 	LastUpdated    time.Time
@@ -307,7 +318,7 @@ func NewJobExecution(jobInstanceID string, jobName string, params JobParameters)
 		ExitStatus:     ExitStatusUnknown,
 		CreateTime:     now,
 		LastUpdated:    now,
-		Failureliye:    make([]error, 0),
+		Failures:       make([]error, 0),
 		StepExecutions: make([]*StepExecution, 0),
 		ExecutionContext: NewExecutionContext(), // ここで初期化
 		CurrentStepName: "", // 初期状態では空
@@ -335,14 +346,14 @@ func (je *JobExecution) MarkAsFailed(err error) {
 	je.EndTime = time.Now()
 	je.LastUpdated = time.Now()
 	if err != nil {
-		je.Failureliye = append(je.Failureliye, err)
+		je.Failures = append(je.Failures, err)
 	}
 }
 
 // AddFailureException は JobExecution にエラー情報を追加します。
 func (je *JobExecution) AddFailureException(err error) {
 	if err != nil {
-		je.Failureliye = append(je.Failureliye, err)
+		je.Failures = append(je.Failures, err)
 		je.LastUpdated = time.Now()
 	}
 }
@@ -357,7 +368,7 @@ type StepExecution struct {
 	EndTime        time.Time
 	Status         JobStatus      // BatchStatus に相当 (JobStatus を流用)
 	ExitStatus     ExitStatus     // 終了時の詳細ステータス
-	Failureliye    []error        // 発生したエラー (複数保持できるようにスライスとする)
+	Failures       []error        // 発生したエラー (複数保持できるようにスライスとする)
 	ReadCount      int
 	WriteCount     int
 	CommitCount    int
@@ -383,7 +394,7 @@ func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecutio
 		StartTime:      now,
 		Status:         JobStatusStarting, // 開始時は Starting または Started
 		ExitStatus:     ExitStatusUnknown,
-		Failureliye:    make([]error, 0),
+		Failures:       make([]error, 0),
 		ExecutionContext: NewExecutionContext(), // ここで初期化
 		LastUpdated:    now, // 追加
 		Version:        0,   // 追加
@@ -417,14 +428,14 @@ func (se *StepExecution) MarkAsFailed(err error) {
 	se.EndTime = time.Now()
 	se.LastUpdated = time.Now() // 追加
 	if err != nil {
-		se.Failureliye = append(se.Failureliye, err)
+		se.Failures = append(se.Failures, err)
 	}
 }
 
 // AddFailureException は StepExecution にエラー情報を追加します。
 func (se *StepExecution) AddFailureException(err error) {
 	if err != nil {
-		se.Failureliye = append(se.Failureliye, err)
+		se.Failures = append(se.Failures, err)
 		se.LastUpdated = time.Now() // 追加
 	}
 }
