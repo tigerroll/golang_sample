@@ -40,9 +40,9 @@ func (l *LoggingListener) AfterStepWithDuration(ctx context.Context, stepExecuti
   // StepExecution から必要な情報 (エラー、処理時間) を取得してログ出力
   duration := stepExecution.EndTime.Sub(stepExecution.StartTime) // StepExecution にEndTimeが設定されている前提
 
-  if len(stepExecution.Failureliye) > 0 {
+  if len(stepExecution.Failures) > 0 {
     logger.Errorf("ステップ '%s' (Execution ID: %s) でエラーが発生しました: %v (処理時間: %s)",
-      stepExecution.StepName, stepExecution.ID, stepExecution.Failureliye, duration.String())
+      stepExecution.StepName, stepExecution.ID, stepExecution.Failures, duration.String())
   } else {
     logger.Infof("ステップ '%s' (Execution ID: %s) が完了しました (処理時間: %s)。最終状態: %s",
       stepExecution.StepName, stepExecution.ID, duration.String(), stepExecution.Status)
