@@ -2,7 +2,6 @@ package step
 
 import (
 	"context"
-	"database/sql" // sql パッケージをインポート
 	"errors"
 	"fmt"
 	"io" // io パッケージをインポート
@@ -174,16 +173,24 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			}
 
 			// トランザクションの defer 処理
-			defer func() {
-				if r := recover(); r != nil {
-					tx.Rollback()
-					panic(r) // 再パニック
-				} else if err != nil {
-					tx.Rollback()
-				} else {
-					tx.Commit()
-				}
-			}()
+			// defer の中で err を参照するため、err をシャドウイングしないように注意
+			// ここでは、defer の外で err を宣言し、defer の中でその err を参照する
+			// ただし、Go の defer は登録時の変数の値をキャプチャするため、
+			// defer の中で最新の err を参照するには、defer の中で関数リテラルを定義し、
+			// その中で err を引数として受け取るか、ポインタで参照する必要があります。
+			// ここでは、トランザクションのコミット/ロールバックを defer の外で明示的に制御するため、
+			// この defer は不要になります。
+			// defer func() {
+			// 	if r := recover(); r != nil {
+			// 		tx.Rollback()
+			// 		panic(r) // 再パニック
+			// 	} else if err != nil { // ここで参照される err は defer 登録時の err
+			// 		tx.Rollback()
+			// 	} else {
+			// 		tx.Commit()
+			// 	}
+			// }()
+
 
 			// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
 			for {
@@ -366,7 +373,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			if r := recover(); r != nil {
 				tx.Rollback()
 				panic(r) // 再パニック
-			} else if err != nil {
+			} else if err != nil { // ここで参照される err は defer 登録時の err
 				tx.Rollback()
 			} else {
 				tx.Commit()
