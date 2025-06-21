@@ -10,23 +10,15 @@ import (
 	"sample/src/main/go/batch/util/logger"
 )
 
-// WeatherRepository は天気データを保存するためのリポジトリインターフェースです。
-// このインターフェースは、PostgresRepositoryやMySQLRepositoryが実装することを想定しています。
-// 既存のWeatherRepositoryインターフェースがこのシグネチャを持つことを前提とします。
-type WeatherRepository interface {
-	BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error
-	Close() error
-}
-
 // WeatherItemWriter は天気データをデータベースに書き込むためのItemWriter実装です。
 type WeatherItemWriter struct {
-	repo WeatherRepository
+	repo repository.WeatherRepository // repository.WeatherRepository を使用
 	// ExecutionContext はWriterの状態を保持するために使用できます
 	executionContext core.ExecutionContext
 }
 
 // NewWeatherItemWriter は新しいWeatherItemWriterのインスタンスを作成します。
-func NewWeatherItemWriter(repo WeatherRepository) *WeatherItemWriter {
+func NewWeatherItemWriter(repo repository.WeatherRepository) *WeatherItemWriter { // repository.WeatherRepository を使用
 	return &WeatherItemWriter{
 		repo:             repo,
 		executionContext: core.NewExecutionContext(), // 初期化

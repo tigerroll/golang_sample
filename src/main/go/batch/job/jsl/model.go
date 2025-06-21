@@ -34,8 +34,9 @@ type ComponentRef struct {
 
 // Chunk defines chunk-oriented processing properties for a step.
 type Chunk struct {
-	ItemCount int `yaml:"item-count"`
-	// Other chunk properties like commit-interval, skip-limit, etc. can be added.
+	ItemCount     int `yaml:"item-count"`
+	CommitInterval int `yaml:"commit-interval"` // JSR352のcommit-intervalに相当
+	// Other chunk properties like skip-limit, etc. can be added.
 }
 
 // Decision represents a conditional branching point in the flow.
