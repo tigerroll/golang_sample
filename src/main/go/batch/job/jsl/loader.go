@@ -75,7 +75,7 @@ func GetJobDefinition(jobID string) (Job, bool) {
 // ConvertJSLToCoreFlow converts a JSL Flow definition into a core.FlowDefinition.
 // componentRegistry maps string names (from JSL) to actual Go component instances (Reader, Processor, Writer).
 // jobRepository は JSLAdaptedStep の初期化に必要
-func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, stepListeners []stepListener.StepExecutionListener) (*core.FlowDefinition, error) {
+func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (*core.FlowDefinition, error) {
 	coreFlow := &core.FlowDefinition{
 		StartElement:    jslFlow.StartElement,
 		Elements:        make(map[string]interface{}),
@@ -95,7 +95,7 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 		if err := yaml.Unmarshal(elemBytes, &jslStep); err == nil && jslStep.ID != "" && jslStep.Reader.Ref != "" && jslStep.Writer.Ref != "" {
 			// Successfully unmarshaled as Step
 			// JSLAdaptedStep の初期化に jobRepository, retryConfig, stepListeners を渡す
-			coreStep, err := convertJSLStepToCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, stepListeners)
+			coreStep, err := convertJSLStepToCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, itemRetryConfig, itemSkipConfig, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
 			if err != nil {
 				return nil, err
 			}
@@ -129,7 +129,7 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]interface{}
 
 // convertJSLStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation.
 // jobRepository を引数に追加
-func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, stepListeners []stepListener.StepExecutionListener) (core.Step, error) {
+func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interface{}, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
 	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader)
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil)
@@ -155,5 +155,5 @@ func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]interfa
 
 	// Create an instance of JSLAdaptedStep which implements core.Step
 	// NewJSLAdaptedStep に jobRepository を渡す
-	return step.NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize, retryConfig, jobRepository, stepListeners), nil
+	return step.NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize, retryConfig, itemRetryConfig, itemSkipConfig, jobRepository, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners), nil
 }

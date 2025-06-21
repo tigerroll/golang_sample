@@ -34,6 +34,27 @@ type Step interface {
 	// GetListeners() []StepExecutionListener
 }
 
+// ItemReadListener はアイテム読み込みイベントを処理するためのインターフェースです。
+type ItemReadListener interface {
+	OnReadError(ctx context.Context, err error) // 読み込みエラー時に呼び出されます
+}
+
+// ItemProcessListener はアイテム処理イベントを処理するためのインターフェースです。
+type ItemProcessListener interface {
+	OnProcessError(ctx context.Context, item interface{}, err error) // 処理エラー時に呼び出されます
+	OnSkipInProcess(ctx context.Context, item interface{}, err error) // 処理中にスキップされたアイテムに対して呼び出されます
+}
+
+// ItemWriteListener はアイテム書き込みイベントを処理するためのインターフェースです。
+type ItemWriteListener interface {
+	OnWriteError(ctx context.Context, items []interface{}, err error) // 書き込みエラー時に呼び出されます
+	OnSkipInWrite(ctx context.Context, item interface{}, err error) // 書き込み中にスキップされたアイテムに対して呼び出されます
+}
+
+// ItemListener は全てのアイテムレベルリスナーインターフェースをまとめたものです。
+// これを実装するリスナーは、必要に応じて各インターフェースに型アサートされます。
+type ItemListener interface{}
+
 // Decision はフロー内の条件分岐ポイントのインターフェースを定義します。
 type Decision interface {
 	// Decide メソッドは、ExecutionContext やその他のパラメータに基づいて次の遷移を決定します。

@@ -21,15 +21,15 @@ func NewDummyWriter() *DummyWriter {
 }
 
 // Write は Writer インターフェースの実装です。
-// 何も行わずに nil を返します。
-func (w *DummyWriter) Write(ctx context.Context, items interface{}) error {
+// 単一のアイテムを受け取り、何も行わずに nil を返します。
+func (w *DummyWriter) Write(ctx context.Context, item interface{}) error {
   // Context の完了をチェック
   select {
   case <-ctx.Done():
     return ctx.Err()
   default:
   }
-  // logger.Debugf("DummyWriter.Write が呼び出されました。何も行いません。") // Logger はこのパッケージにないためコメントアウトまたは削除
+  // logger.Debugf("DummyWriter.Write が呼び出されました。何も行いません。アイテム: %+v", item) // Logger はこのパッケージにないためコメントアウトまたは削除
   return nil // 何も行わない
 }
 

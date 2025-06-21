@@ -26,66 +26,45 @@ func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
 }
 
 // Write メソッドが Writer インターフェースを満たすように修正
-// このステップでは、ChunkOrientedStep から渡されたアイテムを書き込みます。
-func (w *WeatherWriter) Write(ctx context.Context, items interface{}) error {
+// このステップでは、JSLAdaptedStep から渡された単一のアイテムを書き込みます。
+func (w *WeatherWriter) Write(ctx context.Context, item interface{}) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	// JSLAdaptedStep から渡される items は []interface{} 型なので、まずそれに型アサーション
-	rawItems, ok := items.([]interface{})
+	// 渡されたアイテムを []*entity.WeatherDataToStore に型アサーション
+	dataToStore, ok := item.(*entity.WeatherDataToStore)
 	if !ok {
-		return fmt.Errorf("Writer: 予期しない入力型です: %T, 期待される型: []interface{}", items)
+		return fmt.Errorf("WeatherWriter: 予期しない入力型です: %T, 期待される型: *entity.WeatherDataToStore", item)
 	}
 
-	// []interface{} の各要素を []*entity.WeatherDataToStore に変換
-	dataToStore := make([]*entity.WeatherDataToStore, 0, len(rawItems))
-	for i, item := range rawItems {
-		typedItem, ok := item.(*entity.WeatherDataToStore)
-		if !ok {
-			return fmt.Errorf("Writer: スライス内の要素の型が予期しません: インデックス %d, 型 %T, 期待される型: *entity.WeatherDataToStore", i, item)
-		}
-		dataToStore = append(dataToStore, typedItem)
+	if dataToStore == nil {
+		logger.Debugf("WeatherWriter: 書き込むデータが nil です。")
+		return nil // 書き込むデータが nil の場合は何もしない
 	}
 
-	if len(dataToStore) == 0 {
-		logger.Debugf("WeatherWriter: 書き込むデータがありません。")
-		return nil // 書き込むデータがない場合は何もしない
+	logger.Debugf("WeatherWriter: 1 件のアイテムをリポジトリに書き込みます。")
+
+	// WeatherDataToStore から OpenMeteoForecast 形式に変換して保存
+	// Repository は OpenMeteoForecast 形式を期待しているため
+	forecast := entity.OpenMeteoForecast{
+		Latitude:  dataToStore.Latitude,
+		Longitude: dataToStore.Longitude,
+		Hourly: entity.Hourly{
+			Time:          []string{dataToStore.Time.Format(time.RFC3339)}, // time.Time から string に変換
+			WeatherCode:   []int{dataToStore.WeatherCode},
+			Temperature2M: []float64{dataToStore.Temperature2M},
+		},
+	}
+	// リポジトリのメソッドに Context を渡す
+	if err := w.repo.SaveWeatherData(ctx, forecast); err != nil {
+		// 個別アイテムの保存エラーは、Writer エラーとして返す
+		return fmt.Errorf("データの保存に失敗しました (アイテム: %+v): %w", dataToStore, err)
 	}
 
-	logger.Infof("WeatherWriter: %d 件のアイテムをリポジトリに書き込みます。", len(dataToStore))
-
-	// リポジトリを使用してデータを保存
-	// SaveWeatherData は単一の OpenMeteoForecast を受け取るため、アイテムをループして個別に保存します。
-	// バッチ保存が必要な場合は Repository のメソッドを変更する必要があります。
-	for _, item := range dataToStore {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// WeatherDataToStore から OpenMeteoForecast 形式に変換して保存
-		// Repository は OpenMeteoForecast 形式を期待しているため
-		forecast := entity.OpenMeteoForecast{
-			Latitude:  item.Latitude,
-			Longitude: item.Longitude,
-			Hourly: entity.Hourly{
-				Time:          []string{item.Time.Format(time.RFC3339)}, // time.Time から string に変換
-				WeatherCode:   []int{item.WeatherCode},
-				Temperature2M: []float64{item.Temperature2M},
-			},
-		}
-		// リポジトリのメソッドに Context を渡す
-		if err := w.repo.SaveWeatherData(ctx, forecast); err != nil {
-			// 個別アイテムの保存エラーは、Writer エラーとして返す
-			return fmt.Errorf("データの保存に失敗しました (アイテム: %+v): %w", item, err)
-		}
-	}
-
-	logger.Infof("WeatherWriter: %d 件のアイテムをリポジトリに書き込み完了しました。", len(dataToStore))
+	logger.Debugf("WeatherWriter: 1 件のアイテムをリポジトリに書き込み完了しました。")
 	return nil
 }
 

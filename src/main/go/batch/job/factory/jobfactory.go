@@ -17,6 +17,8 @@ import (
 
 	// ★ ダミーコンポーネントをそれぞれのパッケージからインポート ★
 	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
+	itemListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemListener パッケージをインポート
+	itemRetryListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemRetryListener パッケージをインポート
 	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
@@ -79,11 +81,23 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// 3. JSL Flow を core.FlowDefinition に変換
 	// jobRepository を ConvertJSLToCoreFlow に渡す
 	// StepExecutionListener を生成
+	// アイテムレベルリスナーもここで生成し、JSLAdaptedStep に渡す
+	// 現状は StepExecutionListener のリストにまとめて渡すため、型アサーションで判別する
 	stepListeners := []stepListener.StepExecutionListener{
 		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
 		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
 	}
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, stepListeners)
+	itemReadListeners := []core.ItemReadListener{}
+	itemProcessListeners := []core.ItemProcessListener{}
+	itemWriteListeners := []core.ItemWriteListener{}
+	skipListeners := []stepListener.SkipListener{
+		itemListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
+	}
+	retryItemListeners := []stepListener.RetryItemListener{
+		itemRetryListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
+	}
+
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
 	if err != nil {
 		return nil, fmt.Errorf("JSL ジョブ '%s' のフロー変換に失敗しました: %w", jobName, err)
 	}
