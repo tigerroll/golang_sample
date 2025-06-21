@@ -3,6 +3,7 @@ package jsl
 import (
 	"context"
 	"fmt"
+	"io" // io パッケージをインポート
 	"reflect" // reflect パッケージをインポート
 
 	"sample/src/main/go/batch/job/core"
@@ -63,7 +64,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		if err != nil {
 			// リーダーがアイテムを使い果たしたことを示す特定のエラーをチェック
 			// io.EOF は正常な終端を示すため、エラーとして扱わない
-			if err == io.EOF { // io パッケージをインポートする必要がある
+			if err == io.EOF {
 				logger.Debugf("リーダーがアイテムを使い果たしました (EOF)。")
 				break // 読み込むアイテムがもうない
 			}
