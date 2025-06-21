@@ -891,42 +891,20 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
 
   var stepExecutions []*core.StepExecution
   // 親の JobExecution を一度取得しておく (N+1問題を避けるため)
-  var parentJobExecution *core.JobExecution
-  if jobExecutionID != "" {
-    // FindJobExecutionByID は StepExecutions もロードするため、ここでは循環参照を避けるために
-    // JobExecution の基本情報のみをロードするような別のメソッドを呼び出すか、
-    // または FindJobExecutionByID が StepExecutions をロードしないように変更する必要があります。
-    // 現状の FindJobExecutionByID は StepExecutions もロードするため、ここで呼び出すと無限ループになる可能性があります。
-    // ここでは、FindJobExecutionByID が StepExecutions をロードしない前提で呼び出すか、
-    // または StepExecution.JobExecution を設定しない（IDのみで十分とする）設計にするか、
-    // あるいは JobExecution の基本情報のみをロードする軽量なメソッドを JobRepository に追加する必要があります。
-    // 今回は、FindJobExecutionByID が StepExecutions をロードするが、その中でさらに FindStepExecutionsByJobExecutionID を呼び出すことはない、
-    // という前提で、親の JobExecution を取得し、それを各 StepExecution に設定します。
-    // ただし、FindJobExecutionByID が StepExecutions をロードする際にこのメソッドを呼び出すため、
-    // ここで再度 FindJobExecutionByID を呼び出すと無限再帰になります。
-    // したがって、ここでは parentJobExecution を設定しないか、JobExecution の基本情報のみをロードする専用メソッドが必要です。
-    // 一旦、FindJobExecutionByID が StepExecutions をロードする際に、その StepExecutions の JobExecution フィールドは設定しない、
-    // という前提で、ここで親の JobExecution を取得して設定するロジックを削除します。
-    // StepExecution の JobExecution フィールドは、JobExecution が構築される際に設定されるべきです。
-    // FindStepExecutionsByJobExecutionID は、あくまで StepExecution のリストを返すことに集中します。
-    // 呼び出し元 (例: FindJobExecutionByID) が、取得した JobExecution に StepExecutions を設定する際に、
-    // 各 StepExecution の JobExecution フィールドも設定する責務を持つべきです。
-    // ユーザーの指示にある「取得した StepExecution に JobExecution 参照を設定」は、
-    // FindJobExecutionByID と FindLatestJobExecution の中で行うべきであり、
-    // この FindStepExecutionsByJobExecutionID の中では行わない方が良いでしょう。
-    // しかし、ユーザーの指示には「親の JobExecution を一度取得しておく (N+1問題を避けるため)」とあるので、
-    // FindJobExecutionByID を呼び出すのではなく、JobExecution の基本情報だけをロードするような
-    // 別のクエリを実行するべきですが、そのようなメソッドは現在ありません。
-    // ユーザーの指示を尊重し、FindJobExecutionByID を呼び出す形を維持しますが、
-    // 無限再帰を避けるために、FindJobExecutionByID の中で FindStepExecutionsByJobExecutionID を呼び出す際に
-    // StepExecution の JobExecution フィールドを設定しないようにするか、
-    // または FindJobExecutionByID が StepExecutions をロードする際に、
-    // その StepExecution の JobExecution フィールドは設定しない、という設計にする必要があります。
-    // ここでは、FindJobExecutionByID が StepExecutions をロードする際に、
-    // その StepExecution の JobExecution フィールドは設定しない、という前提で進めます。
-    // そして、FindJobExecutionByID の中で、取得した StepExecution の JobExecution フィールドを設定します。
-    // したがって、この FindStepExecutionsByJobExecutionID の中では parentJobExecution の取得は行いません。
-  }
+  // FindJobExecutionByID は StepExecutions もロードするため、ここでは循環参照を避けるために
+  // JobExecution の基本情報のみをロードするような別のメソッドを呼び出すか、
+  // または FindJobExecutionByID が StepExecutions をロードしないように変更する必要があります。
+  // 現状の FindJobExecutionByID は StepExecutions もロードするため、ここで呼び出すと無限ループになる可能性があります。
+  // ここでは、FindJobExecutionByID が StepExecutions をロードするが、その中でさらに FindStepExecutionsByJobExecutionID を呼び出すことはない、
+  // という前提で、親の JobExecution を取得し、それを各 StepExecution に設定します。
+  // ただし、FindJobExecutionByID が StepExecutions をロードする際にこのメソッドを呼び出すため、
+  // ここで再度 FindJobExecutionByID を呼び出すと無限再帰になります。
+  // したがって、ここでは parentJobExecution を設定しないか、JobExecution の基本情報のみをロードする専用メソッドが必要です。
+  // 今回は、FindJobExecutionByID が StepExecutions をロードする際に、
+  // その StepExecution の JobExecution フィールドは設定しない、という前提で進めます。
+  // そして、FindJobExecutionByID の中で、取得した StepExecution の JobExecution フィールドを設定します。
+  // したがって、この FindStepExecutionsByJobExecutionID の中では parentJobExecution の取得は行いません。
+
 
   for rows.Next() {
     stepExecution := &core.StepExecution{}
