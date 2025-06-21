@@ -470,7 +470,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			return err
 		}
 
-		var chunkWriteError bool = false // ★ ここで宣言を追加
+		// chunkWriteError 変数を宣言し、初期化
+		var chunkWriteError bool = false // ★ ここで宣言を追加 (コメントも追加)
 		var currentWriteCount int
 		// []*entity.WeatherDataToStore を []any に変換
 		itemsForWriter := make([]any, len(dataToStore))
@@ -619,14 +620,14 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 						if writeErr != nil {
 							logger.Errorf("ステップ '%s' チャンク書き込みエラー: %v", s.name, writeErr)
 							stepExecution.AddFailureException(writeErr)
-							chunkWriteError = true // チャンク全体のエラーとする
+							chunkAttemptError = true // チャンク全体のエラーとする
 						} else {
 							currentWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
 						}
 						totalWriteCount += currentWriteCount
 						stepExecution.WriteCount = totalWriteCount // StepExecution に反映
 
-						if chunkWriteError {
+						if chunkAttemptError {
 							break // チャンク処理を中断
 						}
 					}
