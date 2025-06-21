@@ -14,6 +14,4 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/golang-migrate/migrate/v4/database/postgres v4.17.0 // indirect
-	github.com/golang-migrate/migrate/v4/source/file v4.17.0 // indirect
 )
