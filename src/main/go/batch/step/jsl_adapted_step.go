@@ -316,10 +316,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		} // リトライループ終了
 		// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
 		return fmt.Errorf("ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
-	}
-
-
-	else if s.name == "saveWeatherDataStep" { // ★ 修正: "SaveDataStep" -> "saveWeatherDataStep"
+	} else if s.name == "saveWeatherDataStep" { // ★ 修正: "SaveDataStep" -> "saveWeatherDataStep"
 		logger.Infof("ステップ '%s' は書き込み専用ステップです。ExecutionContext からデータを取得します。", s.name)
 		dataToStore, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
 		if !ok {
