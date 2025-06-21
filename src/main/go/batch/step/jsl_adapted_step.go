@@ -22,11 +22,15 @@ import (
 
 // JSLAdaptedStep は ItemReader, ItemProcessor, ItemWriter を使用するステップの実装です。
 // core.Step インターフェースを実装します。
+// Reader, Processor, Writer はジェネリックインターフェースですが、
+// JSLAdaptedStep は core.Step (非ジェネリック) を実装するため、
+// これらのフィールドは `any` 型引数を持つジェネリックインターフェースとして保持し、
+// 内部で適切な型アサーションを行います。
 type JSLAdaptedStep struct {
 	name          string // ステップ名
-	reader        stepReader.Reader
-	processor     stepProcessor.Processor
-	writer        stepWriter.Writer
+	reader        stepReader.Reader[any] // Reader[O any]
+	processor     stepProcessor.Processor[any, any] // Processor[I, O any]
+	writer        stepWriter.Writer[any] // Writer[I any]
 	chunkSize     int
 	stepRetryConfig   *config.RetryConfig // ステップレベルのリトライ設定 (チャンク全体のリトライ)
 	itemRetryConfig   config.ItemRetryConfig // アイテムレベルのリトライ設定
@@ -45,11 +49,12 @@ var _ core.Step = (*JSLAdaptedStep)(nil)
 
 // NewJSLAdaptedStep は新しい JSLAdaptedStep のインスタンスを作成します。
 // ステップの依存関係と設定、および各種リスナーを受け取ります。
+// reader, processor, writer は any 型引数を持つジェネリックインターフェースとして受け取ります。
 func NewJSLAdaptedStep(
 	name string,
-	reader stepReader.Reader,
-	processor stepProcessor.Processor,
-	writer stepWriter.Writer,
+	reader stepReader.Reader[any], // Reader[any]
+	processor stepProcessor.Processor[any, any], // Processor[any, any]
+	writer stepWriter.Writer[any], // Writer[any]
 	chunkSize int,
 	stepRetryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
@@ -283,6 +288,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 				// 単一アイテムの読み込みと処理
 				// processSingleItem は Reader/Processor エラーまたは Context キャンセルエラーを返す
+				// Reader の出力は *entity.OpenMeteoForecast
+				// Processor の出力は []*entity.WeatherDataToStore
 				processedItemSlice, currentEOFReached, itemErr := s.processSingleItem(ctx, stepExecution, retryAttempt) // retryAttempt を渡す
 				totalReadCount++ // 読み込みカウントをインクリメント
 				stepExecution.ReadCount = totalReadCount // StepExecution に反映
@@ -301,6 +308,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				}
 
 				// 処理済みアイテムをチャンクに追加
+				// processedItemSlice は []*entity.WeatherDataToStore 型
 				processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
 				itemCountInChunk = len(processedItemsChunk)
 				eofReached = currentEOFReached // EOF 状態を更新
@@ -321,19 +329,20 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					for _, itemToWrite := range processedItemsChunk {
 						var writeErr error
 						for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-							writeErr = s.writer.Write(ctx, itemToWrite)
+							// Writer の Write メソッドは any を期待
+							writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
 							if writeErr == nil {
 								break // 成功
 							}
 
 							// リトライ可能な例外かチェック
 							if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-								s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+								s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 								logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
 								time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
 							} else {
 								// リトライ不可または最大リトライ回数に達した場合
-								s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+								s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 								if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
 									s.notifySkipWrite(ctx, itemToWrite, writeErr)
 									stepExecution.SkipWriteCount++
@@ -495,19 +504,20 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		for _, itemToWrite := range dataToStore {
 			var writeErr error
 			for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-				writeErr = s.writer.Write(ctx, itemToWrite) // 単一アイテムを渡す
+				// Writer の Write メソッドは any を期待
+				writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
 				if writeErr == nil {
 					break // 成功
 				}
 
 				// リトライ可能な例外かチェック
 				if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-					s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+					s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 					logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
 					time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
 				} else {
 					// リトライ不可または最大リトライ回数に達した場合
-					s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+					s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 					if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
 						s.notifySkipWrite(ctx, itemToWrite, writeErr)
 						stepExecution.SkipWriteCount++
@@ -605,6 +615,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				default:
 				}
 
+				// Reader の Read メソッドは any を返す
 				readItem, readerErr := s.reader.Read(ctx)
 				totalReadCount++
 				stepExecution.ReadCount = totalReadCount // StepExecution に反映
@@ -621,11 +632,11 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				}
 
 				// nil アイテムはスキップ
-
 				if readItem == nil {
 					continue
 				}
 
+				// Processor の Process メソッドは any を受け取り any を返す
 				processedItem, processorErr := s.processor.Process(ctx, readItem)
 				if processorErr != nil {
 					logger.Errorf("ステップ '%s' ダミー処理 Processor error: %v", s.name, processorErr)
@@ -659,19 +670,20 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 						for _, itemToWrite := range processedItemsChunk {
 							var writeErr error
 							for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-								writeErr = s.writer.Write(ctx, itemToWrite) // 単一アイテムを渡す
+								// Writer の Write メソッドは any を期待
+								writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
 								if writeErr == nil {
 									break // 成功
 								}
 
 								// リトライ可能な例外かチェック
 								if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-									s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+									s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 									logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
 									time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
 								} else {
 									// リトライ不可または最大リトライ回数に達した場合
-									s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだがスライスで通知
+									s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
 									if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
 										s.notifySkipWrite(ctx, itemToWrite, writeErr)
 										stepExecution.SkipWriteCount++
@@ -799,7 +811,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	}
 
 	// Reader から読み込み
-	var readItem interface{}
+	var readItem any // Reader[any] の出力は any
 	var readErr error
 	for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
 		readItem, readErr = s.reader.Read(ctx)
@@ -844,10 +856,10 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	}
 
 	// Processor で処理
-	var processedItem interface{}
+	var processedItem any // Processor[any, any] の出力は any
 	var processErr error
 	for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-		processedItem, processErr = s.processor.Process(ctx, readItem)
+		processedItem, processErr = s.processor.Process(ctx, readItem) // readItem は any
 		if processErr == nil {
 			break // 成功
 		}
@@ -880,7 +892,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	}
 
 	if processedItem == nil {
-		logger.Debugf("ステップ '%s' Processor returned nil item (filtered).", s.name)
+		logger.Debugf("ステップ '%s' Processor returned nil item (filtered).")
 		return nil, false, nil // フィルタリングされたアイテム
 	}
 

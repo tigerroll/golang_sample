@@ -25,22 +25,21 @@ func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
 	}
 }
 
-// Write メソッドが Writer インターフェースを満たすように修正
+// Write メソッドが Writer[*entity.WeatherDataToStore] インターフェースを満たすように修正
 // このステップでは、JSLAdaptedStep から渡された単一のアイテムを書き込みます。
-func (w *WeatherWriter) Write(ctx context.Context, item interface{}) error {
+func (w *WeatherWriter) Write(ctx context.Context, item any) error { // I は any
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	// 渡されたアイテムを []*entity.WeatherDataToStore に型アサーション
 	dataToStore, ok := item.(*entity.WeatherDataToStore)
 	if !ok {
 		return fmt.Errorf("WeatherWriter: 予期しない入力型です: %T, 期待される型: *entity.WeatherDataToStore", item)
 	}
-
-	if dataToStore == nil {
+ 
+	if dataToStore == nil { // item は dataToStore にリネームされた
 		logger.Debugf("WeatherWriter: 書き込むデータが nil です。")
 		return nil // 書き込むデータが nil の場合は何もしない
 	}
@@ -105,5 +104,5 @@ func (w *WeatherWriter) GetExecutionContext(ctx context.Context) (core.Execution
   return w.executionContext, nil
 }
 
-// WeatherWriter が Writer インターフェースを満たすことを確認
-var _ Writer = (*WeatherWriter)(nil)
+// WeatherWriter が Writer[*entity.WeatherDataToStore] インターフェースを満たすことを確認
+var _ Writer[any] = (*WeatherWriter)(nil)

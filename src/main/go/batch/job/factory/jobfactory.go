@@ -10,9 +10,9 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
-	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
-	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
+	stepReader "sample/src/main/go/batch/step/reader" // ★ 追加: stepReader パッケージをインポート
+	stepProcessor "sample/src/main/go/batch/step/processor" // ★ 追加: stepProcessor パッケージをインポート
+	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 
@@ -27,7 +27,8 @@ import (
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
 // 依存関係（Config, Repositoryなど）を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
-type ComponentBuilder func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error)
+// ジェネリックインターフェースを返すため、any を使用します。
+type ComponentBuilder func(cfg *config.Config, repo repository.WeatherRepository) (any, error)
 
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
@@ -58,26 +59,32 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 
 // registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を登録します。
 func (f *JobFactory) registerComponentBuilders() {
-	f.componentBuilders["weatherReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
-		weatherReaderCfg := &config.WeatherReaderConfig{
+	f.componentBuilders["weatherReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		weatherReaderCfg := &config.WeatherReaderConfig{ // config.WeatherReaderConfig は config パッケージにある
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
-		return stepReader.NewWeatherReader(weatherReaderCfg), nil
+		// Reader[*entity.OpenMeteoForecast] を返す
+		return stepReader.NewWeatherReader(weatherReaderCfg), nil // ★ 修正: stepReader.NewWeatherReader
 	}
-	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
-		return stepProcessor.NewWeatherProcessor(), nil
+	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] を返す
+		return stepProcessor.NewWeatherProcessor(), nil // ★ 修正: stepProcessor.NewWeatherProcessor
 	}
-	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
-		return stepWriter.NewWeatherWriter(repo), nil
+	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Writer[*entity.WeatherDataToStore] を返す
+		return stepWriter.NewWeatherWriter(repo), nil // ★ 修正: stepWriter.NewWeatherWriter
 	}
-	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Reader[any] を返す
 		return dummyReader.NewDummyReader(), nil
 	}
-	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Processor[any, any] を返す
 		return dummyProcessor.NewDummyProcessor(), nil
 	}
-	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (interface{}, error) {
+	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
+		// Writer[any] を返す
 		return dummyWriter.NewDummyWriter(), nil
 	}
 	// 他のコンポーネントがあればここに追加登録
@@ -95,7 +102,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 
 	// 2. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
-	componentRegistry := make(map[string]interface{})
+	componentRegistry := make(map[string]any) // map[string]any に変更
 
 	// WeatherRepository は WeatherWriter が必要とするので、ここで作成する。
 	weatherRepo, err := repository.NewWeatherRepository(context.Background(), *f.config)
@@ -133,6 +140,8 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		itemRetryListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
 	}
 
+	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
+	// そして、JSLAdaptedStep のコンストラクタに渡す際に、適切な型アサーションを行う
 	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentRegistry, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
 	if err != nil {
 		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JSL ジョブ '%s' のフロー変換に失敗しました", jobName), err, false, false)

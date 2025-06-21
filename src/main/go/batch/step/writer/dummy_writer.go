@@ -7,7 +7,7 @@ import (
 )
 
 // DummyWriter は何も行わないダミーの Writer です。
-// Writer インターフェース (step/writer/writer.go で定義) を実装します。
+// Writer[any] インターフェースを実装します。
 type DummyWriter struct{
   // ExecutionContext を保持するためのフィールド
   executionContext core.ExecutionContext
@@ -22,7 +22,7 @@ func NewDummyWriter() *DummyWriter {
 
 // Write は Writer インターフェースの実装です。
 // 単一のアイテムを受け取り、何も行わずに nil を返します。
-func (w *DummyWriter) Write(ctx context.Context, item interface{}) error {
+func (w *DummyWriter) Write(ctx context.Context, item any) error { // I は any
   // Context の完了をチェック
   select {
   case <-ctx.Done():
@@ -73,5 +73,5 @@ func (w *DummyWriter) GetExecutionContext(ctx context.Context) (core.ExecutionCo
   return w.executionContext, nil
 }
 
-// DummyWriter が Writer インターフェースを満たすことを確認
-var _ Writer = (*DummyWriter)(nil)
+// DummyWriter が Writer[any] インターフェースを満たすことを確認
+var _ Writer[any] = (*DummyWriter)(nil)
