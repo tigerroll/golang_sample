@@ -311,6 +311,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				stepExecution.ReadCount = totalReadCount
 				stepExecution.WriteCount = totalWriteCount
 				stepExecution.MarkAsCompleted() // ★ 正常終了時に Step を完了としてマーク
+				stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 				return nil // 正常終了したらループを抜けて nil を返す
 			}
 		} // リトライループ終了
@@ -336,6 +337,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			logger.Infof("ステップ '%s': ExecutionContext に書き込むデータがありません。", s.name)
 			// データがない場合も正常完了とみなす
 			stepExecution.MarkAsCompleted()
+			stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 			return nil
 		}
 
@@ -357,7 +359,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			// ここに到達するのは、defer が実行される時点で err が nil の場合
 			// しかし、tx.Commit() は defer の外で明示的に呼び出すべき
 			// defer の中で err を参照してロールバックするかどうかを判断するロジックは、
-			// defer の外で err を宣言し、そのポインタを defer に渡すか、
 			// defer の中で err を引数として受け取る関数リテラルにする必要がある。
 			// 今回は defer の外で明示的にコミット/ロールバックするため、
 			// ここでの err チェックは不要。
@@ -407,6 +408,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		// 成功したら Step を完了としてマーク
 		stepExecution.MarkAsCompleted() // Status = Completed, ExitStatus = Completed
+		stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 
 		return nil // 成功したら nil を返してメソッドを終了
 	}
