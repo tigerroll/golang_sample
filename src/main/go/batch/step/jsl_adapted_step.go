@@ -16,6 +16,7 @@ import (
 	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
 	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
 	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
+	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 )
 
@@ -202,14 +203,14 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			if err := s.reader.SetExecutionContext(ctx, readerEC); err != nil {
 				logger.Errorf("ステップ '%s': Reader の ExecutionContext 復元に失敗しました: %v", s.name, err)
 				stepExecution.AddFailureException(err)
-				return fmt.Errorf("Reader の ExecutionContext 復元エラー: %w", err)
+				return exception.NewBatchError(s.name, "Reader の ExecutionContext 復元エラー", err, false, false)
 			}
 		}
 		if writerEC, ok := stepExecution.ExecutionContext.Get("writer_context").(core.ExecutionContext); ok {
 			if err := s.writer.SetExecutionContext(ctx, writerEC); err != nil {
 				logger.Errorf("ステップ '%s': Writer の ExecutionContext 復元に失敗しました: %v", s.name, err)
 				stepExecution.AddFailureException(err)
-				return fmt.Errorf("Writer の ExecutionContext 復元エラー: %w", err)
+				return exception.NewBatchError(s.name, "Writer の ExecutionContext 復元エラー", err, false, false)
 			}
 		}
 	}
@@ -263,7 +264,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
 			if err != nil {
 				logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
-				stepExecution.MarkAsFailed(fmt.Errorf("トランザクション開始エラー: %w", err))
+				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return err
 			}
@@ -435,9 +436,9 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				} else {
 					// 最大リトライ回数に達した場合
 					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
-					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts)) // ステップを失敗としてマーク
+					stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts)) // ステップを失敗としてマーク
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1]) // JobExecution にも最後のステップエラーを追加
-					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts) // エラーを返してステップを失敗させる
+					return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts) // エラーを返してステップを失敗させる
 				}
 			} else {
 				// この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
@@ -446,7 +447,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				// ここで再度処理する必要はない。トランザクションのコミットはここで行う。
 				if err = tx.Commit(); err != nil { // err を再利用
 					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
-					stepExecution.MarkAsFailed(fmt.Errorf("トランザクションコミットエラー: %w", err))
+					stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, false, false))
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 					return err
 				}
@@ -460,7 +461,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			}
 		} // リトライループ終了
 		// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
-		return fmt.Errorf("ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
+		return exception.NewBatchErrorf(s.name, "ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
 	} else if s.name == "saveWeatherDataStep" {
 		logger.Infof("ステップ '%s' は書き込み専用ステップです。ExecutionContext からデータを取得し、書き込みます。", s.name)
 		dataToStore, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
@@ -484,7 +485,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil) // err はここでシャドウイングされる
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
-			stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' トランザクション開始エラー: %w", s.name, err))
+			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))
 			jobExecution.AddFailureException(err)
 			return err
 		}
@@ -538,7 +539,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		if chunkWriteError {
 			tx.Rollback() // ロールバック
 			stepExecution.RollbackCount++
-			return fmt.Errorf("ステップ '%s' Writer エラー: %w", s.name, stepExecution.Failures[len(stepExecution.Failures)-1])
+			return exception.NewBatchError(s.name, "Writer エラー", stepExecution.Failures[len(stepExecution.Failures)-1], false, false)
 		}
 		logger.Infof("ステップ '%s' Writer による書き込みが完了しました。", s.name)
 
@@ -548,23 +549,23 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
 			stepExecution.AddFailureException(err)
 			tx.Rollback() // エラーが発生した場合はロールバック
-			return fmt.Errorf("Writer の ExecutionContext 取得エラー: %w", err)
+			return exception.NewBatchError(s.name, "Writer の ExecutionContext 取得エラー", err, false, false)
 		}
 		stepExecution.ExecutionContext.Put("writer_context", writerEC)
 
 		// StepExecution を更新してチェックポイントを永続化
 		if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil { // err を再利用
 			logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
-			stepExecution.AddFailureException(fmt.Errorf("ステップ '%s' StepExecution 更新エラー: %w", s.name, err))
+			stepExecution.AddFailureException(exception.NewBatchError(s.name, "StepExecution 更新エラー", err, false, false))
 			tx.Rollback()
-			return fmt.Errorf("StepExecution の更新 (チェックポイント) エラー: %w", err)
+			return exception.NewBatchError(s.name, "StepExecution の更新 (チェックポイント) エラー", err, false, false)
 		}
 		stepExecution.CommitCount++ // コミットカウントをインクリメント
 
 		// トランザクションをコミット
 		if err = tx.Commit(); err != nil { // err を再利用
 			logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
-			stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' トランザクションコミットエラー: %w", s.name, err))
+			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, false, false))
 			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 			return err
 		}
@@ -580,7 +581,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		for retryAttempt := 0; retryAttempt < stepRetryConfig.MaxAttempts; retryAttempt++ {
 			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts)
 
-			processedItemsChunk := make([]interface{}, 0, chunkSize) // DummyProcessor は interface{} を返す
+			processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize) // DummyProcessor は []*entity.WeatherDataToStore を返す
 			itemCountInChunk := 0
 			chunkAttemptError := false
 			eofReached := false
@@ -588,7 +589,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
 			if err != nil {
 				logger.Errorf("ステップ '%s': ダミー処理トランザクションの開始に失敗しました: %v", s.name, err)
-				stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' ダミー処理トランザクション開始エラー: %w", s.name, err))
+				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "ダミー処理トランザクション開始エラー", err, false, false))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return err
 			}
@@ -633,8 +634,18 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					break
 				}
 
-				if processedItem != nil {
-					processedItemsChunk = append(processedItemsChunk, processedItem)
+				// Processor の出力が []*entity.WeatherDataToStore であることを期待
+				processedItemSlice, ok := processedItem.([]*entity.WeatherDataToStore)
+				if !ok {
+					err := exception.NewBatchErrorf(s.name, "processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", processedItem)
+					logger.Errorf("%v", err)
+					stepExecution.AddFailureException(err)
+					chunkAttemptError = true
+					break
+				}
+
+				if processedItemSlice != nil && len(processedItemSlice) > 0 {
+					processedItemsChunk = append(processedItemsChunk, processedItemSlice...)
 					itemCountInChunk = len(processedItemsChunk)
 				} else { // フィルタリングされた場合
 					stepExecution.FilterCount++
@@ -719,7 +730,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					stepExecution.CommitCount++
 					chunkCount++ // チャンク処理成功
 
-					processedItemsChunk = make([]interface{}, 0, chunkSize)
+					processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
 					itemCountInChunk = 0
 
 					if eofReached {
@@ -746,14 +757,14 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					s.writer.SetExecutionContext(ctx, core.NewExecutionContext()) // Writer は状態を持たないためクリア
 				} else {
 					logger.Errorf("ステップ '%s' ダミー処理チャンクが最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
-					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' ダミー処理チャンクが最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts))
+					stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "ダミー処理チャンクが最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts))
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-					return fmt.Errorf("ステップ '%s' ダミー処理チャンクが最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts)
+					return exception.NewBatchErrorf(s.name, "ダミー処理チャンクが最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts)
 				}
 			} else {
 				if err = tx.Commit(); err != nil {
 					logger.Errorf("ステップ '%s': ダミー処理トランザクションのコミットに失敗しました: %v", s.name, err)
-					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' ダミー処理トランザクションコミットエラー: %w", s.name, err))
+					stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "ダミー処理トランザクションコミットエラー", err, false, false))
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 					return err
 				}
@@ -766,7 +777,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				return nil
 			}
 		} // retry loop end
-		return fmt.Errorf("ステップ '%s' ダミー処理が最大リトライ回数を超えて失敗しました", s.name)
+		return exception.NewBatchErrorf(s.name, "ダミー処理が最大リトライ回数を超えて失敗しました")
 	}
 
 	// 未知のステップ名の場合
@@ -813,7 +824,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 			// スキップもできない場合はエラーを返す
 			logger.Errorf("ステップ '%s' Reader error: %v", s.name, readErr)
 			stepExecution.AddFailureException(readErr)
-			return nil, false, fmt.Errorf("ステップ '%s' reader error: %w", s.name, readErr)
+			return nil, false, exception.NewBatchError(s.name, "reader error", readErr, false, false)
 		}
 	}
 
@@ -824,7 +835,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	if readErr != nil { // リトライ/スキップ後もエラーが残っている場合
 		logger.Errorf("ステップ '%s' Reader error after retries/skips: %v", s.name, readErr)
 		stepExecution.AddFailureException(readErr)
-		return nil, false, fmt.Errorf("ステップ '%s' reader error after retries/skips: %w", s.name, readErr)
+		return nil, false, exception.NewBatchError(s.name, "reader error after retries/skips", readErr, false, false)
 	}
 
 	if readItem == nil {
@@ -858,14 +869,14 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 			// スキップもできない場合はエラーを返す
 			logger.Errorf("ステップ '%s' Processor error: %v", s.name, processErr)
 			stepExecution.AddFailureException(processErr)
-			return nil, false, fmt.Errorf("ステップ '%s' processor error: %w", s.name, processErr)
+			return nil, false, exception.NewBatchError(s.name, "processor error", processErr, false, false)
 		}
 	}
 
 	if processErr != nil { // リトライ/スキップ後もエラーが残っている場合
 		logger.Errorf("ステップ '%s' Processor error after retries/skips: %v", s.name, processErr)
 		stepExecution.AddFailureException(processErr)
-		return nil, false, fmt.Errorf("ステップ '%s' processor error after retries/skips: %w", s.name, processErr)
+		return nil, false, exception.NewBatchError(s.name, "processor error after retries/skips", processErr, false, false)
 	}
 
 	if processedItem == nil {
@@ -877,7 +888,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	// Processor は []*entity.WeatherDataToStore を返すことを期待
 	processedItemsSlice, ok := processedItem.([]*entity.WeatherDataToStore)
 	if !ok {
-		err := fmt.Errorf("ステップ '%s' processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", s.name, processedItem)
+		err := exception.NewBatchErrorf(s.name, "processor returned unexpected type: %T, expected []*entity.WeatherDataToStore", processedItem)
 		logger.Errorf("%v", err)
 		stepExecution.AddFailureException(err)
 		return nil, false, err
@@ -887,10 +898,17 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 }
 
 // isRetryableException はエラーがリトライ可能かどうかを判定します。
+// BatchError のフラグを優先し、次に文字列比較を行います。
 func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []string) bool {
 	if err == nil {
 		return false
 	}
+	// BatchError の IsRetryable フラグを優先
+	if be, ok := err.(*exception.BatchError); ok {
+		return be.IsRetryable()
+	}
+
+	// それ以外のエラーは文字列比較で判定
 	errType := reflect.TypeOf(err).String()
 	for _, re := range retryableExceptions {
 		if errType == re {
@@ -901,10 +919,17 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 }
 
 // isSkippableException はエラーがスキップ可能かどうかを判定します。
+// BatchError のフラグを優先し、次に文字列比較を行います。
 func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []string) bool {
 	if err == nil {
 		return false
 	}
+	// BatchError の IsSkippable フラグを優先
+	if be, ok := err.(*exception.BatchError); ok {
+		return be.IsSkippable()
+	}
+
+	// それ以外のエラーは文字列比較で判定
 	errType := reflect.TypeOf(err).String()
 	for _, se := range skippableExceptions {
 		if errType == se {

@@ -36,7 +36,7 @@ func (r *SQLJobRepository) SaveJobInstance(ctx context.Context, jobInstance *cor
   // JobParameters を JSON にシリアライズ
   paramsJSONBytes, err := json.Marshal(jobInstance.Parameters)
   if err != nil {
-    return exception.NewBatchError("job_repository", "JobInstance JobParameters のシリアライズに失敗しました", err)
+    return exception.NewBatchError("job_repository", "JobInstance JobParameters のシリアライズに失敗しました", err, false, false)
   }
   paramsJSON := string(paramsJSONBytes)
 
@@ -56,7 +56,7 @@ func (r *SQLJobRepository) SaveJobInstance(ctx context.Context, jobInstance *cor
     jobInstance.Version,
   )
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の保存に失敗しました", jobInstance.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の保存に失敗しました", jobInstance.ID), err, false, false)
   }
 
   logger.Debugf("JobInstance (ID: %s, JobName: %s) を保存しました。", jobInstance.ID, jobInstance.JobName)
@@ -68,7 +68,7 @@ func (r *SQLJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Con
   // JobParameters を JSON にシリアライズして比較に使用
   paramsJSONBytes, err := json.Marshal(params)
   if err != nil {
-    return nil, exception.NewBatchError("job_repository", "検索用 JobParameters のシリアライズに失敗しました", err)
+    return nil, exception.NewBatchError("job_repository", "検索用 JobParameters のシリアライズに失敗しました", err, false, false)
   }
   paramsJSON := string(paramsJSONBytes)
 
@@ -101,7 +101,7 @@ func (r *SQLJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Con
       // 見つからない場合はエラーではなく nil を返すのが一般的
       return nil, nil // exception.NewBatchErrorf("job_repository", "JobInstance (JobName: %s, Parameters: %+v) が見つかりませんでした", jobName, params)
     }
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (JobName: %s) の検索に失敗しました", jobName), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (JobName: %s) の検索に失敗しました", jobName), err, false, false)
   }
 
   // 取得した job_parameters を JobParameters 構造体に戻す
@@ -145,7 +145,7 @@ func (r *SQLJobRepository) FindJobInstanceByID(ctx context.Context, instanceID s
     if err == sql.ErrNoRows {
       return nil, exception.NewBatchErrorf("job_repository", "JobInstance (ID: %s) が見つかりませんでした", instanceID)
     }
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の取得に失敗しました", instanceID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の取得に失敗しました", instanceID), err, false, false)
   }
 
   // 取得した job_parameters を JobParameters 構造体に戻す
@@ -171,7 +171,7 @@ func (r *SQLJobRepository) GetJobInstanceCount(ctx context.Context, jobName stri
   var count int
   err := r.db.QueryRowContext(ctx, query, jobName).Scan(&count)
   if err != nil {
-    return 0, exception.NewBatchError("job_repository", fmt.Sprintf("ジョブ '%s' の JobInstance 数取得に失敗しました", jobName), err)
+    return 0, exception.NewBatchError("job_repository", fmt.Sprintf("ジョブ '%s' の JobInstance 数取得に失敗しました", jobName), err, false, false)
   }
   return count, nil
 }
@@ -183,7 +183,7 @@ func (r *SQLJobRepository) GetJobNames(ctx context.Context) ([]string, error) {
   `
   rows, err := r.db.QueryContext(ctx, query)
   if err != nil {
-    return nil, exception.NewBatchError("job_repository", "ジョブ名の取得に失敗しました", err)
+    return nil, exception.NewBatchError("job_repository", "ジョブ名の取得に失敗しました", err, false, false)
   }
   defer rows.Close()
 
@@ -201,7 +201,7 @@ func (r *SQLJobRepository) GetJobNames(ctx context.Context) ([]string, error) {
 
   if err := rows.Err(); err != nil {
     // QueryContext 自体のエラーではなく、行の処理中に発生したエラー
-    return jobNames, exception.NewBatchError("job_repository", "ジョブ名取得後の行処理中にエラーが発生しました", err)
+    return jobNames, exception.NewBatchError("job_repository", "ジョブ名取得後の行処理中にエラーが発生しました", err, false, false)
   }
 
   logger.Debugf("%d 件のジョブ名を取得しました。", len(jobNames))
@@ -215,17 +215,17 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
   // JobParameters, Failures をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err, false, false)
   }
   failuresJSON, err := json.Marshal(jobExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err, false, false)
   }
 
   // ExecutionContext を JSON にシリアライズ
   contextJSONBytes, err := serialization.MarshalExecutionContext(jobExecution.ExecutionContext) // serialization パッケージを使用
   if err != nil {
-    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err)
+    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err, false, false)
   }
   contextJSON := string(contextJSONBytes)
 
@@ -255,7 +255,7 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
     jobExecution.CurrentStepName, // current_step_name カラムにバインド
   )
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の保存に失敗しました", jobExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の保存に失敗しました", jobExecution.ID), err, false, false)
   }
 
   logger.Debugf("JobExecution (ID: %s, JobInstanceID: %s) を保存しました。", jobExecution.ID, jobExecution.JobInstanceID)
@@ -267,17 +267,17 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
   // JobParameters, Failures をデータベースの形式に合わせて変換 (例: JSON)
   paramsJSON, err := json.Marshal(jobExecution.Parameters) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "JobParameters のエンコードに失敗しました", err, false, false)
   }
   failuresJSON, err := json.Marshal(jobExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "Failures のエンコードに失敗しました", err, false, false)
   }
 
   // ExecutionContext を JSON にシリアライズ
   contextJSONBytes, err := serialization.MarshalExecutionContext(jobExecution.ExecutionContext) // serialization パッケージを使用
   if err != nil {
-    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err)
+    return exception.NewBatchError("job_repository", "JobExecution ExecutionContext のシリアライズに失敗しました", err, false, false)
   }
   contextJSON := string(contextJSONBytes)
 
@@ -303,12 +303,12 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
     jobExecution.ID,
   )
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の更新に失敗しました", jobExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の更新に失敗しました", jobExecution.ID), err, false, false)
   }
 
   rowsAffected, err := res.RowsAffected()
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の更新結果取得に失敗しました", jobExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の更新結果取得に失敗しました", jobExecution.ID), err, false, false)
   }
   if rowsAffected == 0 {
     // TODO: 楽観的ロックを使用する場合、ここで StaleObjectStateException のようなエラーを返す
@@ -360,7 +360,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     if err == sql.ErrNoRows {
       return nil, exception.NewBatchErrorf("job_repository", "JobExecution (ID: %s) が見つかりませんでした", executionID)
     }
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の取得に失敗しました", executionID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の取得に失敗しました", executionID), err, false, false)
   }
 
   jobExecution.EndTime = endTime.Time // Nullable 対応
@@ -485,7 +485,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobInstan
     if err == sql.ErrNoRows {
       return nil, exception.NewBatchErrorf("job_repository", "JobInstance (ID: %s) の JobExecution が見つかりませんでした", jobInstanceID)
     }
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の最新 JobExecution の取得に失敗しました", jobInstanceID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の最新 JobExecution の取得に失敗しました", jobInstanceID), err, false, false)
   }
 
   jobExecution.EndTime = endTime.Time
@@ -571,11 +571,22 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
   `
   rows, err := r.db.QueryContext(ctx, query, jobInstance.ID)
   if err != nil {
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました", jobInstance.ID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました", jobInstance.ID), err, false, false)
   }
   defer rows.Close()
 
   var jobExecutions []*core.JobExecution
+  // 親の JobExecution を一度取得しておく (N+1問題を避けるため)
+  // FindJobExecutionByID は StepExecutions もロードするため、ここでは循環参照を避けるために
+  // JobExecution の基本情報のみをロードするような別のメソッドを呼び出すか、
+  // または FindJobExecutionByID が StepExecutions をロードしないように変更する必要があります。
+  // 現状の FindJobExecutionByID は StepExecutions もロードするため、ここで呼び出すと無限ループになる可能性があります。
+  // ここでは、FindJobExecutionByID が StepExecutions をロードする際に、
+  // その StepExecution の JobExecution フィールドは設定しない、という前提で進めます。
+  // そして、FindJobExecutionByID の中で、取得した StepExecution の JobExecution フィールドを設定します。
+  // したがって、この FindStepExecutionsByJobExecutionID の中では parentJobExecution の取得は行いません。
+
+
   for rows.Next() {
     jobExecution := &core.JobExecution{}
     var endTime sql.NullTime
@@ -671,7 +682,7 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
   }
 
   if err := rows.Err(); err != nil {
-    return jobExecutions, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution 取得後の行処理中にエラーが発生しました", jobInstance.ID), err)
+    return jobExecutions, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution 取得後の行処理中にエラーが発生しました", jobInstance.ID), err, false, false)
   }
 
   logger.Debugf("JobInstance (ID: %s) に関連する %d 件の JobExecution を取得しました。", jobInstance.ID, len(jobExecutions))
@@ -686,13 +697,13 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
   // Failures をデータベースの形式に合わせて変換 (例: JSON)
   failuresJSON, err := json.Marshal(stepExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err, false, false)
   }
 
   // ExecutionContext を JSON にシリアライズ
   contextJSONBytes, err := serialization.MarshalExecutionContext(stepExecution.ExecutionContext) // serialization パッケージを使用
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err, false, false)
   }
   contextJSON := string(contextJSONBytes)
 
@@ -706,7 +717,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
     jobExecutionID = stepExecution.JobExecution.ID
   } else {
     // StepExecution は必ず JobExecution に紐づく必要があるためエラーとする
-    return exception.NewBatchError("job_repository", "StepExecution が JobExecution に紐づいていません", nil)
+    return exception.NewBatchError("job_repository", "StepExecution が JobExecution に紐づいていません", nil, false, false)
   }
 
   _, err = r.db.ExecContext(
@@ -727,7 +738,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
     contextJSON, // シリアライズした execution_context カラムにバインド
   )
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err, false, false)
   }
 
   logger.Debugf("StepExecution (ID: %s, JobExecutionID: %s) を保存しました。", stepExecution.ID, jobExecutionID)
@@ -739,13 +750,13 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
   // Failures をデータベースの形式に合わせて変換 (例: JSON)
   failuresJSON, err := json.Marshal(stepExecution.Failures) // 仮の変換
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution Failures のエンコードに失敗しました", err, false, false)
   }
 
   // ExecutionContext を JSON にシリアライズ
   contextJSONBytes, err := serialization.MarshalExecutionContext(stepExecution.ExecutionContext) // serialization パッケージを使用
   if err != nil {
-    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err)
+    return exception.NewBatchError("job_repository", "StepExecution ExecutionContext のシリアライズに失敗しました", err, false, false)
   }
   contextJSON := string(contextJSONBytes)
 
@@ -769,12 +780,12 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
     stepExecution.ID,
   )
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新に失敗しました", stepExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新に失敗しました", stepExecution.ID), err, false, false)
   }
 
   rowsAffected, err := res.RowsAffected()
   if err != nil {
-    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新結果取得に失敗しました", stepExecution.ID), err)
+    return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新結果取得に失敗しました", stepExecution.ID), err, false, false)
   }
   if rowsAffected == 0 {
     return exception.NewBatchErrorf("job_repository", "StepExecution (ID: %s) の更新対象が見つかりませんでした", stepExecution.ID)
@@ -821,7 +832,7 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
     if err == sql.ErrNoRows {
       return nil, exception.NewBatchErrorf("job_repository", "StepExecution (ID: %s) が見つかりませんでした", executionID)
     }
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の取得に失敗しました", executionID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の取得に失敗しました", executionID), err, false, false)
   }
 
   stepExecution.EndTime = endTime.Time // Nullable 対応
@@ -890,7 +901,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
   `
   rows, err := r.db.QueryContext(ctx, query, jobExecutionID)
   if err != nil {
-    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecution の取得に失敗しました", jobExecutionID), err)
+    return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecution の取得に失敗しました", jobExecutionID), err, false, false)
   }
   defer rows.Close()
 
@@ -985,7 +996,7 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
 
   if err := rows.Err(); err != nil {
     // QueryContext 自体のエラーではなく、行の処理中に発生したエラー
-    return stepExecutions, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecution の取得後の行処理中にエラーが発生しました", jobExecutionID), err)
+    return stepExecutions, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecution の取得後の行処理中にエラーが発生しました", jobExecutionID), err, false, false)
   }
 
   logger.Debugf("JobExecution (ID: %s) に関連する %d 件の StepExecution を取得しました。", jobExecutionID, len(stepExecutions))
@@ -998,7 +1009,7 @@ func (r *SQLJobRepository) Close() error {
   if r.db != nil {
     err := r.db.Close()
     if err != nil {
-      return exception.NewBatchError("job_repository", "データベース接続を閉じるのに失敗しました", err)
+      return exception.NewBatchError("job_repository", "データベース接続を閉じるのに失敗しました", err, false, false)
     }
     logger.Debugf("Job Repository のデータベース接続を閉じました。")
   }

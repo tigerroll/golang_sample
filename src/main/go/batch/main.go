@@ -14,6 +14,7 @@ import (
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory" // factory パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
+	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger"
 
 	// JSLでコンポーネントを動的に解決するため、Reader/Processor/Writerのパッケージをインポート
@@ -43,7 +44,7 @@ func main() {
 	// 設定のロード
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		logger.Fatalf("設定のロードに失敗しました: %v", err)
+		logger.Fatalf("設定のロードに失敗しました: %v", exception.NewBatchError("main", "設定のロードに失敗しました", err, false, false))
 	}
 
 	// ロギングレベルの設定
@@ -87,13 +88,13 @@ func main() {
 		dbURL, // config.ConnectionString() で既に適切な形式になっている
 	)
 	if err != nil {
-		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v", err)
+		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v", exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false))
 	}
 
 	// Up() を呼び出して最新バージョンまでマイグレーションを実行
 	logger.Infof("データベースマイグレーションを開始します...")
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		logger.Fatalf("データベースマイグレーションの実行に失敗しました: %v", err)
+		logger.Fatalf("データベースマイグレーションの実行に失敗しました: %v", exception.NewBatchError("main", "データベースマイグレーションの実行に失敗しました", err, false, false))
 	}
 	logger.Infof("データベースマイグレーションが完了しました。")
 
@@ -101,13 +102,13 @@ func main() {
 	// マイグレーション後にデータベース接続を確立
 	jobRepository, err := repository.NewJobRepository(ctx, *cfg)
 	if err != nil {
-		logger.Fatalf("Job Repository の生成に失敗しました: %v", err)
+		logger.Fatalf("Job Repository の生成に失敗しました: %v", exception.NewBatchError("main", "Job Repository の生成に失敗しました", err, false, false))
 	}
 	// Step 2: アプリケーション終了時に Job Repository をクローズするように defer を設定
 	defer func() {
 		closeErr := jobRepository.Close()
 		if closeErr != nil {
-			logger.Errorf("Job Repository のクローズに失敗しました: %v", closeErr)
+			logger.Errorf("Job Repository のクローズに失敗しました: %v", exception.NewBatchError("main", "Job Repository のクローズに失敗しました", closeErr, false, false))
 		} else {
 			logger.Infof("Job Repository を正常にクローズしました。")
 		}
@@ -158,11 +159,19 @@ func main() {
 			logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, startErr)
 		}
 
+		// BatchError の場合は、その情報もログ出力
+		if be, ok := startErr.(*exception.BatchError); ok {
+			logger.Errorf("BatchError 詳細: Module=%s, Message=%s, OriginalErr=%v", be.Module, be.Message, be.OriginalErr)
+			if be.StackTrace != "" {
+				logger.Debugf("BatchError StackTrace:\n%s", be.StackTrace)
+			}
+		}
+
 		os.Exit(1)
 	}
 
 	if jobExecution == nil {
-		logger.Fatalf("JobOperator.Start がエラーなしで nil の JobExecution を返しました。")
+		logger.Fatalf("JobOperator.Start がエラーなしで nil の JobExecution を返しました。", exception.NewBatchErrorf("main", "JobOperator.Start がエラーなしで nil の JobExecution を返しました。"))
 	}
 
 	logger.Infof("Job '%s' (Execution ID: %s) の最終状態: %s",
