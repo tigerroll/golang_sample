@@ -10,7 +10,6 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート (JSL Decision の一時的な処理のため)
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
-	// exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート - 現在のコードでは未使用のため削除
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 )
 
@@ -325,15 +324,15 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 			logger.Infof("遷移ルールにより Job '%s' (Execution ID: %s) を終了します。最終 ExitStatus: %s",
 				j.JobName(), jobExecution.ID, core.ExitStatusCompleted) // End 遷移は通常 COMPLETED
 			jobExecution.Status = core.JobStatusCompleted
-			jobExecution.ExitStatus = core.ExitStatusCompleted
+			jobExecution.ExitStatus = core.ExitStatusCompleted // ここを修正
 			currentElementName = "" // ループを終了するための条件を設定
 		} else if transition.Fail {
 			// Fail 遷移: ジョブを失敗としてマークし、ループを終了
 			logger.Errorf("遷移ルールにより Job '%s' (Execution ID: %s) を失敗とします。最終 ExitStatus: %s",
 				j.JobName(), jobExecution.ID, core.ExitStatusFailed) // Fail 遷移は通常 FAILED
 			jobExecution.Status = core.JobStatusFailed
-			jobExecution.ExitStatus = core.ExitStatusFailed
-			jobExecution.AddFailureException(fmt.Errorf("遷移ルールによるジョブ失敗 (ExitStatus: %s)", core.ExitStatusFailed))
+			jobExecution.ExitStatus = core.ExitStatusFailed // ここを修正
+			jobExecution.AddFailureException(fmt.Errorf("遷移ルールによるジョブ失敗 (ExitStatus: %s)", core.ExitStatusFailed)) // ここを修正
 			currentElementName = "" // ループを終了するための条件を設定
 		} else if transition.Stop {
 			// Stop 遷移: ジョブを停止としてマークし、ループを終了
@@ -346,7 +345,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 			// Next 遷移: 次の要素に進む
 			logger.Debugf("遷移ルールにより次の要素 '%s' へ進みます。", transition.To)
 			currentElementName = transition.To // 次のループで実行する要素名を設定
-		} else {
+		} else { // `else if transition.Restartable` ブロックを削除
 			// 遷移ルールが無効 (To, End, Fail, Stop のいずれも指定されていない)
 			err := fmt.Errorf("要素 '%s' (ExitStatus: %s) に対する遷移ルールが無効です (To, End, Fail, Stop のいずれも指定されていません)。",
 				currentElementName, elementExitStatus)
