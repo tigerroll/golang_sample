@@ -10,6 +10,9 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
+	stepReader "sample/src/main/go/batch/step/reader" // ★ 追加: stepReader パッケージをインポート
+	stepProcessor "sample/src/main/go/batch/step/processor" // ★ 追加: stepProcessor パッケージをインポート
+	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 
@@ -57,20 +60,20 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 // registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を登録します。
 func (f *JobFactory) registerComponentBuilders() {
 	f.componentBuilders["weatherReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
-		weatherReaderCfg := &config.WeatherReaderConfig{
+		weatherReaderCfg := &config.WeatherReaderConfig{ // config.WeatherReaderConfig は config パッケージにある
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
 		// Reader[*entity.OpenMeteoForecast] を返す
-		return NewWeatherReader(weatherReaderCfg), nil
+		return stepReader.NewWeatherReader(weatherReaderCfg), nil // ★ 修正: stepReader.NewWeatherReader
 	}
 	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] を返す
-		return NewWeatherProcessor(), nil
+		return stepProcessor.NewWeatherProcessor(), nil // ★ 修正: stepProcessor.NewWeatherProcessor
 	}
 	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Writer[*entity.WeatherDataToStore] を返す
-		return NewWeatherWriter(repo), nil
+		return stepWriter.NewWeatherWriter(repo), nil // ★ 修正: stepWriter.NewWeatherWriter
 	}
 	f.componentBuilders["dummyReader"] = func(cfg *config.Config, repo repository.WeatherRepository) (any, error) {
 		// Reader[any] を返す
