@@ -5,7 +5,7 @@ import (
 	"context" // context パッケージをインポート
 	"database/sql"
 	"fmt"
-	"time"
+	// "time" // ★ 不要なインポートを削除
 
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
