@@ -33,7 +33,7 @@ type JSLAdaptedStep struct {
 	processor     stepProcessor.Processor[any, any] // Processor[I, O any]
 	writer        stepWriter.Writer[any] // Writer[I any]
 	chunkSize     int
-	stepRetryConfig   *config.RetryConfig // ステップレベルのリトライ設定 (チャンク全体のリトライ)
+	stepRetryConfig   *config.RetryConfig // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
 	itemRetryConfig   config.ItemRetryConfig // アイテムレベルのリトライ設定
 	itemSkipConfig    config.ItemSkipConfig  // アイテムレベルのスキップ設定
 	stepListeners     []stepListener.StepExecutionListener // ステップレベルのリスナー
@@ -325,55 +325,26 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					logger.Debugf("ステップ '%s' 処理済みチャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
 						s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
 
-					// Writer でデータを書き込み (アイテムレベルのリトライ/スキップをここで処理)
-					var chunkWriteError bool
-					for _, itemToWrite := range processedItemsChunk {
-						var writeErr error
-						for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-							// Writer の Write メソッドは any を期待
-							writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
-							if writeErr == nil {
-								break // 成功
-							}
-
-							// リトライ可能な例外かチェック
-							if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-								s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-								logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-								time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
-							} else {
-								// リトライ不可または最大リトライ回数に達した場合
-								s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-								if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-									s.notifySkipWrite(ctx, itemToWrite, writeErr)
-									stepExecution.SkipWriteCount++
-									logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-									writeErr = nil // スキップされたのでエラーをクリア
-								} else {
-									// スキップもできない場合はエラーを返す
-									logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-									stepExecution.AddFailureException(writeErr)
-									chunkWriteError = true // チャンク全体のエラーとする
-									break // このアイテムの処理を中断し、チャンク処理を中断
-								}
-							}
-						}
-
-						if chunkWriteError {
-							break // チャンク処理を中断
-						}
-						if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-							logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-							stepExecution.AddFailureException(writeErr)
-							chunkWriteError = true // チャンク全体のエラーとする
-							break // このアイテムの処理を中断し、チャンク処理を中断
-						}
-						totalWriteCount++ // 書き込みカウントをインクリメント (成功したアイテムのみ)
+					// Writer でデータを書き込み (チャンク全体を一度に書き込む)
+					var writeErr error
+					// []*entity.WeatherDataToStore を []any に変換
+					itemsForWriter := make([]any, len(processedItemsChunk))
+					for i, item := range processedItemsChunk {
+						itemsForWriter[i] = item
 					}
+
+					writeErr = s.writer.Write(ctx, itemsForWriter) // ★ チャンク全体を渡す
+					if writeErr != nil {
+						logger.Errorf("ステップ '%s' チャンク書き込みエラー: %v", s.name, writeErr)
+						stepExecution.AddFailureException(writeErr)
+						chunkAttemptError = true // チャンク全体のエラーとする
+						break // このチャンクの処理を中断
+					}
+					totalWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
 					stepExecution.WriteCount = totalWriteCount // StepExecution に反映
 
-					if chunkWriteError {
-						chunkAttemptError = true
+
+					if chunkAttemptError {
 						break // インナーループを抜ける
 					}
 
@@ -434,7 +405,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					// ロールバックされたチャンクのデータは ExecutionContext に追加されない。
 					// Reader の currentIndex はロールバックされたチャンクの開始時点に戻るべきだが、
 					// 現在の Reader 実装では Read が進んでしまうため、SetExecutionContext で明示的に戻す必要がある。
-					// これは Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 					// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
 					// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 					if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
@@ -502,48 +472,19 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		var chunkWriteError bool
 		var currentWriteCount int
-		for _, itemToWrite := range dataToStore {
-			var writeErr error
-			for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-				// Writer の Write メソッドは any を期待
-				writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
-				if writeErr == nil {
-					break // 成功
-				}
+		// []*entity.WeatherDataToStore を []any に変換
+		itemsForWriter := make([]any, len(dataToStore))
+		for i, item := range dataToStore {
+			itemsForWriter[i] = item
+		}
 
-				// リトライ可能な例外かチェック
-				if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-					s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-					logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-					time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
-				} else {
-					// リトライ不可または最大リトライ回数に達した場合
-					s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-					if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-						s.notifySkipWrite(ctx, itemToWrite, writeErr)
-						stepExecution.SkipWriteCount++
-						logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-						writeErr = nil // スキップされたのでエラーをクリア
-					} else {
-						// スキップもできない場合はエラーを返す
-						logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-						stepExecution.AddFailureException(writeErr)
-						chunkWriteError = true // チャンク全体のエラーとする
-						break // このアイテムの処理を中断し、チャンク処理を中断
-					}
-				}
-			}
-
-			if chunkWriteError {
-				break // チャンク処理を中断
-			}
-			if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-				logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-				stepExecution.AddFailureException(writeErr)
-				chunkWriteError = true // チャンク全体のエラーとする
-				break // このアイテムの処理を中断し、チャンク処理を中断
-			}
-			currentWriteCount++ // 書き込みカウントをインクリメント (成功したアイテムのみ)
+		writeErr := s.writer.Write(ctx, itemsForWriter) // ★ チャンク全体を渡す
+		if writeErr != nil {
+			logger.Errorf("ステップ '%s' チャンク書き込みエラー: %v", s.name, writeErr)
+			stepExecution.AddFailureException(writeErr)
+			chunkWriteError = true // チャンク全体のエラーとする
+		} else {
+			currentWriteCount += len(dataToStore) // 書き込みカウントをインクリメント (成功したアイテム数)
 		}
 		stepExecution.WriteCount = currentWriteCount // StepExecution に反映
 
@@ -665,58 +606,28 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 				if itemCountInChunk >= chunkSize || eofReached {
 					if len(processedItemsChunk) > 0 {
-						// Writer でデータを書き込み (アイテムレベルのリトライ/スキップをここで処理)
-						var chunkWriteError bool
+						// Writer でデータを書き込み (チャンク全体を一度に書き込む)
+						var writeErr error
 						var currentWriteCount int
-						for _, itemToWrite := range processedItemsChunk {
-							var writeErr error
-							for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-								// Writer の Write メソッドは any を期待
-								writeErr = s.writer.Write(ctx, itemToWrite) // itemToWrite は *entity.WeatherDataToStore
-								if writeErr == nil {
-									break // 成功
-								}
+						// []*entity.WeatherDataToStore を []any に変換
+						itemsForWriter := make([]any, len(processedItemsChunk))
+						for i, item := range processedItemsChunk {
+							itemsForWriter[i] = item
+						}
 
-								// リトライ可能な例外かチェック
-								if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-									s.notifyRetryWrite(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-									logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-									time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
-								} else {
-									// リトライ不可または最大リトライ回数に達した場合
-									s.notifyItemWriteError(ctx, []interface{}{itemToWrite}, writeErr) // 単一アイテムだが interface{} スライスで通知
-									if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-										s.notifySkipWrite(ctx, itemToWrite, writeErr)
-										stepExecution.SkipWriteCount++
-										logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-										writeErr = nil // スキップされたのでエラーをクリア
-									} else {
-										// スキップもできない場合はエラーを返す
-										logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-										stepExecution.AddFailureException(writeErr)
-										chunkWriteError = true // チャンク全体のエラーとする
-										break // このアイテムの処理を中断し、チャンク処理を中断
-									}
-								}
-							}
-
-							if chunkWriteError {
-								break // チャンク処理を中断
-							}
-							if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-								logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-								stepExecution.AddFailureException(writeErr)
-								chunkWriteError = true // チャンク全体のエラーとする
-								break // このアイテムの処理を中断し、チャンク処理を中断
-							}
-							currentWriteCount++ // 書き込みカウントをインクリメント (成功したアイテムのみ)
+						writeErr = s.writer.Write(ctx, itemsForWriter) // ★ チャンク全体を渡す
+						if writeErr != nil {
+							logger.Errorf("ステップ '%s' チャンク書き込みエラー: %v", s.name, writeErr)
+							stepExecution.AddFailureException(writeErr)
+							chunkWriteError = true // チャンク全体のエラーとする
+						} else {
+							currentWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
 						}
 						totalWriteCount += currentWriteCount
 						stepExecution.WriteCount = totalWriteCount // StepExecution に反映
 
 						if chunkWriteError {
-							chunkAttemptError = true
-							break // インナーループを抜ける
+							break // チャンク処理を中断
 						}
 					}
 
