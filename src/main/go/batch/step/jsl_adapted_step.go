@@ -11,7 +11,7 @@ import (
 	"sample/src/main/go/batch/domain/entity" // entity パッケージをインポート
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
+	stepListener "sample/src/go/batch/step/listener" // stepListener パッケージをインポート
 	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
 	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
 	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
@@ -26,7 +26,9 @@ type JSLAdaptedStep struct {
 	processor     stepProcessor.Processor
 	writer        stepWriter.Writer
 	chunkSize     int
-	retryConfig   *config.RetryConfig // リトライ設定
+	stepRetryConfig *config.RetryConfig // ステップレベルのリトライ設定 (チャンク全体のリトライ)
+	itemRetryConfig config.ItemRetryConfig // アイテムレベルのリトライ設定
+	itemSkipConfig  config.ItemSkipConfig  // アイテムレベルのスキップ設定
 	listeners     []stepListener.StepExecutionListener // このステップに固有のリスナー
 	jobRepository repository.JobRepository // JobRepository を追加 (トランザクション管理のため)
 }
@@ -42,7 +44,9 @@ func NewJSLAdaptedStep(
 	processor stepProcessor.Processor,
 	writer stepWriter.Writer,
 	chunkSize int,
-	retryConfig *config.RetryConfig,
+	stepRetryConfig *config.RetryConfig, // ステップレベルのリトライ設定
+	itemRetryConfig config.ItemRetryConfig, // アイテムレベルのリトライ設定
+	itemSkipConfig  config.ItemSkipConfig,  // アイテムレベルのスキップ設定
 	jobRepository repository.JobRepository, // JobRepository を追加
 	listeners []stepListener.StepExecutionListener, // ★ 追加: リスナーリスト
 ) *JSLAdaptedStep {
@@ -52,7 +56,9 @@ func NewJSLAdaptedStep(
 		processor:     processor,
 		writer:        writer,
 		chunkSize:     chunkSize,
-		retryConfig:   retryConfig,
+		stepRetryConfig: stepRetryConfig,
+		itemRetryConfig: itemRetryConfig,
+		itemSkipConfig:  itemSkipConfig,
 		listeners:     listeners, // ★ 修正: 受け取ったリスナーを設定
 		jobRepository: jobRepository, // JobRepository を設定
 	}
@@ -143,7 +149,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	}()
 
 
-	retryConfig := s.retryConfig
+	stepRetryConfig := s.stepRetryConfig
 	chunkSize := s.chunkSize
 
 	// 成功したチャンクの数
@@ -154,8 +160,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	// ステップ名に応じて処理を分岐
 	if s.name == "fetchWeatherDataStep" { // ★ 修正: "FetchAndProcessStep" -> "fetchWeatherDataStep"
 		// チャンク処理全体のリトライループ
-		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
-			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, retryConfig.MaxAttempts)
+		for retryAttempt := 0; retryAttempt < stepRetryConfig.MaxAttempts; retryAttempt++ {
+			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts)
 
 			// リトライ時にはチャンクをリセット
 			processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize)
@@ -192,7 +198,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 				if itemErr != nil {
 					// Reader または Processor でエラーが発生した場合
-					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生しました (試行 %d/%d): %v", s.name, retryAttempt+1, retryConfig.MaxAttempts, itemErr)
+					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生しました (試行 %d/%d): %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, itemErr)
 					chunkAttemptError = true // この試行はエラー
 					break                    // インナーループを抜ける
 				}
@@ -268,11 +274,11 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			if chunkAttemptError {
 				tx.Rollback() // エラーが発生した場合はロールバック
 				stepExecution.RollbackCount++ // ロールバックカウントをインクリメント
-				if retryAttempt < retryConfig.MaxAttempts-1 {
+				if retryAttempt < stepRetryConfig.MaxAttempts-1 {
 					// リトライ可能回数が残っている場合
-					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
+					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, stepRetryConfig.InitialInterval)
 					// TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-					time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second) // シンプルな待機
+					time.Sleep(time.Duration(stepRetryConfig.InitialInterval) * time.Second) // シンプルな待機
 					// リトライ前に Reader/Writer の ExecutionContext をリセットする必要があるか検討
 					// 現状は Reader/Writer が内部状態を保持し、SetExecutionContext で復元されるため、
 					// ロールバックされたチャンクのデータは ExecutionContext に追加されない。
@@ -289,10 +295,10 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					s.writer.SetExecutionContext(ctx, core.NewExecutionContext()) // Writerは状態を持たないためクリア
 				} else {
 					// 最大リトライ回数に達した場合
-					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, retryConfig.MaxAttempts)
-					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts)) // ステップを失敗としてマーク
+					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
+					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts)) // ステップを失敗としてマーク
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1]) // JobExecution にも最後のステップエラーを追加
-					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts) // エラーを返してステップを失敗させる
+					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts) // エラーを返してステップを失敗させる
 				}
 			} else {
 				// この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
@@ -408,8 +414,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		// ダミー処理のロジックをここに実装
 		// 例: DummyReader から読み込み、DummyProcessor で処理し、DummyWriter で書き込む
 		// fetchWeatherDataStep と同様のチャンク処理ループを適用
-		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ { // 修正: for retryAttempt := 0; retryAttempt := 0; -> for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts;
-			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, retryConfig.MaxAttempts)
+		for retryAttempt := 0; retryAttempt < stepRetryConfig.MaxAttempts; retryAttempt++ { // 修正: for retryAttempt := 0; retryAttempt := 0; -> for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts;
+			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts)
 
 			processedItemsChunk := make([]interface{}, 0, chunkSize) // DummyProcessor は interface{} を返す
 			itemCountInChunk := 0
@@ -521,9 +527,9 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			if chunkAttemptError {
 				tx.Rollback()
 				stepExecution.RollbackCount++
-				if retryAttempt < retryConfig.MaxAttempts-1 {
-					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, retryConfig.MaxAttempts, retryConfig.InitialInterval)
-					time.Sleep(time.Duration(retryConfig.InitialInterval) * time.Second)
+				if retryAttempt < stepRetryConfig.MaxAttempts-1 {
+					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, stepRetryConfig.InitialInterval)
+					time.Sleep(time.Duration(stepRetryConfig.InitialInterval) * time.Second)
 					if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
 						s.reader.SetExecutionContext(ctx, readerEC)
 					} else {
@@ -531,10 +537,10 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 					}
 					s.writer.SetExecutionContext(ctx, core.NewExecutionContext())
 				} else {
-					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, retryConfig.MaxAttempts)
-					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts))
+					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
+					stepExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts))
 					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, retryConfig.MaxAttempts)
+					return fmt.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name, stepRetryConfig.MaxAttempts)
 				}
 			} else {
 				if err = tx.Commit(); err != nil {
