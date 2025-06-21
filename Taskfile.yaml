@@ -23,12 +23,8 @@ tasks:
       - dir: [".{{.BUILD_OUTPUT_DIR}}"]
     cmds:
       - cp src/main/resources/application.yaml src/main/go/batch/config
-      # JSLでジョブ定義を管理するため、weather.yamlのコピーは不要になります
-      # - cp src/main/resources/jobs/weather.yaml src/main/go/batch/job
       - go build -v -gcflags="all=-N -l" -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.SRC_DIR}}
       - rm src/main/go/batch/config/application.yaml
-      # JSLでジョブ定義を管理するため、weather.yamlの削除は不要になります
-      # - rm src/main/go/batch/jobs/weather.yaml
       - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     generates:
       - "{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
@@ -58,5 +54,6 @@ tasks:
     cmds:
       - rm -rf ./{{.BUILD_OUTPUT_DIR}}
       - rm -f src/main/go/batch/job/jsl/*.yaml # コピーしたJSLファイルを削除
+      - rm -f src/main/go/batch/job/weather_job.go # 不要になったファイルを削除
       - go clean -modcache
       - go clean -cache -testcache
