@@ -2,7 +2,6 @@ package listener
 
 import (
 	"context"
-	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	"sample/src/main/go/batch/util/logger"
 )
 
