@@ -151,8 +151,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	var totalReadCount int = 0
 	var totalWriteCount int = 0
 
-	// FetchAndProcessStep の場合のみチャンク処理ループを実行
-	if s.name == "FetchAndProcessStep" {
+	// ステップ名に応じて処理を分岐
+	if s.name == "fetchWeatherDataStep" { // ★ 修正: "FetchAndProcessStep" -> "fetchWeatherDataStep"
 		// チャンク処理全体のリトライループ
 		for retryAttempt := 0; retryAttempt < retryConfig.MaxAttempts; retryAttempt++ {
 			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, retryConfig.MaxAttempts)
@@ -311,7 +311,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				stepExecution.ReadCount = totalReadCount
 				stepExecution.WriteCount = totalWriteCount
 				stepExecution.MarkAsCompleted() // ★ 正常終了時に Step を完了としてマーク
-				stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 				return nil // 正常終了したらループを抜けて nil を返す
 			}
 		} // リトライループ終了
@@ -321,7 +320,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 
 	// SaveDataStep の場合: ExecutionContext からデータを取得し、Writer で書き込み
-	if s.name == "SaveDataStep" {
+	if s.name == "saveWeatherDataStep" { // ★ 修正: "SaveDataStep" -> "saveWeatherDataStep"
 		logger.Infof("ステップ '%s' は書き込み専用ステップです。ExecutionContext からデータを取得します。", s.name)
 		dataToStore, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
 		if !ok {
@@ -337,7 +336,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			logger.Infof("ステップ '%s': ExecutionContext に書き込むデータがありません。", s.name)
 			// データがない場合も正常完了とみなす
 			stepExecution.MarkAsCompleted()
-			stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 			return nil
 		}
 
@@ -408,7 +406,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		// 成功したら Step を完了としてマーク
 		stepExecution.MarkAsCompleted() // Status = Completed, ExitStatus = Completed
-		stepExecution.ExitStatus = core.ExitStatusCompleted // ★ 追加: ExitStatus も COMPLETED に設定
 
 		return nil // 成功したら nil を返してメソッドを終了
 	}
