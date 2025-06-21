@@ -21,8 +21,9 @@ type DatabaseConfig struct {
 func (c DatabaseConfig) ConnectionString() string {
   switch strings.ToLower(c.Type) {
   case "postgres", "redshift":
-    return fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=%s",
-      c.Host, c.Port, c.Database, c.User, c.Password, c.Sslmode)
+    // golang-migrate/migrate が期待する形式に合わせる
+    return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+      c.User, c.Password, c.Host, c.Port, c.Database, c.Sslmode)
   case "mysql":
     return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
       c.User, c.Password, c.Host, c.Port, c.Database)
