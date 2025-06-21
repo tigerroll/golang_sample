@@ -131,60 +131,28 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 // convertJSLStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation.
 // jobRepository を引数に追加
 func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
-	var r stepReader.Reader[any]
-	// Reader の型アサーション
-	if jslStep.Reader.Ref == "weatherReader" {
-		specificReader, specificOk := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[*entity.OpenMeteoForecast])
-		if !specificOk {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です (期待: Reader[*entity.OpenMeteoForecast])", jslStep.Reader.Ref), nil, false, false)
-		}
-		r = specificReader.(stepReader.Reader[any]) // any に戻して JSLAdaptedStep に渡す
-	} else if jslStep.Reader.Ref == "dummyReader" {
-		specificReader, specificOk := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[any])
-		if !specificOk {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です (期待: Reader[any])", jslStep.Reader.Ref), nil, false, false)
-		}
-		r = specificReader.(stepReader.Reader[any])
-	} else {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です", jslStep.Reader.Ref), nil, false, false)
+	// Reader の型アサーション (Reader[any] として取得)
+	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[any])
+	if !ok {
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です (期待: Reader[any])", jslStep.Reader.Ref), nil, false, false)
 	}
 
-	var p stepProcessor.Processor[any, any] // Processor[any, any] として取得
+	// Processor の型アサーション (Processor[any, any] として取得)
+	var p stepProcessor.Processor[any, any]
 	if jslStep.Processor.Ref != "" {
-		// Processor の型アサーション
-		if jslStep.Processor.Ref == "weatherProcessor" {
-			specificProcessor, specificOk := componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore])
-			if !specificOk {
-				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です (期待: Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore])", jslStep.Processor.Ref), nil, false, false)
-			}
-			p = specificProcessor.(stepProcessor.Processor[any, any]) // any に戻して JSLAdaptedStep に渡す
-		} else if jslStep.Processor.Ref == "dummyProcessor" {
-			specificProcessor, specificOk := componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor[any, any])
-			if !specificOk {
-				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です (期待: Processor[any, any])", jslStep.Processor.Ref), nil, false, false)
-			}
-			p = specificProcessor.(stepProcessor.Processor[any, any])
-		} else {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です", jslStep.Processor.Ref), nil, false, false)
+		p, ok = componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor[any, any])
+		if !ok {
+			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です (期待: Processor[any, any])", jslStep.Processor.Ref), nil, false, false)
 		}
+	} else {
+		// プロセッサーが指定されていない場合は nil を設定
+		p = nil
 	}
 
-	var w stepWriter.Writer[any] // Writer[any] として取得
-	// Writer の型アサーション
-	if jslStep.Writer.Ref == "weatherWriter" {
-		specificWriter, specificOk := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer[*entity.WeatherDataToStore])
-		if !specificOk {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です (期待: Writer[*entity.WeatherDataToStore])", jslStep.Writer.Ref), nil, false, false)
-		}
-		w = specificWriter.(stepWriter.Writer[any]) // any に戻して JSLAdaptedStep に渡す
-	} else if jslStep.Writer.Ref == "dummyWriter" {
-		specificWriter, specificOk := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer[any])
-		if !specificOk {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です (期待: Writer[any])", jslStep.Writer.Ref), nil, false, false)
-			}
-		w = specificWriter.(stepWriter.Writer[any])
-	} else {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です", jslStep.Writer.Ref), nil, false, false)
+	// Writer の型アサーション (Writer[any] として取得)
+	w, ok := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer[any])
+	if !ok {
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です (期待: Writer[any])", jslStep.Writer.Ref), nil, false, false)
 	}
 
 

@@ -22,19 +22,18 @@ func NewWeatherProcessor(/* cfg *config.WeatherProcessorConfig */) *WeatherProce
 }
 
 // Process メソッドが Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすように修正
-func (p *WeatherProcessor) Process(ctx context.Context, forecast *entity.OpenMeteoForecast) ([]*entity.WeatherDataToStore, error) { // I は *entity.OpenMeteoForecast, O は []*entity.WeatherDataToStore
+func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) { // I は any, O は any
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	// forecast は既に *entity.OpenMeteoForecast 型として受け取られるため、型アサーションは不要
-	// forecast, ok := item.(*entity.OpenMeteoForecast)
-	// if !ok {
-	// 	return nil, fmt.Errorf("予期しない入力型です: %T, 期待される型: *entity.OpenMeteoForecast", item)
-	// }
-
+	forecast, ok := item.(*entity.OpenMeteoForecast)
+	if !ok {
+		return nil, fmt.Errorf("WeatherProcessor: 予期しない入力型です: %T, 期待される型: *entity.OpenMeteoForecast", item)
+	}
+ 
 	var dataToStore []*entity.WeatherDataToStore
 	// CollectedAt は現在時刻を使用しているため、設定は不要
 	collectedAt := time.Now().In(time.FixedZone("Asia/Tokyo", 9*60*60))
@@ -69,4 +68,4 @@ func (p *WeatherProcessor) Process(ctx context.Context, forecast *entity.OpenMet
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認
-var _ Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] = (*WeatherProcessor)(nil)
+var _ Processor[any, any] = (*WeatherProcessor)(nil)

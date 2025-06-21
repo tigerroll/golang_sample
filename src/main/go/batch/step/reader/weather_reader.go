@@ -37,7 +37,7 @@ func NewWeatherReader(cfg *config.WeatherReaderConfig) *WeatherReader {
 
 // Read メソッドが Reader インターフェースを満たすように修正
 // アイテムを一つずつ返すように変更
-func (r *WeatherReader) Read(ctx context.Context) (*entity.OpenMeteoForecast, error) { // O は *entity.OpenMeteoForecast
+func (r *WeatherReader) Read(ctx context.Context) (any, error) { // O は any
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -108,7 +108,7 @@ func (r *WeatherReader) Read(ctx context.Context) (*entity.OpenMeteoForecast, er
 	r.currentIndex++ // インデックスをインクリメント
 
 	//logger.Debugf("Read item at index %d: %+v", r.currentIndex-1, itemToProcess)
-	return itemToProcess, nil // *entity.OpenMeteoForecast 型として返す
+	return itemToProcess, nil // any 型として返す
 }
 
 // Close は Reader インターフェースの実装です。
@@ -185,4 +185,4 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
 }
 
 // WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
-var _ Reader[*entity.OpenMeteoForecast] = (*WeatherReader)(nil)
+var _ Reader[any] = (*WeatherReader)(nil)
