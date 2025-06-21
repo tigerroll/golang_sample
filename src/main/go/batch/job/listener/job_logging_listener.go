@@ -29,7 +29,7 @@ func (l *LoggingJobListener) AfterJob(ctx context.Context, jobExecution *core.Jo
   // JobExecution から最終状態やエラー情報を取得してログ出力
   if jobExecution.Status == core.JobStatusFailed {
     logger.Errorf("Job '%s' (Execution ID: %s) がエラーで完了しました: %v",
-      jobExecution.JobName, jobExecution.ID, jobExecution.Failureliye)
+      jobExecution.JobName, jobExecution.ID, jobExecution.Failures)
   } else {
     logger.Infof("Job '%s' (Execution ID: %s) の実行が正常に完了しました。最終状態: %s",
       jobExecution.JobName, jobExecution.ID, jobExecution.Status)

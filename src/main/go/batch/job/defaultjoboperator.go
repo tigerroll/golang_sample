@@ -160,11 +160,109 @@ func (o *DefaultJobOperator) Start(ctx context.Context, jobName string, params c
 }
 
 // Restart は指定された JobExecution を再開します。
-// JobOperator インターフェースの実装スタブです。
+// JobOperator インターフェースの実装です。
 func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*core.JobExecution, error) {
   logger.Infof("JobOperator: Restart メソッドが呼び出されました。Execution ID: %s", executionID)
-  // TODO: JobRepository から JobExecution をロードし、再開処理を実装 (フェーズ3)
-  return nil, fmt.Errorf("Restart メソッドはまだ実装されていません")
+
+  // 1. 前回の JobExecution をロード
+  prevJobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
+  if err != nil {
+    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) のロードに失敗しました: %w", executionID, err)
+  }
+  if prevJobExecution == nil {
+    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) が見つかりませんでした", executionID)
+  }
+
+  // 2. 再起動可能状態かチェック
+  // JSR352 では FAILED または STOPPED 状態の JobExecution のみ再起動可能です。
+  if prevJobExecution.Status != core.JobStatusFailed && prevJobExecution.Status != core.JobStatusStopped {
+    return nil, fmt.Errorf("再起動処理エラー: JobExecution (ID: %s) は再起動可能な状態ではありません (現在の状態: %s)", executionID, prevJobExecution.Status)
+  }
+  logger.Infof("JobExecution (ID: %s) は再起動可能な状態 (%s) です。", executionID, prevJobExecution.Status)
+
+  // 3. JobInstance をロード
+  jobInstance, err := o.jobRepository.FindJobInstanceByID(ctx, prevJobExecution.JobInstanceID)
+  if err != nil {
+    return nil, fmt.Errorf("再起動処理エラー: JobInstance (ID: %s) のロードに失敗しました: %w", prevJobExecution.JobInstanceID, err)
+  }
+  if jobInstance == nil {
+    return nil, fmt.Errorf("再起動処理エラー: JobInstance (ID: %s) が見つかりませんでした", prevJobExecution.JobInstanceID)
+  }
+
+  // 4. 新しい JobExecution を作成 (同じ JobInstance に紐づく)
+  // JobParameters は前回の JobExecution から引き継ぎます。
+  newJobExecution := core.NewJobExecution(jobInstance.ID, prevJobExecution.JobName, prevJobExecution.Parameters)
+
+  // 5. 前回の ExecutionContext を新しい JobExecution に引き継ぐ
+  // ExecutionContext はジョブの状態を保持するため、再起動時に引き継ぐ必要があります。
+  newJobExecution.ExecutionContext = prevJobExecution.ExecutionContext.Copy()
+  logger.Debugf("JobExecution (ID: %s) の ExecutionContext を新しい JobExecution (ID: %s) に引き継ぎました。", prevJobExecution.ID, newJobExecution.ID)
+
+  // 6. 再開するステップ名を決定
+  // 失敗または停止したステップから再開します。
+  newJobExecution.CurrentStepName = prevJobExecution.CurrentStepName
+  if newJobExecution.CurrentStepName == "" {
+    // もし CurrentStepName が空の場合（例: ジョブ開始直後に失敗）、フローの開始要素から再開
+    // このケースは通常、JobFactory で Job を作成する際にフローの StartElement を取得して設定すべきだが、念のため。
+    // TODO: JobFactory.CreateJob で Job を取得した後、その Job の GetFlow().StartElement を取得して設定するロジックを追加検討
+    //       ここではシンプルに、JobExecution に CurrentStepName が設定されていることを前提とする。
+    logger.Warnf("JobExecution (ID: %s) の CurrentStepName が空です。フローの開始要素から再開を試みます。", prevJobExecution.ID)
+    // この時点では Job オブジェクトがないため、正確な StartElement は不明。
+    // Job.Run メソッドがこの空文字列を適切に処理することを期待する。
+  }
+  logger.Infof("新しい JobExecution (ID: %s) はステップ '%s' から再開します。", newJobExecution.ID, newJobExecution.CurrentStepName)
+
+  // 7. 新しい JobExecution を JobRepository に保存 (Initial Save)
+  err = o.jobRepository.SaveJobExecution(ctx, newJobExecution)
+  if err != nil {
+    logger.Errorf("再起動処理エラー: 新しい JobExecution (ID: %s) の初期永続化に失敗しました: %v", newJobExecution.ID, err)
+    return newJobExecution, fmt.Errorf("再起動処理エラー: 新しい JobExecution の初期保存に失敗しました: %w", err)
+  }
+  logger.Debugf("新しい JobExecution (ID: %s) を JobRepository に初期保存しました。", newJobExecution.ID)
+
+  // 8. 新しい JobExecution の状態を Started に更新し、永続化
+  newJobExecution.MarkAsStarted()
+  err = o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
+  if err != nil {
+    logger.Errorf("再起動処理エラー: 新しい JobExecution (ID: %s) の Started 状態への更新に失敗しました: %v", newJobExecution.ID, err)
+    newJobExecution.AddFailureException(fmt.Errorf("JobExecution 状態更新エラー (Started): %w", err))
+  } else {
+    logger.Debugf("新しい JobExecution (ID: %s) を JobRepository で Started に更新しました。", newJobExecution.ID)
+  }
+
+  // 9. JobFactory を使用して Job オブジェクトを取得
+  batchJob, err := o.jobFactory.CreateJob(newJobExecution.JobName)
+  if err != nil {
+    logger.Errorf("再起動処理エラー: Job '%s' の作成に失敗しました: %v", newJobExecution.JobName, err)
+    newJobExecution.MarkAsFailed(fmt.Errorf("Job オブジェクトの作成に失敗しました: %w", err))
+    updateErr := o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
+    if updateErr != nil {
+      logger.Errorf("JobExecution (ID: %s) の最終状態更新に失敗しました (Job作成エラー後): %v", newJobExecution.ID, updateErr)
+      newJobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー (Job作成エラー後): %w", updateErr))
+    }
+    return newJobExecution, fmt.Errorf("Job '%s' の作成に失敗しました: %w", newJobExecution.JobName, err)
+  }
+
+  logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) の再実行を開始します。", newJobExecution.JobName, newJobExecution.ID, jobInstance.ID)
+
+  // 10. core.Job の Run メソッドを実行し、新しい JobExecution を渡す
+  runErr := batchJob.Run(ctx, newJobExecution)
+
+  // 11. ジョブ実行完了後の JobExecution の状態を永続化
+  updateErr := o.jobRepository.UpdateJobExecution(ctx, newJobExecution)
+  if updateErr != nil {
+    logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", newJobExecution.ID, updateErr)
+    newJobExecution.AddFailureException(fmt.Errorf("JobExecution 最終状態更新エラー: %w", updateErr))
+    if runErr == nil {
+      runErr = fmt.Errorf("JobExecution 最終状態の永続化に失敗しました: %w", updateErr)
+    } else {
+      runErr = fmt.Errorf("Job実行エラー (%w), 永続化エラー (%w)", runErr, updateErr)
+    }
+  } else {
+    logger.Debugf("JobExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", newJobExecution.ID, newJobExecution.Status)
+  }
+
+  return newJobExecution, runErr
 }
 
 // Stop は指定された JobExecution を停止します。

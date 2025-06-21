@@ -81,7 +81,16 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 		// Job 実行後処理の通知
 		j.notifyAfterJob(ctx, jobExecution)
 
-		// WeatherRepository の Close は JobFactory または main 関数で行うべき。
+		// JobExecution の最終状態を永続化
+		// Note: JobOperator.Start/Restart メソッドが JobExecution の最終状態を永続化する責務を持つため、
+		// ここでの UpdateJobExecution は冗長になる可能性があります。
+		// JobOperator が最終永続化を行う場合は、この defer ブロック内の永続化処理を削除することを検討してください。
+		// 現状は、Job.Run が JobExecution の状態を更新し、JobOperator がそれを最終的に保存するという協調関係を維持します。
+		err := j.jobRepository.UpdateJobExecution(ctx, jobExecution)
+		if err != nil {
+			logger.Errorf("Job '%s' (Execution ID: %s) の最終状態永続化に失敗しました: %v", j.JobName(), jobExecution.ID, err)
+			jobExecution.AddFailureException(fmt.Errorf("最終状態永続化エラー: %w", err))
+		}
 	}()
 
 	// フロー定義が存在しない場合はエラー
@@ -99,8 +108,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 
 	// リスタートの場合、前回の停止ステップから開始
 	if jobExecution.CurrentStepName != "" &&
-		(jobExecution.Status == core.JobStatusStarted || // 実行中に停止した場合
-			jobExecution.Status == core.JobStatusFailed || // 実行中に失敗した場合
+		(jobExecution.Status == core.JobStatusFailed || // 実行中に失敗した場合
 			jobExecution.Status == core.JobStatusStopped) { // 停止要求により停止した場合
 		currentElementName = jobExecution.CurrentStepName
 		logger.Infof("Job '%s' (Execution ID: %s) をステップ '%s' からリスタートします。",
@@ -163,6 +171,8 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 			// リスタートの場合、既存の StepExecution を再利用するのではなく、新しい StepExecution を作成します。
 			// ただし、リスタート可能なステップの場合、前回の StepExecution の情報を引き継ぐ必要があります。
 			// これは Step.Execute メソッド内で行うべき責務です（例: ChunkOrientedStep の CheckpointData）。
+			// 現状は、ステップが失敗した場合、そのステップの最初から再実行されます。
+			// ステップ内のチェックポイントからの再開はサポートされていません。
 			stepExecution := core.NewStepExecution(stepName, jobExecution)
 			// NewStepExecution 内で jobExecution.StepExecutions に追加済み
 
@@ -219,7 +229,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 					stepExecution.Status = core.JobStatusFailed
 				}
 				if elementErr == nil {
-					elementErr = fmt.Errorf("StepExecution 最終状態の永続化に失敗しました: %w", updateStepExecErr)
+					elementErr = fmt.Errorf("ステップ実行エラー (%w), StepExecution 最終状態永続化エラー (%w)", elementErr, updateStepExecErr)
 				} else {
 					elementErr = fmt.Errorf("ステップ実行エラー (%w), StepExecution 最終状態永続化エラー (%w)", elementErr, updateStepExecErr)
 				}
@@ -249,8 +259,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 			logger.Infof("Decision '%s' の実行を開始します。", decisionName)
 
 			// DecisionExecution の作成 (StepExecution と同様のライフサイクル管理が必要であれば)
-			// 現状は StepExecution を流用するか、専用の DecisionExecution を定義する
-			// ここでは簡易的に StepExecution を使用
+			// 現状は StepExecution を使用
 			decisionExecution := core.NewStepExecution(decisionName, jobExecution) // 仮にStepExecutionを使用
 			if saveErr := j.jobRepository.SaveStepExecution(ctx, decisionExecution); saveErr != nil {
 				logger.Errorf("DecisionExecution (ID: %s) の初期永続化に失敗しました: %v", decisionExecution.ID, saveErr)
@@ -355,9 +364,9 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 		}
 
 		// 要素の実行でエラーが発生した場合 (elementErr != nil) でも、遷移ルールが見つかればそのルールに従います。
-		// ただし、elementErr は JobExecution の Failureliye に追加されています。
+		// ただし、elementErr は JobExecution の Failures に追加されています。
 		if elementErr != nil {
-			// elementErr は StepExecution.Failureliye に追加済みだが、JobExecution にも追加
+			// elementErr は StepExecution.Failures に追加済みだが、JobExecution にも追加
 			jobExecution.AddFailureException(elementErr)
 		}
 
