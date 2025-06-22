@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql" // database/sql パッケージをインポート
+	"fmt"          // fmt パッケージをインポート
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,6 +36,33 @@ import (
 	_ "github.com/lib/pq"                                     // PostgreSQL/Redshift ドライバ
 	_ "github.com/snowflakedb/gosnowflake"                    // Snowflake ドライバ (必要に応じて)
 )
+
+// connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
+func connectWithRetry(ctx context.Context, driverName, dataSourceName string, maxRetries int, delay time.Duration) (*sql.DB, error) {
+	var db *sql.DB
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		logger.Debugf("データベース接続を試行中 (試行 %d/%d)...", i+1, maxRetries)
+		db, err = sql.Open(driverName, dataSourceName)
+		if err != nil {
+			logger.Warnf("データベース接続のオープンに失敗しました: %v", err)
+			time.Sleep(delay)
+			continue
+		}
+
+		err = db.PingContext(ctx)
+		if err == nil {
+			logger.Infof("データベース接続に成功しました。")
+			return db, nil
+		}
+
+		// Pingに失敗した場合、接続を閉じてからリトライ
+		db.Close()
+		logger.Warnf("データベースへのPingに失敗しました: %v", err)
+		time.Sleep(delay)
+	}
+	return nil, fmt.Errorf("データベースへの接続に最大試行回数 (%d) 失敗しました", maxRetries)
+}
 
 func main() {
 	// .env ファイルの読み込み (開発環境用)
@@ -72,12 +101,40 @@ func main() {
 		cancel() // Context をキャンセルしてジョブ実行を中断
 	}()
 
-	// ★ データベースマイグレーションの実行 ★
 	// データベース接続文字列を構築
 	dbURL := cfg.Database.ConnectionString()
 	if dbURL == "" {
 		logger.Fatalf("データベース接続文字列の構築に失敗しました。")
 	}
+
+	// データベースドライバ名の決定
+	dbDriverName := ""
+	switch cfg.Database.Type {
+	case "postgres", "redshift":
+		dbDriverName = "postgres"
+	case "mysql":
+		dbDriverName = "mysql"
+	default:
+		logger.Fatalf("未対応のデータベースタイプです: %s", cfg.Database.Type)
+	}
+
+	// ★ データベースマイグレーションの実行前に、DB接続をリトライ付きで確立 ★
+	// マイグレーション用のDB接続を確立 (リトライ付き)
+	// 10回リトライ、5秒間隔で最大50秒待機
+	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbURL, 10, 5*time.Second)
+	if err != nil {
+		logger.Fatalf("データベースへの接続に失敗しました: %v", exception.NewBatchError("main", "データベースへの接続に失敗しました", err, false, false))
+	}
+	// マイグレーション用DB接続をmain関数終了時にクローズ
+	defer func() {
+		if dbForMigrate != nil {
+			if err := dbForMigrate.Close(); err != nil {
+				logger.Errorf("マイグレーション用データベース接続のクローズに失敗しました: %v", err)
+			} else {
+				logger.Debugf("マイグレーション用データベース接続を閉じました。")
+			}
+		}
+	}()
 
 	// マイグレーションソースのパス
 	// プロジェクトのルートからの相対パスを想定
@@ -85,13 +142,13 @@ func main() {
 
 	m, err := migrate.New(
 		migrationsPath,
-		dbURL, // config.ConnectionString() で既に適切な形式になっている
+		dbURL, // golang-migrate/migrate は内部で新しい接続を開くため、dbForMigrate は直接渡さない
 	)
 	if err != nil {
-		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v", exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false))
+		// ここで発生するエラーの詳細をログに出力するように変更
+		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false)
+		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
 	}
-
-	// Up() を呼び出して最新バージョンまでマイグレーションを実行
 	logger.Infof("データベースマイグレーションを開始します...")
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		logger.Fatalf("データベースマイグレーションの実行に失敗しました: %v", exception.NewBatchError("main", "データベースマイグレーションの実行に失敗しました", err, false, false))
