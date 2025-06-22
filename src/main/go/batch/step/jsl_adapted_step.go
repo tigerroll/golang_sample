@@ -988,11 +988,17 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 			if errors.As(err, &netOpErr) {
 				return true
 			}
-		// 他のリトライ可能な標準エラーやカスタムエラーがあればここに追加
-		// 例: case "context.DeadlineExceeded": if errors.Is(err, context.DeadlineExceeded) { return true }
+		case "context.DeadlineExceeded":
+			if errors.Is(err, context.DeadlineExceeded) {
+				return true
+			}
+		case "context.Canceled":
+			if errors.Is(err, context.Canceled) {
+				return true
+			}
 		default:
 			// 未知の例外文字列はログに警告を出すか無視する
-			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。", re)
+			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。発生したエラーの型: %T", re, err)
 		}
 	}
 	return false
@@ -1017,9 +1023,21 @@ func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []s
 			if errors.As(err, &unmarshalTypeErr) {
 				return true
 			}
-		// 他のスキップ可能な標準エラーやカスタムエラーがあればここに追加
+		case "net.OpError":
+			var netOpErr *net.OpError
+			if errors.As(err, &netOpErr) {
+				return true
+			}
+		case "context.DeadlineExceeded":
+			if errors.Is(err, context.DeadlineExceeded) {
+				return true
+			}
+		case "context.Canceled":
+			if errors.Is(err, context.Canceled) {
+				return true
+			}
 		default:
-			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。", se)
+			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。発生したエラーの型: %T", se, err)
 		}
 	}
 	return false
