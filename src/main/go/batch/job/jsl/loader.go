@@ -53,7 +53,8 @@ func LoadJSLDefinitions() error {
 		}
 
 		if jobDef.ID == "" {
-			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' に 'id' が定義されていません", nil, false, false))
+			// ★ 修正: exception.NewBatchError の引数を正しく渡す
+			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' に 'id' が定義されていません", filePath), nil, false, false)
 		}
 
 		if _, exists := LoadedJobDefinitions[jobDef.ID]; exists {
