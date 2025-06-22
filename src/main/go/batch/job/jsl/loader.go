@@ -1,3 +1,4 @@
+// src/main/go/batch/job/jsl/loader.go
 package jsl
 
 import (
@@ -52,6 +53,7 @@ func LoadJSLDefinitions() error {
 		}
 
 		if jobDef.ID == "" {
+			// ★ 修正: exception.NewBatchError の引数を正しく渡す
 			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' に 'id' が定義されていません", filePath), nil, false, false)
 		}
 
@@ -78,7 +80,7 @@ func GetJobDefinition(jobID string) (Job, bool) {
 func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (*core.FlowDefinition, error) {
 	coreFlow := &core.FlowDefinition{
 		StartElement:    jslFlow.StartElement,
-		Elements:        make(map[string]interface{}),
+		Elements:        make(map[string]core.FlowElement), // map[string]core.FlowElement に変更
 		TransitionRules: make([]core.TransitionRule, 0), // Initialize TransitionRules
 	}
 
@@ -92,10 +94,25 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 
 		// Try to unmarshal as Step
 		var jslStep Step
-		if err := yaml.Unmarshal(elemBytes, &jslStep); err == nil && jslStep.ID != "" && jslStep.Reader.Ref != "" && jslStep.Writer.Ref != "" {
-			// Successfully unmarshaled as Step
-			// JSLAdaptedStep の初期化に jobRepository, retryConfig, stepListeners を渡す
-			coreStep, err := convertJSLStepToCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, itemRetryConfig, itemSkipConfig, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
+		if err := yaml.Unmarshal(elemBytes, &jslStep); err == nil && jslStep.ID != "" {
+			// Check if it's a chunk step or a tasklet step, and ensure exclusivity
+			isChunk := jslStep.Reader.Ref != "" || jslStep.Processor.Ref != "" || jslStep.Writer.Ref != "" || jslStep.Chunk != nil
+			isTasklet := jslStep.Tasklet.Ref != ""
+
+			if isChunk && isTasklet {
+				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ステップ '%s' はチャンク指向と Tasklet 指向の両方を定義しています。どちらか一方のみを指定してください。", id), nil, false, false)
+			}
+			if !isChunk && !isTasklet {
+				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ステップ '%s' はチャンク指向または Tasklet 指向のいずれかの定義が必要です。", id), nil, false, false)
+			}
+
+			var coreStep core.Step
+			if isChunk {
+				coreStep, err = convertJSLChunkStepToCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, itemRetryConfig, itemSkipConfig, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
+			} else { // isTasklet
+				coreStep, err = convertJSLTaskletStepToCoreStep(jslStep, componentRegistry, jobRepository, stepListeners)
+			}
+
 			if err != nil {
 				return nil, err
 			}
@@ -111,10 +128,10 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 		var jslDecision Decision
 		if err := yaml.Unmarshal(elemBytes, &jslDecision); err == nil && jslDecision.ID != "" && len(jslDecision.Transitions) > 0 {
 			// Successfully unmarshaled as Decision
-			// For now, we'll store the JSL Decision directly.
-			// A proper core.Decision implementation would be needed for execution.
 			// TODO: ここで jsl.Decision を core.Decision の具体的な実装に変換する
-			coreFlow.Elements[id] = jslDecision // Placeholder for core.Decision
+			// 現状は SimpleDecision を使用
+			coreDecision := core.NewSimpleDecision(jslDecision.ID) // SimpleDecision を使用
+			coreFlow.Elements[id] = coreDecision // Placeholder for core.Decision
 			// Add transitions for this decision
 			for _, t := range jslDecision.Transitions {
 				coreFlow.AddTransitionRule(id, t.On, t.To, t.End, t.Fail, t.Stop) // Use core.FlowDefinition.AddTransitionRule
@@ -127,9 +144,8 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 	return coreFlow, nil
 }
 
-// convertJSLStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation.
-// jobRepository を引数に追加
-func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
+// convertJSLChunkStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation for chunk processing.
+func convertJSLChunkStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
 	// Reader の型アサーション (Reader[any] として取得)
 	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[any])
 	if !ok {
@@ -154,13 +170,20 @@ func convertJSLStepToCoreStep(jslStep Step, componentRegistry map[string]any, jo
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です (期待: Writer[any])", jslStep.Writer.Ref), nil, false, false)
 	}
 
-
 	chunkSize := 1 // Default chunk size
 	if jslStep.Chunk != nil {
 		chunkSize = jslStep.Chunk.ItemCount
 	}
 
 	// Create an instance of JSLAdaptedStep which implements core.Step
-	// NewJSLAdaptedStep に jobRepository を渡す
 	return step.NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize, retryConfig, itemRetryConfig, itemSkipConfig, jobRepository, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners), nil
+}
+
+// convertJSLTaskletStepToCoreStep converts a JSL Step definition to a concrete core.Step implementation for tasklet processing.
+func convertJSLTaskletStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, stepListeners []stepListener.StepExecutionListener) (core.Step, error) {
+	t, ok := componentRegistry[jslStep.Tasklet.Ref].(step.Tasklet)
+	if !ok {
+		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("タスクレット '%s' が見つからないか、不正な型です (期待: Tasklet)", jslStep.Tasklet.Ref), nil, false, false)
+	}
+	return step.NewTaskletStep(jslStep.ID, t, jobRepository, stepListeners), nil
 }

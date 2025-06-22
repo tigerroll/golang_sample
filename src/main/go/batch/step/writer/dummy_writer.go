@@ -1,7 +1,9 @@
+// src/main/go/batch/step/writer/dummy_writer.go
 package writer
 
 import (
 	"context"
+	"database/sql" // sql パッケージをインポート
 
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	"sample/src/main/go/batch/util/logger"   // logger パッケージをインポート
@@ -23,7 +25,7 @@ func NewDummyWriter() *DummyWriter {
 
 // Write は Writer インターフェースの実装です。
 // アイテムのスライスを受け取り、何も行わずに nil を返します。
-func (w *DummyWriter) Write(ctx context.Context, items []any) error { // ★ シグネチャを []any に変更
+func (w *DummyWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // ★ シグネチャを []any に変更し、tx を追加
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -35,6 +37,8 @@ func (w *DummyWriter) Write(ctx context.Context, items []any) error { // ★ シ
 	} else {
 		logger.Debugf("DummyWriter.Write が呼び出されました。書き込むアイテムはありません。")
 	}
+	// tx は使用しないが、インターフェースの一貫性のために受け取る
+	_ = tx
 	return nil // 何も行わない
 }
 

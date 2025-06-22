@@ -5,7 +5,6 @@ import (
 	"context" // context パッケージをインポート
 	"database/sql"
 	"fmt"
-	// "time" // ★ 不要なインポートを削除
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
@@ -23,17 +22,16 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 }
 
 func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresRepository, error) {
-	connStr := cfg.ConnectionString() // ← ここを使用
+	connStr := cfg.ConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, exception.NewBatchError("repository", "PostgreSQL への接続に失敗しました", err, false, false) // ★ 修正
+		return nil, exception.NewBatchError("repository", "PostgreSQL への接続に失敗しました", err, false, false)
 	}
 
-	// Ping に Context を渡す場合は db.PingContext を使用
 	err = db.Ping()
 	if err != nil {
-		return nil, exception.NewBatchError("repository", "PostgreSQL への Ping に失敗しました", err, false, false) // ★ 修正
+		return nil, exception.NewBatchError("repository", "PostgreSQL への Ping に失敗しました", err, false, false)
 	}
 
 	logger.Debugf("PostgreSQL に正常に接続しました。")
@@ -42,7 +40,8 @@ func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresReposi
 
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをPostgreSQLに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
-func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
+// トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
+func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -54,14 +53,7 @@ func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, items []
 		return nil // 書き込むデータがない場合は何もしない
 	}
 
-	// BeginTx に Context を渡す
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() // エラー時はロールバック
-
-	// PrepareContext に Context を渡す
+	// PrepareContext に Context を渡す (tx を使用)
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
 		VALUES ($1, $2, $3, $4, $5, $6);
@@ -75,13 +67,12 @@ func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, items []
 		// ループ内でも Context の完了を定期的にチェック
 		select {
 		case <-ctx.Done():
-			// Context が完了したら、トランザクションをロールバックして中断
-			tx.Rollback()
+			// ここではトランザクションのロールバックは行わない。呼び出し元で処理される。
 			return ctx.Err()
 		default:
 		}
 
-		// ExecContext に Context を渡す
+		// ExecContext に Context を渡す (tx を使用)
 		_, err = insertStmt.ExecContext(
 			ctx,
 			item.Time,
@@ -96,11 +87,6 @@ func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, items []
 		}
 	}
 
-	// Commit に Context を渡す (Go 1.15 以降)
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	logger.Debugf("PostgreSQL に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
 }
@@ -109,7 +95,7 @@ func (r *PostgresRepository) Close() error {
 	if r.db != nil {
 		err := r.db.Close()
 		if err != nil {
-			return exception.NewBatchError("repository", "PostgreSQL の接続を閉じるのに失敗しました", err, false, false) // ★ 修正
+			return exception.NewBatchError("repository", "PostgreSQL の接続を閉じるのに失敗しました", err, false, false)
 		}
 		logger.Debugf("PostgreSQL の接続を閉じました。")
 	}
@@ -121,4 +107,3 @@ func (r *PostgresRepository) Close() error {
 // またはインポート可能なパッケージで定義されていることを前提としています。
 // もしWeatherRepositoryが未定義であれば、別途定義が必要です。
 var _ WeatherRepository = (*PostgresRepository)(nil)
-

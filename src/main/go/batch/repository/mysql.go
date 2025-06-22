@@ -42,7 +42,8 @@ func NewMySQLRepositoryFromConfig(cfg config.DatabaseConfig) (*MySQLRepository, 
 
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをMySQLに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
-func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
+// トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
+func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error { // ★ tx を追加
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -54,14 +55,15 @@ func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, items []ent
 		return nil // 書き込むデータがない場合は何もしない
 	}
 
-	// BeginTx に Context を渡す
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() // エラー時はロールバック
+	// ★ 以下のトランザクション開始・コミット・ロールバックのロジックを削除 ★
+	// tx, err := r.db.BeginTx(ctx, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to begin transaction: %w", err)
+	// }
+	// defer tx.Rollback() // エラー時はロールバック
 
-	// PrepareContext に Context を渡す
+	// PrepareContext に Context を渡す (tx を使用)
+	// MySQL の場合は ? プレースホルダを使用
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
 		VALUES (?, ?, ?, ?, ?, ?);
@@ -76,12 +78,13 @@ func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, items []ent
 		select {
 		case <-ctx.Done():
 			// Context が完了したら、トランザクションをロールバックして中断
-			tx.Rollback()
+			// ★ ここでの tx.Rollback() も削除。呼び出し元で管理される。 ★
+			// tx.Rollback()
 			return ctx.Err()
 		default:
 		}
 
-		// ExecContext に Context を渡す
+		// ExecContext に Context を渡す (tx を使用)
 		_, err = insertStmt.ExecContext(
 			ctx,
 			item.Time,
@@ -96,10 +99,10 @@ func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, items []ent
 		}
 	}
 
-	// Commit に Context を渡す (Go 1.15 以降)
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
+	// ★ 以下のトランザクションコミットのロジックを削除 ★
+	// if err := tx.Commit(); err != nil {
+	// 	return fmt.Errorf("failed to commit transaction: %w", err)
+	// }
 
 	logger.Debugf("MySQL に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
@@ -121,4 +124,3 @@ func (r *MySQLRepository) Close() error {
 // またはインポート可能なパッケージで定義されていることを前提としています。
 // もしWeatherRepositoryが未定義であれば、別途定義が必要です。
 var _ WeatherRepository = (*MySQLRepository)(nil)
-
