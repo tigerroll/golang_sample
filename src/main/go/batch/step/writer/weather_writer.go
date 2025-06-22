@@ -1,86 +1,87 @@
+// src/main/go/batch/step/writer/weather_writer.go
 package writer
 
 import (
 	"context"
+	"database/sql" // sql パッケージをインポート
 	"fmt"
-	// "time" // ★ 不要なインポートを削除
-
-	entity "sample/src/main/go/batch/domain/entity"
-	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
-	repository "sample/src/main/go/batch/repository"
-	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
+	"sample/src/main/go/batch/domain/entity"
+	core "sample/src/main/go/batch/job/core"
+	"sample/src/main/go/batch/repository" // repository パッケージをインポート
+	"sample/src/main/go/batch/util/logger"
 )
 
+// WeatherWriter は天気データをデータベースに書き込むためのItemWriter実装です。
 type WeatherWriter struct {
-	repo repository.WeatherRepository
-	// ExecutionContext を保持するためのフィールド
+	repo repository.WeatherRepository // repository.WeatherRepository を使用
+	// ExecutionContext はWriterの状態を保持するために使用できます
 	executionContext core.ExecutionContext
 }
 
-// NewWeatherWriter が Repository を受け取るように修正 (ここでは修正なし)
-func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter {
+// NewWeatherWriter は新しいWeatherWriterのインスタンスを作成します。
+func NewWeatherWriter(repo repository.WeatherRepository) *WeatherWriter { // repository.WeatherRepository を使用
 	return &WeatherWriter{
-		repo: repo,
+		repo:             repo,
 		executionContext: core.NewExecutionContext(), // 初期化
 	}
 }
 
-// Write メソッドが Writer[any] インターフェースを満たすように修正
-// このメソッドは、JSLAdaptedStep から渡されたアイテムのチャンクを書き込みます。
-func (w *WeatherWriter) Write(ctx context.Context, items []any) error { // ★ シグネチャを []any に変更
+// Write は加工済みの天気データアイテムのチャンクをデータベースに保存します。
+// 引数を []any に変更し、トランザクションを受け取るように変更します。
+func (w *WeatherWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // ★ 修正: tx *sql.Tx を追加
+	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return ctx.Err() // Context が完了していたら即座に中断
 	default:
 	}
 
 	if len(items) == 0 {
-		logger.Debugf("WeatherWriter: 書き込むアイテムがありません。")
+		logger.Debugf("書き込むアイテムがありません。")
 		return nil
 	}
 
-	// []any から []entity.WeatherDataToStore に変換
-	dataToStoreSlice := make([]entity.WeatherDataToStore, 0, len(items))
+	// []any を []entity.WeatherDataToStore に変換
+	dataToStore := make([]entity.WeatherDataToStore, 0, len(items))
 	for i, item := range items {
-		dataToStore, ok := item.(entity.WeatherDataToStore) // ポインタではなく値型で受け取る
-		if !ok {
-			// エラーをログに記録し、スキップするか、エラーを返すか選択
-			logger.Warnf("WeatherWriter: アイテム %d の型が予期せぬものです: %T, 期待される型: entity.WeatherDataToStore。このアイテムはスキップされます。", i, item)
-			continue // このアイテムをスキップして次のアイテムへ
+		// ここで型アサーションを行う
+		if singleItem, ok := item.(*entity.WeatherDataToStore); ok {
+			dataToStore = append(dataToStore, *singleItem)
+		} else {
+			// 予期しない型の場合、エラーを返すかログに記録してスキップするか選択
+			logger.Errorf("WeatherWriter: 予期しないアイテムの型です: %T, 期待される型: *entity.WeatherDataToStore (インデックス: %d)", item, i)
+			return fmt.Errorf("WeatherWriter: 予期しないアイテムの型です: %T", item)
 		}
-		dataToStoreSlice = append(dataToStoreSlice, dataToStore)
 	}
 
-	if len(dataToStoreSlice) == 0 {
-		logger.Debugf("WeatherWriter: 有効な天気データアイテムがありませんでした。")
+	if len(dataToStore) == 0 {
+		logger.Debugf("型変換後、書き込む有効なアイテムがありません。")
 		return nil
 	}
 
-	logger.Debugf("WeatherWriter: %d 件のアイテムをリポジトリに書き込みます。", len(dataToStoreSlice))
-
-	// リポジトリの BulkInsertWeatherData メソッドを呼び出す
-	if err := w.repo.BulkInsertWeatherData(ctx, dataToStoreSlice); err != nil { // ★ BulkInsertWeatherData を呼び出すように修正
-		return fmt.Errorf("天気データのバルク保存に失敗しました: %w", err)
+	// BulkInsertWeatherData にトランザクションを渡す
+	err := w.repo.BulkInsertWeatherData(ctx, tx, dataToStore) // ★ 修正: tx を渡す
+	if err != nil {
+		return fmt.Errorf("天気データのバルク挿入に失敗しました: %w", err)
 	}
 
-	logger.Debugf("WeatherWriter: %d 件のアイテムをリポジトリに書き込み完了しました。", len(dataToStoreSlice))
+	logger.Debugf("天気データアイテムのチャンクをデータベースに保存しました。データ数: %d", len(dataToStore))
 	return nil
 }
 
-// Close は Writer インターフェースの実装です。
-// WeatherWriter は閉じるリソースがないため、何もしません。
+// Close はリソースを解放します。
 func (w *WeatherWriter) Close(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	logger.Debugf("WeatherWriter.Close が呼び出されました。")
-	return nil
+	logger.Debugf("WeatherWriterをクローズします。")
+	// WeatherWriter はリポジトリを保持しているため、リポジトリの Close を呼び出す
+	return w.repo.Close()
 }
 
-// SetExecutionContext は Writer インターフェースの実装です。
-// 渡された ExecutionContext を内部に設定します。
+// SetExecutionContext は ExecutionContext を設定します。
 func (w *WeatherWriter) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
 	select {
 	case <-ctx.Done():
@@ -92,8 +93,7 @@ func (w *WeatherWriter) SetExecutionContext(ctx context.Context, ec core.Executi
 	return nil
 }
 
-// GetExecutionContext は Writer インターフェースの実装です。
-// 現在の ExecutionContext を返します。
+// GetExecutionContext は ExecutionContext を取得します。
 func (w *WeatherWriter) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
 	select {
 	case <-ctx.Done():
@@ -104,5 +104,5 @@ func (w *WeatherWriter) GetExecutionContext(ctx context.Context) (core.Execution
 	return w.executionContext, nil
 }
 
-// WeatherWriter が Writer[any] インターフェースを満たすことを確認
+// Writer インターフェースが実装されていることを確認
 var _ Writer[any] = (*WeatherWriter)(nil)

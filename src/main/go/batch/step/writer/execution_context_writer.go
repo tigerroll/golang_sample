@@ -4,7 +4,6 @@ package writer
 import (
 	"context"
 	"database/sql" // トランザクションを受け取るため
-	"fmt"
 
 	core "sample/src/main/go/batch/job/core"
 	logger "sample/src/main/go/batch/util/logger"
@@ -48,11 +47,18 @@ func (w *ExecutionContextWriter) Write(ctx context.Context, tx *sql.Tx, items []
 	// ここでは、items をそのまま保存する。
 	// 永続化の際に serialization.MarshalExecutionContext がこれを処理する。
 	// 既存のデータがあれば追加するロジックが必要
-	currentData, ok := w.executionContext.Get(w.dataKey).([]any)
+	currentData, ok := w.executionContext.Get(w.dataKey)
 	if !ok || currentData == nil {
 		currentData = make([]any, 0, len(items))
+	} else if existingSlice, isSlice := currentData.([]any); isSlice {
+		currentData = existingSlice
+	} else {
+		// 既存のデータがスライスでない場合、警告を出し、新しい空のスライスで開始
+		logger.Warnf("ExecutionContextWriter: ExecutionContext の既存データ '%s' の型が予期せぬものです: %T。新しい空のスライスで開始します。", w.dataKey, currentData)
+		currentData = make([]any, 0, len(items))
 	}
-	currentData = append(currentData, items...)
+
+	currentData = append(currentData.([]any), items...) // 型アサーションが必要
 	w.executionContext.Put(w.dataKey, currentData)
 
 	logger.Debugf("ExecutionContextWriter: ExecutionContext にアイテム %d 件を書き込みました。キー: '%s'", len(items), w.dataKey)
