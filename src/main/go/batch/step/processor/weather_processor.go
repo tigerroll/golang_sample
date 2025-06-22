@@ -63,8 +63,8 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 		dataToStore = append(dataToStore, data)
 	}
 
-	// ここで []*entity.WeatherDataToStore を返します。
-	return dataToStore, nil
+	// ここで []*entity.WeatherDataToStore を any 型として返します。
+	return any(dataToStore), nil // ★ any に明示的にキャスト
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認

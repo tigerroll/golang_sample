@@ -24,19 +24,17 @@ func NewRedshiftRepository(db *sql.DB) *RedshiftRepository {
 }
 
 // NewRedshiftRepositoryFromConfig 関数を定義
-// この関数は factory.go では使用されていませんが、Redshift 用として存在させる場合に修正
 func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftRepository, error) {
 	connStr := cfg.ConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, exception.NewBatchError("repository", "Redshift への接続に失敗しました", err, false, false) // ★ 修正
+		return nil, exception.NewBatchError("repository", "Redshift への接続に失敗しました", err, false, false)
 	}
 
-	// Ping に Context を渡す場合は db.PingContext を使用
 	err = db.Ping()
 	if err != nil {
-		return nil, exception.NewBatchError("repository", "Redshift への Ping に失敗しました", err, false, false) // ★ 修正
+		return nil, exception.NewBatchError("repository", "Redshift への Ping に失敗しました", err, false, false)
 	}
 
 	logger.Infof("Redshift に正常に接続しました。")
@@ -45,7 +43,8 @@ func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftReposi
 
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをRedshiftに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
-func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, items []entity.WeatherDataToStore) error {
+// トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
+func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -57,13 +56,7 @@ func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, items []
 		return nil // 書き込むデータがない場合は何もしない
 	}
 
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// PrepareContext に Context を渡す
+	// PrepareContext に Context を渡す (tx を使用)
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
 		VALUES ($1, $2, $3, $4, $5, $6);
@@ -77,12 +70,12 @@ func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, items []
 		// ループ内でも Context の完了を定期的にチェック
 		select {
 		case <-ctx.Done():
-			tx.Rollback() // 中断前にロールバック
+			// ここではトランザクションのロールバックは行わない。呼び出し元で処理される。
 			return ctx.Err()
 		default:
 		}
 
-		// ExecContext に Context を渡す
+		// ExecContext に Context を渡す (tx を使用)
 		_, err = insertStmt.ExecContext(
 			ctx,
 			item.Time,
@@ -97,11 +90,6 @@ func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, items []
 		}
 	}
 
-	// Commit に Context を渡す (Go 1.15 以降)
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	logger.Debugf("Redshift に天気データアイテム %d 件を保存しました。", len(items))
 	return nil
 }
@@ -111,7 +99,7 @@ func (r *RedshiftRepository) Close() error {
 	if r.db != nil {
 		err := r.db.Close()
 		if err != nil {
-			return exception.NewBatchError("repository", "Redshift の接続を閉じるのに失敗しました", err, false, false) // ★ 修正
+			return exception.NewBatchError("repository", "Redshift の接続を閉じるのに失敗しました", err, false, false)
 		}
 		logger.Debugf("Redshift の接続を閉じました。")
 	}

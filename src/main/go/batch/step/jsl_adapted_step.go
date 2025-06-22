@@ -1,3 +1,4 @@
+// src/main/go/batch/step/jsl_adapted_step.go
 package step
 
 import (
@@ -90,6 +91,11 @@ func NewJSLAdaptedStep(
 
 // StepName はステップ名を返します。core.Step インターフェースの実装です。
 func (s *JSLAdaptedStep) StepName() string {
+	return s.name
+}
+
+// ID はステップのIDを返します。core.FlowElement インターフェースの実装です。
+func (s *JSLAdaptedStep) ID() string {
 	return s.name
 }
 
@@ -245,382 +251,9 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		// ここでは StepExecution オブジェクト自体は更新済み
 	}()
 
-	// ステップ名に応じて処理を分岐
-	if s.name == "fetchWeatherDataStep" {
-		// fetchWeatherDataStep は特殊な JobExecutionContext へのデータ転送ロジックを持つため、
-		// 汎用的なチャンク処理とは別に、そのロジックをここに展開します。
-		// TODO: fetchWeatherDataStep の JobExecutionContext へのデータ転送ロジックを、
-		// より汎用的な方法（例: JobExecutionListener や専用の JobContextUpdater）で実現することを検討。
-		// 現状は、このステップ名に特化した処理として残す。
-		stepRetryConfig := s.stepRetryConfig
-		chunkSize := s.chunkSize
-
-		// 成功したチャンクの数
-		var chunkCount int = 0
-		var totalReadCount int = 0
-		var totalWriteCount int = 0
-
-		// チャンク処理全体のリトライループ
-		for retryAttempt := 0; retryAttempt < stepRetryConfig.MaxAttempts; retryAttempt++ {
-			logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts)
-
-			// リトライ時にはチャンクをリセット
-			processedItemsChunk := make([]*entity.WeatherDataToStore, 0, chunkSize)
-			itemCountInChunk := 0
-			chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
-			eofReached := false
-
-			// トランザクションを開始
-			tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
-			if err != nil {
-				logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
-				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))
-				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-				return err
-			}
-
-			// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
-			for {
-				select {
-				case <-ctx.Done():
-					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断します: %v", s.name, ctx.Err())
-					stepExecution.MarkAsFailed(ctx.Err()) // ステップを失敗としてマーク
-					jobExecution.AddFailureException(ctx.Err()) // JobExecution にもエラーを追加
-					tx.Rollback() // トランザクションをロールバック
-					return ctx.Err() // Context エラーは即座に返す
-				default:
-				}
-
-				// 単一アイテムの読み込みと処理
-				// processSingleItem は Reader/Processor エラーまたは Context キャンセルエラーを返す
-				// 戻り値: processedItem any, eofReached bool, filtered bool, err error
-				processedItemAny, currentEOFReached, filtered, itemErr := s.processSingleItem(ctx, stepExecution, retryAttempt) // retryAttempt を渡す
-				totalReadCount++ // 読み込みカウントをインクリメント
-				stepExecution.ReadCount = totalReadCount // StepExecution に反映
-
-				if itemErr != nil {
-					// Reader または Processor でエラーが発生した場合
-					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生しました (試行 %d/%d): %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, itemErr)
-					chunkAttemptError = true // この試行はエラー
-					// アイテムレベルのリトライ/スキップは processSingleItem 内で処理されるため、ここではチャンクエラーとして扱う
-					break // インナーループを抜ける
-				}
-
-				if currentEOFReached {
-					eofReached = true
-				}
-
-				// processSingleItem が nil アイテムを返した場合 (スキップまたはフィルタリングされた場合)
-				if processedItemAny == nil {
-					if filtered {
-						stepExecution.FilterCount++
-					}
-					if !eofReached {
-						continue // 次のアイテムへ
-					}
-				}
-
-				// 処理済みアイテムをチャンクに追加
-				// processedItemAny は any 型だが、実際には []*entity.WeatherDataToStore が期待される
-				if processedItemAny != nil {
-					if concreteSlice, ok := processedItemAny.([]*entity.WeatherDataToStore); ok {
-						processedItemsChunk = append(processedItemsChunk, concreteSlice...)
-					} else {
-						// 予期しない型の場合のハンドリング
-						err := exception.NewBatchErrorf(s.name, "processor returned unexpected type for fetchWeatherDataStep: %T, expected []*entity.WeatherDataToStore", processedItemAny)
-						logger.Errorf("%v", err)
-						stepExecution.AddFailureException(err)
-						chunkAttemptError = true
-						break
-					}
-					itemCountInChunk = len(processedItemsChunk)
-				}
-
-				// チャンクが満たされたら、または EOF に達したら処理
-				if itemCountInChunk >= chunkSize || eofReached {
-					// ★ 処理済みチャンクを ExecutionContext に追加 ★
-					currentProcessedData, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
-					if !ok {
-						currentProcessedData = make([]*entity.WeatherDataToStore, 0)
-					}
-					jobExecution.ExecutionContext.Put("processed_weather_data", append(currentProcessedData, processedItemsChunk...))
-					logger.Debugf("ステップ '%s' 処理済みチャンク (%d 件) を ExecutionContext に追加しました。ExecutionContext合計: %d件",
-						s.name, len(processedItemsChunk), len(jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)))
-
-					// Writer でデータを書き込み (チャンク全体を一度に書き込む)
-					var writeErr error
-					// []*entity.WeatherDataToStore を []any に変換
-					itemsForWriter := make([]any, len(processedItemsChunk))
-					for i, item := range processedItemsChunk {
-						itemsForWriter[i] = item
-					}
-
-					// Writer のリトライ/スキップロジックをここに実装
-					for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-						writeErr = s.writer.Write(ctx, itemsForWriter) // ★ チャンク全体を渡す
-						if writeErr == nil {
-							break // 成功
-						}
-
-						// リトライ可能な例外かチェック
-						if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-							s.notifyRetryWrite(ctx, itemsForWriter, writeErr)
-							logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-							time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
-						} else {
-							s.notifyItemWriteError(ctx, itemsForWriter, writeErr)
-							if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-								var firstItem any = nil
-								if len(itemsForWriter) > 0 {
-									firstItem = itemsForWriter[0]
-								}
-								s.notifySkipWrite(ctx, firstItem, writeErr)
-								stepExecution.SkipWriteCount += len(itemsForWriter)
-								logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-								writeErr = nil // エラーをクリアして続行
-							} else {
-								logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-								stepExecution.AddFailureException(writeErr)
-								chunkAttemptError = true
-								break
-							}
-						}
-					}
-
-					if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-						logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-						stepExecution.AddFailureException(writeErr)
-						chunkAttemptError = true
-						break
-					}
-
-					totalWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
-					stepExecution.WriteCount = totalWriteCount // StepExecution に反映
-
-					if chunkAttemptError {
-						break // インナーループを抜ける
-					}
-
-					// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
-					readerEC, err := s.reader.GetExecutionContext(ctx) // err はここでシャドウイングされる
-					if err != nil {
-						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
-						chunkAttemptError = true
-						break
-					}
-					writerEC, err := s.writer.GetExecutionContext(ctx) // err はここでシャドウイングされる
-					if err != nil {
-						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
-						chunkAttemptError = true
-						break
-					}
-					stepExecution.ExecutionContext.Put("reader_context", readerEC)
-					stepExecution.ExecutionContext.Put("writer_context", writerEC)
-
-					// StepExecution を更新してチェックポイントを永続化
-					if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil { // err を再利用
-						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
-						chunkAttemptError = true // StepExecution の永続化エラーもチャンクエラー
-						break
-					}
-					stepExecution.CommitCount++ // コミットカウントをインクリメント
-
-					chunkCount++ // チャンク処理成功
-					// チャンクをリセット
-					processedItemsChunk = make([]*entity.WeatherDataToStore, 0, chunkSize)
-					itemCountInChunk = 0
-
-					// EOF に達した場合はループを抜ける
-					if eofReached {
-						logger.Debugf("ステップ '%s' Reader 終端到達。最終チャンク処理完了。", s.name)
-						break
-					}
-				}
-
-				// Reader の終端に達した場合
-				if eofReached {
-					logger.Debugf("ステップ '%s' Reader からデータの終端に達しました。", s.name)
-					break // インナーループを抜ける
-				}
-			} // インナーループ終了
-
-			// インナーループ終了後の処理
-			if chunkAttemptError {
-				tx.Rollback() // エラーが発生した場合はロールバック
-				stepExecution.RollbackCount++ // ロールバックカウントをインクリメント
-				if retryAttempt < stepRetryConfig.MaxAttempts-1 {
-					// リトライ可能回数が残っている場合
-					logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %d秒", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, stepRetryConfig.InitialInterval)
-					// TODO: Exponential Backoff や Circuit Breaker ロジックをここに実装
-					time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // シンプルな待機
-					// リトライ前に Reader/Writer の ExecutionContext をリセットする必要があるか検討
-					// 現状は Reader/Writer が内部状態を保持し、SetExecutionContext で復元されるため、
-					// ロールバックされたチャンクのデータは ExecutionContext に追加されない。
-					// Reader の currentIndex はロールバックされたチャンクの開始時点に戻るべきだが、
-					// 現在の Reader 実装では Read が進んでしまうため、SetExecutionContext で明示的に戻す必要がある。
-					// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
-					// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
-					if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
-						s.reader.SetExecutionContext(ctx, readerEC) // 前回のチェックポイントにReaderを戻す
-					} else {
-						s.reader.SetExecutionContext(ctx, core.NewExecutionContext()) // 初回またはECがない場合は初期状態に
-					}
-					s.writer.SetExecutionContext(ctx, core.NewExecutionContext()) // Writerは状態を持たないためクリア
-				} else {
-					// 最大リトライ回数に達した場合
-					logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
-					stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts)) // ステップを失敗としてマーク
-					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1]) // JobExecution にも最後のステップエラーを追加
-					return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts) // エラーを返してステップを失敗させる
-				}
-			} else {
-				// この試行がエラーなく完了した場合（Reader 終端に達したか、Context キャンセル以外）
-				// 残っているアイテムがあれば最終チャンクとして処理し、ExecutionContext に追加
-				// このブロックは、インナーループ内で itemCountInChunk >= chunkSize || eofReached の条件で既に処理されているため、
-				// ここで再度処理する必要はない。トランザクションのコミットはここで行う。
-				if err = tx.Commit(); err != nil { // err を再利用
-					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
-					stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, false, false))
-					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-					return err
-				}
-				stepExecution.CommitCount++ // コミットカウントをインクリメント
-				logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了しました。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d, 合計フィルタリング数: %d",
-					s.name, chunkCount, totalReadCount, totalWriteCount, stepExecution.FilterCount)
-				stepExecution.ReadCount = totalReadCount
-				stepExecution.WriteCount = totalWriteCount
-				stepExecution.MarkAsCompleted() // ★ 正常終了時に Step を完了としてマーク
-				return nil // 正常終了したらループを抜けて nil を返す
-			}
-		} // リトライループ終了
-		// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
-		return exception.NewBatchErrorf(s.name, "ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
-
-	} else if s.name == "saveWeatherDataStep" {
-		// saveWeatherDataStep は Reader を使用せず、JobExecutionContext からデータを取得して書き込む特殊なステップです。
-		// このロジックは汎用的なチャンク処理とは異なるため、個別に保持します。
-		logger.Infof("ステップ '%s' は書き込み専用ステップです。ExecutionContext からデータを取得し、書き込みます。", s.name)
-		dataToStore, ok := jobExecution.ExecutionContext.Get("processed_weather_data").([]*entity.WeatherDataToStore)
-		if !ok {
-			// データが ExecutionContext にない、または型が違う場合はエラー
-			err := fmt.Errorf("ステップ '%s': ExecutionContext から書き込み対象データを取得できませんでした。", s.name)
-			logger.Errorf("%v", err)
-			stepExecution.MarkAsFailed(err)
-			jobExecution.AddFailureException(err)
-			return err
-		}
-
-		if len(dataToStore) == 0 {
-			logger.Infof("ステップ '%s': ExecutionContext に書き込むデータがありません。", s.name)
-			// データがない場合も正常完了とみなす
-			stepExecution.MarkAsCompleted()
-			return nil
-		}
-
-		// Writer でデータを書き込み (トランザクション内で実行)
-		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil) // err はここでシャドウイングされる
-		if err != nil {
-			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
-			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))
-			jobExecution.AddFailureException(err)
-			return err
-		}
-
-		// chunkWriteError 変数を宣言し、初期化
-		var chunkWriteError bool = false
-		var currentWriteCount int
-		// []*entity.WeatherDataToStore を []any に変換
-		itemsForWriter := make([]any, len(dataToStore))
-		for i, item := range dataToStore {
-			itemsForWriter[i] = item
-		}
-
-		// Writer のリトライ/スキップロジックをここに実装
-		var writeErr error
-		for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-			writeErr = s.writer.Write(ctx, itemsForWriter) // ★ チャンク全体を渡す
-			if writeErr == nil {
-				break // 成功
-			}
-
-			// リトライ可能な例外かチェック
-			if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-				s.notifyRetryWrite(ctx, itemsForWriter, writeErr)
-				logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-				time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
-			} else {
-				s.notifyItemWriteError(ctx, itemsForWriter, writeErr)
-				if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-					var firstItem any = nil
-					if len(itemsForWriter) > 0 {
-						firstItem = itemsForWriter[0]
-					}
-					s.notifySkipWrite(ctx, firstItem, writeErr)
-					stepExecution.SkipWriteCount += len(itemsForWriter)
-					logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-					writeErr = nil // エラーをクリアして続行
-				} else {
-					logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-					stepExecution.AddFailureException(writeErr)
-					chunkWriteError = true
-					break
-				}
-			}
-		}
-
-		if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-			logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-			stepExecution.AddFailureException(writeErr)
-			chunkWriteError = true
-		} else {
-			currentWriteCount += len(dataToStore) // 書き込みカウントをインクリメント (成功したアイテム数)
-		}
-		stepExecution.WriteCount = currentWriteCount // StepExecution に反映
-
-		if chunkWriteError {
-			tx.Rollback() // ロールバック
-			stepExecution.RollbackCount++
-			return exception.NewBatchError(s.name, "Writer エラー", stepExecution.Failures[len(stepExecution.Failures)-1], false, false)
-		}
-		logger.Infof("ステップ '%s' Writer による書き込みが完了しました。", s.name)
-
-		// Writer の ExecutionContext を取得し、StepExecution に保存 (Writer が状態を持つ場合)
-		writerEC, err := s.writer.GetExecutionContext(ctx) // err はここでシャドウイングされる
-		if err != nil {
-			logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
-			stepExecution.AddFailureException(err)
-			tx.Rollback() // エラーが発生した場合はロールバック
-			return exception.NewBatchError(s.name, "Writer の ExecutionContext 取得エラー", err, false, false)
-		}
-		stepExecution.ExecutionContext.Put("writer_context", writerEC)
-
-		// StepExecution を更新してチェックポイントを永続化
-		if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil { // err を再利用
-			logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
-			stepExecution.AddFailureException(exception.NewBatchError(s.name, "StepExecution 更新エラー", err, false, false))
-			tx.Rollback()
-			return exception.NewBatchError(s.name, "StepExecution の更新 (チェックポイント) エラー", err, false, false)
-		}
-		stepExecution.CommitCount++ // コミットカウントをインクリメント
-
-		// トランザクションをコミット
-		if err = tx.Commit(); err != nil { // err を再利用
-			logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
-			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, false, false))
-			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-			return err
-		}
-
-		// 成功したら Step を完了としてマーク
-		stepExecution.MarkAsCompleted()
-
-		return nil // 成功したら nil を返してメソッドを終了
-	} else {
-		// "processDummyDataStep" およびその他の汎用チャンクステップは、
-		// executeDefaultChunkProcessing メソッドで処理されます。
-		logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されます。", s.name)
-		return s.executeDefaultChunkProcessing(ctx, jobExecution, stepExecution)
-	}
+	// ステップ名による分岐を完全に削除し、汎用チャンク処理ロジックのみを呼び出す
+	logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されます。", s.name)
+	return s.executeDefaultChunkProcessing(ctx, jobExecution, stepExecution)
 }
 
 // executeDefaultChunkProcessing は一般的なチャンク指向ステップの実行ロジックをカプセル化します。
@@ -718,7 +351,8 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					// Writer でデータを書き込み (チャンク全体を一度に書き込む)
 					// Writer のリトライ/スキップロジックをここに実装
 					for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-						writeErr = s.writer.Write(ctx, processedItemsChunk)
+						// Writer.Write にトランザクションを渡すように変更
+						writeErr = s.writer.Write(ctx, tx, processedItemsChunk) // ★ tx を渡す
 						if writeErr == nil {
 							break // 成功
 						}
@@ -886,7 +520,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 			time.Sleep(time.Duration(s.stepRetryConfig.InitialInterval) * time.Second) // リトライ間隔
 		} else {
 			// リトライ不可または最大リトライ回数に達した場合
-			s.notifyItemReadError(ctx, readErr)
+			s.notifyItemReadError(ctx, readErr) // err を渡す
 			if s.isSkippableException(readErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipReadCount < s.itemSkipConfig.SkipLimit {
 				s.notifySkipRead(ctx, readErr)
 				stepExecution.SkipReadCount++

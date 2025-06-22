@@ -1,3 +1,4 @@
+// src/main/go/batch/step/processor/dummy_processor.go
 package processor
 
 import (
@@ -38,7 +39,7 @@ func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { /
 	}
 
 	// JSLAdaptedStep が []*entity.WeatherDataToStore を期待するため、スライスで返す
-	return []*entity.WeatherDataToStore{dummyData}, nil
+	return any([]*entity.WeatherDataToStore{dummyData}), nil // ★ any に明示的にキャスト
 }
 
 // DummyProcessor が Processor[any, any] インターフェースを満たすことを確認

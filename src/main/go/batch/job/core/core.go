@@ -1,13 +1,20 @@
+// src/main/go/batch/job/core/core.go
 package core
 
 import (
 	"context"
 	"fmt"
 	"time"
+	"reflect" // reflect パッケージをインポート
 	"github.com/google/uuid" // ID生成のためにuuidパッケージをインポート
 	"sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 )
+
+// FlowElement はフロー内の要素（StepまたはDecision）の共通インターフェースです。
+type FlowElement interface {
+    ID() string // 要素のIDを返すメソッド
+}
 
 // Job は実行可能なバッチジョブのインターフェースです。
 // Run メソッドが JobExecution を受け取るように変更
@@ -30,6 +37,7 @@ type Step interface {
 	Execute(ctx context.Context, jobExecution *JobExecution, stepExecution *StepExecution) error
 	// ステップ名を取得するために追加
 	StepName() string
+	ID() string // FlowElement インターフェースの実装
 	// TODO: ステップが持つリスナーを取得するメソッドを追加する必要がある (Job が一元管理する場合は不要)
 	// GetListeners() []StepExecutionListener
 }
@@ -60,6 +68,34 @@ type Decision interface {
 	// Decide メソッドは、ExecutionContext やその他のパラメータに基づいて次の遷移を決定します。
 	Decide(ctx context.Context, jobExecution *JobExecution, stepExecution *StepExecution) (ExitStatus, error)
 	DecisionName() string
+	ID() string // FlowElement インターフェースの実装
+}
+
+// SimpleDecision は Decision インターフェースのシンプルな実装です。
+// 常に COMPLETED を返すダミーの実装として使用できます。
+type SimpleDecision struct {
+	id string
+}
+
+// NewSimpleDecision は新しい SimpleDecision のインスタンスを作成します。
+func NewSimpleDecision(id string) *SimpleDecision {
+	return &SimpleDecision{id: id}
+}
+
+// Decide は常に COMPLETED を返します。
+func (d *SimpleDecision) Decide(ctx context.Context, jobExecution *JobExecution, stepExecution *StepExecution) (ExitStatus, error) {
+	logger.Debugf("SimpleDecision '%s' が呼び出されました。常に COMPLETED を返します。", d.id)
+	return ExitStatusCompleted, nil
+}
+
+// DecisionName は Decision の名前を返します。
+func (d *SimpleDecision) DecisionName() string {
+	return d.id
+}
+
+// ID は Decision のIDを返します。
+func (d *SimpleDecision) ID() string {
+	return d.id
 }
 
 
@@ -256,23 +292,8 @@ func (jp JobParameters) GetFloat64(key string) (float64, bool) {
 // Equal は2つの JobParameters が等しいかどうかを比較します。
 // JSR352 の JobParameters の同一性判定に相当します。
 // マップのキーと値が全て一致する場合に true を返します。
-// 値の比較は型に応じて適切に行う必要があります（ここでは簡易的な比較）。
 func (jp JobParameters) Equal(other JobParameters) bool {
-	if len(jp.Params) != len(other.Params) {
-		return false
-	}
-	for key, val1 := range jp.Params {
-		val2, ok := other.Params[key]
-		if !ok {
-			return false // キーが存在しない
-		}
-		// 値の比較 (簡易的な比較)
-		if val1 != val2 {
-			// TODO: より厳密な値の比較（型に応じた比較）を実装
-			return false
-		}
-	}
-	return true
+	return reflect.DeepEqual(jp.Params, other.Params) // ★ reflect.DeepEqual を使用
 }
 
 
@@ -512,7 +533,7 @@ type FlowDefinition struct {
 	// map[string]interface{} とすることで、Step や Decision など異なる型の要素を保持できます。
 	// ただし、型安全性のために map[string]FlowElement のようなインターフェースを定義することも検討できます。
 	// ここではシンプルに interface{} とします。
-	Elements map[string]interface{} // map[要素名]要素オブジェクト (Step, Decisionなど)
+	Elements map[string]FlowElement // map[要素名]FlowElement に変更
 
 	// TransitionRules はフロー内の全ての遷移ルールのリストです。
 	// 各遷移ルールは、遷移元要素の名前と、その要素の ExitStatus に基づく遷移先を指定します。
@@ -535,13 +556,13 @@ type TransitionRule struct {
 func NewFlowDefinition(startElement string) *FlowDefinition {
 	return &FlowDefinition{
 		StartElement:    startElement,
-		Elements:        make(map[string]interface{}),
+		Elements:        make(map[string]FlowElement), // map[string]FlowElement に変更
 		TransitionRules: make([]TransitionRule, 0),
 	}
 }
 
 // AddElement はフローにステップまたは Decision を追加します。
-func (fd *FlowDefinition) AddElement(name string, element interface{}) error {
+func (fd *FlowDefinition) AddElement(name string, element FlowElement) error { // element の型を FlowElement に変更
 	module := "core" // このモジュールの名前を定義
 
 	// TODO: element が Step または Decision インターフェースを満たすかチェックする
@@ -578,22 +599,41 @@ func (fd *FlowDefinition) AddTransitionRule(from string, on string, to string, e
 // 解決ロジックが必要になりますが、ここではシンプルに最初に見つかった一致ルールを返します。
 // 一致するルールが見つからない場合は nil を返します。
 func (fd *FlowDefinition) FindTransition(from string, exitStatus ExitStatus) *Transition {
-	// JSR352では、on="COMPLETED" > on="FAILED" > on="*" の順で評価されるのが一般的です。
+	// JSR352では、on="COMPLETED" > on="FAILED" > on="STOPPED" > on="*" の順で評価されるのが一般的です。
 	// ここでは、まず具体的な ExitStatus に一致するルールを探し、次にワイルドカードを探します。
+	var completedMatch *Transition
+	var failedMatch *Transition
+	var stoppedMatch *Transition
 	var wildcardMatch *Transition
 
 	for _, rule := range fd.TransitionRules {
 		if rule.From == from {
-			if rule.Transition.On == string(exitStatus) {
-				logger.Debugf("遷移ルールが見つかりました: From='%s', On='%s' (Exact Match)", from, rule.Transition.On)
-				return &rule.Transition // 厳密な一致を優先
-			}
-			if rule.Transition.On == "*" {
-				wildcardMatch = &rule.Transition // ワイルドカードの一致を保持
+			switch rule.Transition.On {
+			case string(ExitStatusCompleted):
+				completedMatch = &rule.Transition
+			case string(ExitStatusFailed):
+				failedMatch = &rule.Transition
+			case string(ExitStatusStopped):
+				stoppedMatch = &rule.Transition
+			case "*":
+				wildcardMatch = &rule.Transition
 			}
 		}
 	}
 
+	// 優先順位: COMPLETED (exact match) -> FAILED -> STOPPED -> WILDCARD
+	if exitStatus == ExitStatusCompleted && completedMatch != nil {
+		logger.Debugf("遷移ルールが見つかりました: From='%s', On='COMPLETED' (Exact Match)", from)
+		return completedMatch
+	}
+	if exitStatus == ExitStatusFailed && failedMatch != nil {
+		logger.Debugf("遷移ルールが見つかりました: From='%s', On='FAILED' (Specific Match)", from)
+		return failedMatch
+	}
+	if exitStatus == ExitStatusStopped && stoppedMatch != nil {
+		logger.Debugf("遷移ルールが見つかりました: From='%s', On='STOPPED' (Specific Match)", from)
+		return stoppedMatch
+	}
 	if wildcardMatch != nil {
 		logger.Debugf("遷移ルールが見つかりました: From='%s', On='*' (Wildcard Match)", from)
 		return wildcardMatch // ワイルドカードの一致を返す
@@ -604,7 +644,7 @@ func (fd *FlowDefinition) FindTransition(from string, exitStatus ExitStatus) *Tr
 }
 
 // GetElement は指定された名前のフロー要素を取得します。
-func (fd *FlowDefinition) GetElement(name string) (interface{}, bool) {
+func (fd *FlowDefinition) GetElement(name string) (FlowElement, bool) { // 戻り値の型を FlowElement に変更
 	element, ok := fd.Elements[name]
 	if ok {
 		logger.Debugf("フロー要素 '%s' を取得しました。", name) // ログを追加

@@ -45,6 +45,11 @@ func (s *TaskletStep) StepName() string {
 	return s.name
 }
 
+// ID はステップのIDを返します。core.FlowElement インターフェースの実装です。
+func (s *TaskletStep) ID() string {
+	return s.name
+}
+
 // notifyBeforeStep は登録されている StepExecutionListener の BeforeStep メソッドを呼び出します。
 func (s *TaskletStep) notifyBeforeStep(ctx context.Context, stepExecution *core.StepExecution) {
 	for _, l := range s.stepListeners {
@@ -134,4 +139,3 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	logger.Infof("Taskletステップ '%s' が正常に完了しました。ExitStatus: %s", s.name, exitStatus)
 	return nil
 }
-
