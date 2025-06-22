@@ -78,11 +78,16 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	// StepExecution の ExecutionContext から Tasklet の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("Taskletステップ '%s': ExecutionContext から Tasklet の状態を復元します。", s.name)
-		if taskletEC, ok := stepExecution.ExecutionContext.Get("tasklet_context"); ok { // ★ 修正: 2つの戻り値を受け取る
-			if err := s.tasklet.SetExecutionContext(ctx, taskletEC.(core.ExecutionContext)); err != nil { // ★ 修正: 型アサーション
-				logger.Errorf("Taskletステップ '%s': Tasklet の ExecutionContext 復元に失敗しました: %v", s.name, err)
-				stepExecution.AddFailureException(err)
-				return exception.NewBatchError(s.name, "Tasklet の ExecutionContext 復元エラー", err, false, false)
+		// taskletECVal は interface{} 型、ok は bool 型
+		if taskletECVal, ok := stepExecution.ExecutionContext.Get("tasklet_context"); ok { // ★ 修正: 2つの戻り値を受け取る
+			if taskletEC, isEC := taskletECVal.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
+				if err := s.tasklet.SetExecutionContext(ctx, taskletEC); err != nil {
+					logger.Errorf("Taskletステップ '%s': Tasklet の ExecutionContext 復元に失敗しました: %v", s.name, err)
+					stepExecution.AddFailureException(err)
+					return exception.NewBatchError(s.name, "Tasklet の ExecutionContext 復元エラー", err, false, false)
+				}
+			} else {
+				logger.Warnf("Taskletステップ '%s': Tasklet の ExecutionContext が予期しない型です: %T", s.name, taskletECVal)
 			}
 		}
 	}
