@@ -5,14 +5,14 @@ import (
 	"context"
 	"encoding/json" // json.UnmarshalTypeError のためにインポート
 	"errors"
-	"fmt"
+	// "fmt" // ★ 修正: fmt は使用されていないため削除
 	"io" // io パッケージをインポート
 	"net" // net.OpError のためにインポート
 	"reflect"
 	"time"
 
 	"sample/src/main/go/batch/config" // config パッケージをインポート
-	"sample/src/main/go/batch/domain/entity" // entity パッケージをインポート
+	// "sample/src/main/go/batch/domain/entity" // ★ 修正: entity は使用されていないため削除
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
 	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
@@ -212,15 +212,15 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	// StepExecution の ExecutionContext から Reader/Writer の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元します。", s.name)
-		if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
-			if err := s.reader.SetExecutionContext(ctx, readerEC); err != nil {
+		if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context"); ok { // ★ 修正: 2つの戻り値を受け取る
+			if err := s.reader.SetExecutionContext(ctx, readerEC.(core.ExecutionContext)); err != nil { // ★ 修正: 型アサーション
 				logger.Errorf("ステップ '%s': Reader の ExecutionContext 復元に失敗しました: %v", s.name, err)
 				stepExecution.AddFailureException(err)
 				return exception.NewBatchError(s.name, "Reader の ExecutionContext 復元エラー", err, false, false)
 			}
 		}
-		if writerEC, ok := stepExecution.ExecutionContext.Get("writer_context").(core.ExecutionContext); ok {
-			if err := s.writer.SetExecutionContext(ctx, writerEC); err != nil {
+		if writerEC, ok := stepExecution.ExecutionContext.Get("writer_context"); ok { // ★ 修正: 2つの戻り値を受け取る
+			if err := s.writer.SetExecutionContext(ctx, writerEC.(core.ExecutionContext)); err != nil { // ★ 修正: 型アサーション
 				logger.Errorf("ステップ '%s': Writer の ExecutionContext 復元に失敗しました: %v", s.name, err)
 				stepExecution.AddFailureException(err)
 				return exception.NewBatchError(s.name, "Writer の ExecutionContext 復元エラー", err, false, false)
@@ -402,20 +402,20 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				}
 
 				// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
-				readerEC, err := s.reader.GetExecutionContext(ctx)
-				if err != nil {
-					logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
+				readerECVal, readerECOk := s.reader.GetExecutionContext(ctx) // ★ 修正: 2つの戻り値を受け取る
+				if !readerECOk { // エラーチェック
+					logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, readerECVal) // readerECVal はエラーオブジェクト
 					chunkAttemptError = true
 					break
 				}
-				writerEC, err := s.writer.GetExecutionContext(ctx)
-				if err != nil {
-					logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
+				writerECVal, writerECOk := s.writer.GetExecutionContext(ctx) // ★ 修正: 2つの戻り値を受け取る
+				if !writerECOk { // エラーチェック
+					logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, writerECVal) // writerECVal はエラーオブジェクト
 					chunkAttemptError = true
 					break
 				}
-				stepExecution.ExecutionContext.Put("reader_context", readerEC)
-				stepExecution.ExecutionContext.Put("writer_context", writerEC)
+				stepExecution.ExecutionContext.Put("reader_context", readerECVal)
+				stepExecution.ExecutionContext.Put("writer_context", writerECVal)
 
 				// StepExecution を更新してチェックポイントを永続化
 				if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
@@ -460,8 +460,8 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				// 現在の Reader 実装では Read が進んでしまうため、SetExecutionContext で明示的に戻す必要がある。
 				// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
 				// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
-				if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context").(core.ExecutionContext); ok {
-					s.reader.SetExecutionContext(ctx, readerEC) // 前回のチェックポイントにReaderを戻す
+				if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context"); ok { // ★ 修正: 2つの戻り値を受け取る
+					s.reader.SetExecutionContext(ctx, readerEC.(core.ExecutionContext)) // ★ 修正: 型アサーション
 				} else {
 					s.reader.SetExecutionContext(ctx, core.NewExecutionContext()) // 初回またはECがない場合は初期状態に
 				}

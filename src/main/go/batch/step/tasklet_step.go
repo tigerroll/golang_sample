@@ -78,8 +78,8 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	// StepExecution の ExecutionContext から Tasklet の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("Taskletステップ '%s': ExecutionContext から Tasklet の状態を復元します。", s.name)
-		if taskletEC, ok := stepExecution.ExecutionContext.Get("tasklet_context").(core.ExecutionContext); ok {
-			if err := s.tasklet.SetExecutionContext(ctx, taskletEC); err != nil {
+		if taskletEC, ok := stepExecution.ExecutionContext.Get("tasklet_context"); ok { // ★ 修正: 2つの戻り値を受け取る
+			if err := s.tasklet.SetExecutionContext(ctx, taskletEC.(core.ExecutionContext)); err != nil { // ★ 修正: 型アサーション
 				logger.Errorf("Taskletステップ '%s': Tasklet の ExecutionContext 復元に失敗しました: %v", s.name, err)
 				stepExecution.AddFailureException(err)
 				return exception.NewBatchError(s.name, "Tasklet の ExecutionContext 復元エラー", err, false, false)
