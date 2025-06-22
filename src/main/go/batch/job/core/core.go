@@ -393,6 +393,14 @@ func (je *JobExecution) MarkAsFailed(err error) {
 // AddFailureException は JobExecution にエラー情報を追加します。
 func (je *JobExecution) AddFailureException(err error) {
 	if err != nil {
+		// Check for duplicates based on error message
+		errMsg := err.Error()
+		for _, existingErr := range je.Failures {
+			if existingErr.Error() == errMsg {
+				logger.Debugf("JobExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", je.ID, errMsg)
+				return // Duplicate found, do not add
+			}
+		}
 		je.Failures = append(je.Failures, err)
 		je.LastUpdated = time.Now()
 	}
@@ -475,6 +483,14 @@ func (se *StepExecution) MarkAsFailed(err error) {
 // AddFailureException は StepExecution にエラー情報を追加します。
 func (se *StepExecution) AddFailureException(err error) {
 	if err != nil {
+		// Check for duplicates based on error message
+		errMsg := err.Error()
+		for _, existingErr := range se.Failures {
+			if existingErr.Error() == errMsg {
+				logger.Debugf("StepExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", se.ID, errMsg)
+				return // Duplicate found, do not add
+			}
+		}
 		se.Failures = append(se.Failures, err)
 		se.LastUpdated = time.Now() // 追加
 	}
@@ -492,7 +508,7 @@ func (se *StepExecution) AddFailureException(err error) {
 // 現状は Job.Run 内で StepExecution を作成し、JobRepository に保存/更新するが、
 // Step の Execute メソッド内で自身（StepExecution）を更新し、JobRepository を使用する設計も考えられる。
 // シンプル化のため、ここでは Job.Run が StepExecution のライフサイクルと永続化を管理し、
-// Step.Execute は純粋にビジネスロジック（Reader/Processor/Writer）の実行とエラー返却に集中する設計とします。
+// Step の Execute は純粋にビジネスロジック（Reader/Processor/Writer）の実行とエラー返却に集中する設計とします。
 // そのため、この ExecuteStep ヘルパー関数は今回のステップでは不要になります。
 // Step.Execute メソッド内で直接 StepExecution の状態を更新し、Job.Run が永続化を管理します。
 
