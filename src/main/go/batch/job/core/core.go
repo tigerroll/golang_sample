@@ -349,6 +349,7 @@ func NewJobExecution(jobInstanceID string, jobName string, params JobParameters)
 // MarkAsStarted は JobExecution の状態を実行中に更新します。
 func (je *JobExecution) MarkAsStarted() {
 	je.Status = JobStatusStarted
+	//se.StartTime = NewJobExecution で設定済み
 	je.LastUpdated = time.Now()
 }
 
@@ -430,7 +431,7 @@ func NewStepExecution(stepName string, jobExecution *JobExecution) *StepExecutio
 // MarkAsStarted は StepExecution の状態を実行中に更新します。
 func (se *StepExecution) MarkAsStarted() {
 	se.Status = JobStatusStarted
-	//se.StartTime = time.Now() // StartTime は NewStepExecution で設定済み
+	//se.StartTime = NewStepExecution で設定済み
 	se.LastUpdated = time.Now() // 追加
 }
 

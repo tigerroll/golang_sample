@@ -24,7 +24,7 @@ batch:
     retryable_exceptions: ["io.EOF", "net.OpError"] # リトライ可能な例外のフルパス文字列 (例: "io.EOF", "net.OpError")
   item_skip: # アイテムレベルのスキップ設定
     skip_limit: 5 # スキップ可能なアイテムの最大数
-    skippable_exceptions: ["json.UnmarshalTypeError", "fmt.Errorf"] # スキップ可能な例外のフルパス文字列
+    skippable_exceptions: ["json.UnmarshalTypeError"] # スキップ可能な例外のフルパス文字列
   chunk_size: 50 # ★ 追加
 
 system:
