@@ -53,7 +53,7 @@ func NewWeatherRepository(ctx context.Context, cfg config.Config) (WeatherReposi
 			return nil, exception.NewBatchError(module, "MySQL への接続確認に失敗しました", err, false, false) // ★ 修正
 		}
 		logger.Infof("MySQL 接続に成功しました。")
-		return NewMySQLRepository(db), nil
+		return NewMySQLRepository(db), nil // ★ 修正: NewMySQLRepository(db) は WeatherRepository を返すため、そのまま使用
 	case "postgres":
 		db, err := sql.Open("postgres", cfg.Database.ConnectionString())
 		if err != nil {

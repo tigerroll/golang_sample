@@ -153,13 +153,10 @@ func (ec ExecutionContext) Put(key string, value interface{}) {
 	ec[key] = value
 }
 
-// Get は指定されたキーの値を取得します。値が存在しない場合は nil を返します。
-func (ec ExecutionContext) Get(key string) interface{} {
+// Get は指定されたキーの値を取得します。値が存在しない場合は nil と false を返します。
+func (ec ExecutionContext) Get(key string) (interface{}, bool) { // ★ 修正: 戻り値に bool を追加
 	val, ok := ec[key]
-	if !ok {
-		return nil // キーが存在しない場合は nil を返す
-	}
-	return val
+	return val, ok
 }
 
 // GetString は指定されたキーの値を文字列として取得します。
