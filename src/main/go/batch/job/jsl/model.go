@@ -16,20 +16,23 @@ type Flow struct {
 }
 
 // Step represents a single processing unit within a job.
+// JSR352では、ステップはチャンク指向またはTasklet指向のいずれかです。
+// 両方を同時に持つことはできません。
 type Step struct {
 	ID          string       `yaml:"id"`
 	Description string       `yaml:"description,omitempty"`
-	Reader      ComponentRef `yaml:"reader"`
-	Processor   ComponentRef `yaml:"processor,omitempty"`
-	Writer      ComponentRef `yaml:"writer"`
-	Chunk       *Chunk       `yaml:"chunk,omitempty"` // Optional chunk configuration
+	Reader      ComponentRef `yaml:"reader,omitempty"`    // チャンク指向の場合
+	Processor   ComponentRef `yaml:"processor,omitempty"` // チャンク指向の場合
+	Writer      ComponentRef `yaml:"writer,omitempty"`    // チャンク指向の場合
+	Chunk       *Chunk       `yaml:"chunk,omitempty"`     // チャンク指向の場合のチャンク設定
+	Tasklet     ComponentRef `yaml:"tasklet,omitempty"`   // Tasklet指向の場合
 	Transitions []Transition `yaml:"transitions,omitempty"`
 	// Other step-level properties like listeners, properties, etc. can be added here.
 }
 
-// ComponentRef refers to a registered component (reader, processor, writer).
+// ComponentRef refers to a registered component (reader, processor, writer, tasklet).
 type ComponentRef struct {
-	Ref string `yaml:"ref"` // The name/ID of the component (e.g., "weatherReader", "weatherProcessor")
+	Ref string `yaml:"ref"` // The name/ID of the component (e.g., "weatherReader", "myTasklet")
 }
 
 // Chunk defines chunk-oriented processing properties for a step.
