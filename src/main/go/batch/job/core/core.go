@@ -358,7 +358,6 @@ func NewJobExecution(jobInstanceID string, jobName string, params JobParameters)
 		CreateTime:     now,
 		LastUpdated:    now,
 		Failures:       make([]error, 0),
-		StepExecutions: make([]*StepExecution, 0),
 		ExecutionContext: NewExecutionContext(), // ここで初期化
 		CurrentStepName: "", // 初期状態では空
 	}
@@ -392,18 +391,30 @@ func (je *JobExecution) MarkAsFailed(err error) {
 
 // AddFailureException は JobExecution にエラー情報を追加します。
 func (je *JobExecution) AddFailureException(err error) {
-	if err != nil {
-		// Check for duplicates based on error message
-		errMsg := err.Error()
-		for _, existingErr := range je.Failures {
-			if existingErr.Error() == errMsg {
-				logger.Debugf("JobExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", je.ID, errMsg)
-				return // Duplicate found, do not add
-			}
-		}
-		je.Failures = append(je.Failures, err)
-		je.LastUpdated = time.Now()
+	if err == nil {
+		return
 	}
+
+	newBatchErr, isNewBatchErr := err.(*exception.BatchError)
+
+	for _, existingErr := range je.Failures {
+		existingBatchErr, isExistingBatchErr := existingErr.(*exception.BatchError)
+
+		if isNewBatchErr && isExistingBatchErr {
+			// 両方が BatchError の場合、Module と Message で重複をチェック
+			if newBatchErr.Module == existingBatchErr.Module && newBatchErr.Message == existingBatchErr.Message {
+				logger.Debugf("JobExecution (ID: %s) に重複する BatchError (Module: %s, Message: %s) の追加をスキップしました。", je.ID, newBatchErr.Module, newBatchErr.Message)
+				return // 重複する BatchError が見つかった場合、追加しない
+			}
+		} else if existingErr.Error() == err.Error() {
+			// BatchError でない場合、または型が一致しない場合は、エラー文字列で重複をチェック
+			logger.Debugf("JobExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", je.ID, err.Error())
+			return // 重複するエラー文字列が見つかった場合、追加しない
+		}
+	}
+
+	je.Failures = append(je.Failures, err)
+	je.LastUpdated = time.Now()
 }
 
 // StepExecution はステップの単一の実行インスタンスを表す構造体です。
@@ -482,18 +493,30 @@ func (se *StepExecution) MarkAsFailed(err error) {
 
 // AddFailureException は StepExecution にエラー情報を追加します。
 func (se *StepExecution) AddFailureException(err error) {
-	if err != nil {
-		// Check for duplicates based on error message
-		errMsg := err.Error()
-		for _, existingErr := range se.Failures {
-			if existingErr.Error() == errMsg {
-				logger.Debugf("StepExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", se.ID, errMsg)
-				return // Duplicate found, do not add
-			}
-		}
-		se.Failures = append(se.Failures, err)
-		se.LastUpdated = time.Now() // 追加
+	if err == nil {
+		return
 	}
+
+	newBatchErr, isNewBatchErr := err.(*exception.BatchError)
+
+	for _, existingErr := range se.Failures {
+		existingBatchErr, isExistingBatchErr := existingErr.(*exception.BatchError)
+
+		if isNewBatchErr && isExistingBatchErr {
+			// 両方が BatchError の場合、Module と Message で重複をチェック
+			if newBatchErr.Module == existingBatchErr.Module && newBatchErr.Message == existingBatchErr.Message {
+				logger.Debugf("StepExecution (ID: %s) に重複する BatchError (Module: %s, Message: %s) の追加をスキップしました。", se.ID, newBatchErr.Module, newBatchErr.Message)
+				return // 重複する BatchError が見つかった場合、追加しない
+			}
+		} else if existingErr.Error() == err.Error() {
+			// BatchError でない場合、または型が一致しない場合は、エラー文字列で重複をチェック
+			logger.Debugf("StepExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", se.ID, err.Error())
+			return // 重複するエラー文字列が見つかった場合、追加しない
+		}
+	}
+
+	se.Failures = append(se.Failures, err)
+	se.LastUpdated = time.Now() // 追加
 }
 
 // --- Step 実行の共通ロジックのためのヘルパー関数や構造体 ---
