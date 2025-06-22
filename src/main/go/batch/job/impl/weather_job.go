@@ -7,7 +7,7 @@ import (
 
 	config "sample/src/main/go/batch/config"
 	core "sample/src/main/go/batch/job/core"
-	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート (JSL Decision の一時的な処理のため)
+	// jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート (JSL Decision の一時的な処理のため) - ★ 修正: 不要になったためコメントアウトまたは削除
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
@@ -102,8 +102,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 		return err
 	}
 
-	// フロー定義に基づいてステップを実行するロジック
-	// リスタート時には jobExecution.CurrentStepName から開始
+	// フローの実行
 	currentElementName := j.flow.StartElement // フローの開始要素名を取得
 
 	// リスタートの場合、前回の停止ステップから開始
@@ -298,15 +297,6 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) e
 					decisionName, decisionExecution.ID, elementExitStatus)
 			}
 
-		case jsl.Decision: // JSL Decision が直接格納されている場合 (一時的な措置)
-			// JSL の Decision は core.Decision インターフェースを実装していないため、
-			// ここで直接処理することはできません。
-			// jsl.ConvertJSLToCoreFlow で core.Decision の具体的な実装に変換されるべきです。
-			// 現状は、JSL の Decision が直接 Elements に入っている場合、エラーとするか、
-			// 暫定的に COMPLETED として次の遷移に進むようにします。
-			logger.Warnf("JSL Decision '%s' が直接フローに格納されています。適切な core.Decision への変換が必要です。暫定的に COMPLETED とします。", element.ID)
-			elementExitStatus = core.ExitStatusCompleted // 仮の処理
-			elementErr = nil
 		default:
 			// 未知の要素タイプの場合
 			err := fmt.Errorf("フロー定義に未知の要素タイプ '%T' が含まれています (要素名: '%s')", currentElement, currentElementName)
