@@ -2,10 +2,9 @@ package listener
 
 import (
 	"context"
-	"fmt"
 
 	"sample/src/main/go/batch/config"
-	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
+	core "sample/src/main/go/batch/job/core"
 	"sample/src/main/go/batch/util/logger"
 )
 
@@ -34,11 +33,11 @@ func (l *LoggingJobListener) AfterJob(ctx context.Context, jobExecution *core.Jo
 	exitStatus := jobExecution.ExitStatus
 	duration := jobExecution.EndTime.Sub(jobExecution.StartTime)
 
-	if status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed に変更
+	if status == core.BatchStatusFailed {
 		logger.Errorf("ジョブ実行終了 (失敗): JobName='%s', JobExecutionID='%s', Status='%s', ExitStatus='%s', Duration='%.2f秒', Failures='%+v'",
 			jobExecution.JobName, jobExecution.ID, status, exitStatus, duration.Seconds(), jobExecution.Failures)
 	} else {
-		logger.Infof("ジョブ実行終了: JobName='%s', JobExecutionID='%s', Status='%s', ExitStatus='%s', Duration='%.2f秒'", // ★ 修正: ログメッセージの「最終状態」を「最終ステータス」に統一
+		logger.Infof("ジョブ実行終了: JobName='%s', JobExecutionID='%s', Status='%s', ExitStatus='%s', Duration='%.2f秒'",
 			jobExecution.JobName, jobExecution.ID, status, exitStatus, duration.Seconds())
 	}
 
