@@ -1,26 +1,23 @@
-// src/main/go/batch/step/jsl_adapted_step.go
 package step
 
 import (
 	"context"
-	"encoding/json" // json.UnmarshalTypeError のためにインポート
+	"encoding/json"
 	"errors"
-	// "fmt" // fmt は使用されていないため削除
-	"io" // io パッケージをインポート
-	"net" // net.OpError のためにインポート
+	"io"
+	"net"
 	"reflect"
 	"time"
 
-	"sample/src/main/go/batch/config" // config パッケージをインポート
-	// "sample/src/main/go/batch/domain/entity" // entity は使用されていないため削除
-	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
-	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
-	stepProcessor "sample/src/main/go/batch/step/processor" // stepProcessor パッケージをインポート
-	stepReader "sample/src/main/go/batch/step/reader" // stepReader パッケージをインポート
-	stepWriter "sample/src/main/go/batch/step/writer" // stepWriter パッケージをインポート
-	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
-	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
+	"sample/src/main/go/batch/config"
+	core "sample/src/main/go/batch/job/core"
+	repository "sample/src/main/go/batch/repository"
+	stepListener "sample/src/main/go/batch/step/listener"
+	stepProcessor "sample/src/main/go/batch/step/processor"
+	stepReader "sample/src/main/go/batch/step/reader"
+	stepWriter "sample/src/main/go/batch/step/writer"
+	exception "sample/src/main/go/batch/util/exception"
+	logger "sample/src/main/go/batch/util/logger"
 )
 
 // JSLAdaptedStep は ItemReader, ItemProcessor, ItemWriter を使用するステップの実装です。
@@ -204,7 +201,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 	// StepExecution の開始時刻を設定し、状態をマーク
 	stepExecution.StartTime = time.Now()
-	stepExecution.MarkAsStarted() // Status = Started
+	stepExecution.MarkAsStarted()
 
 	// ステップ実行前処理の通知
 	s.notifyBeforeStep(ctx, stepExecution)
@@ -212,9 +209,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	// StepExecution の ExecutionContext から Reader/Writer の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元します。", s.name)
-		// readerEC は interface{} 型、ok は bool 型
 		if readerECVal, ok := stepExecution.ExecutionContext.Get("reader_context"); ok {
-			if readerEC, isEC := readerECVal.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
+			if readerEC, isEC := readerECVal.(core.ExecutionContext); isEC {
 				if err := s.reader.SetExecutionContext(ctx, readerEC); err != nil {
 					logger.Errorf("ステップ '%s': Reader の ExecutionContext 復元に失敗しました: %v", s.name, err)
 					stepExecution.AddFailureException(err)
@@ -224,9 +220,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 				logger.Warnf("ステップ '%s': Reader の ExecutionContext が予期しない型です: %T", s.name, readerECVal)
 			}
 		}
-		// writerEC は interface{} 型、ok は bool 型
 		if writerECVal, ok := stepExecution.ExecutionContext.Get("writer_context"); ok {
-			if writerEC, isEC := writerECVal.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
+			if writerEC, isEC := writerECVal.(core.ExecutionContext); isEC {
 				if err := s.writer.SetExecutionContext(ctx, writerEC); err != nil {
 					logger.Errorf("ステップ '%s': Writer の ExecutionContext 復元に失敗しました: %v", s.name, err)
 					stepExecution.AddFailureException(err)
@@ -255,13 +250,8 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
-
-		// StepExecution の最終状態を JobRepository で更新する必要がある
-		// これは Job.Run メソッド内で JobRepository を使用して行うことを想定
-		// ここでは StepExecution オブジェクト自体は更新済み
 	}()
 
-	// ステップ名による分岐を完全に削除し、汎用チャンク処理ロジックのみを呼び出す
 	logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されます。", s.name)
 	return s.executeDefaultChunkProcessing(ctx, jobExecution, stepExecution)
 }

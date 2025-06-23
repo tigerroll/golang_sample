@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid" // UUID生成のためにインポート
+	"github.com/google/uuid"
 
 	core "sample/src/main/go/batch/job/core"
-	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
+	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
 	exception "sample/src/main/go/batch/util/exception"
 	logger "sample/src/main/go/batch/util/logger"
@@ -53,6 +53,11 @@ func (j *FlowJob) JobName() string {
 	return j.name
 }
 
+// GetFlow はジョブのフロー定義を返します。
+func (j *FlowJob) GetFlow() *core.FlowDefinition {
+	return j.flow
+}
+
 // notifyBeforeJob は登録されている JobExecutionListener の BeforeJob メソッドを呼び出します。
 func (j *FlowJob) notifyBeforeJob(ctx context.Context, jobExecution *core.JobExecution) {
 	for _, l := range j.jobListeners {
@@ -69,7 +74,7 @@ func (j *FlowJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobExec
 
 // Run はジョブの実行ロジックを定義します。
 // ジョブのフロー定義に基づいてステップやデシジョンを順次実行します。
-func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error {
+func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error { // ★ 修正: jobParameters を追加
 	logger.Infof("ジョブ '%s' (Execution ID: %s) を開始します。", j.name, jobExecution.ID)
 
 	// JobExecution の開始時刻を設定し、状態をマーク
@@ -77,7 +82,6 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 	jobExecution.MarkAsStarted() // Status = Started
 
 	// JobExecution の初期状態を保存
-	// JobOperator.Start/Restart で既に保存されているはずだが、念のため
 	if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
 		logger.Errorf("ジョブ '%s': JobExecution の初期状態の更新に失敗しました: %v", j.name, err)
 		jobExecution.AddFailureException(err)
@@ -99,8 +103,6 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 		// 最終的な JobExecution の状態を保存
 		if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
 			logger.Errorf("ジョブ '%s': JobExecution の最終状態の更新に失敗しました: %v", j.name, err)
-			// ここでエラーが発生しても、ジョブの実行自体は完了しているため、ログに留める
-			// ただし、リスタート情報が正しく保存されない可能性がある
 		}
 		logger.Infof("ジョブ '%s' (Execution ID: %s) が終了しました。最終ステータス: %s, 終了ステータス: %s",
 			j.name, jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
@@ -108,7 +110,7 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 	// フローの開始要素から実行を開始
 	currentElementID := j.flow.StartElement
-	if jobExecution.CurrentStepName != "" && jobExecution.Status == core.BatchStatusFailed {
+	if jobExecution.CurrentStepName != "" && jobExecution.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
 		// リスタートの場合、中断したステップから再開
 		logger.Infof("ジョブ '%s' はステップ '%s' からリスタートします。", j.name, jobExecution.CurrentStepName)
 		currentElementID = jobExecution.CurrentStepName
@@ -126,7 +128,7 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 		if currentElementID == "" {
 			// フローの終端に達したか、不正な遷移
-			if jobExecution.Status == core.BatchStatusStarted {
+			if jobExecution.Status == core.BatchStatusStarted { // ★ 修正: core.BatchStatusStarted を使用
 				jobExecution.MarkAsCompleted()
 				logger.Infof("ジョブ '%s' のフローが正常に完了しました。", j.name)
 			}
@@ -144,7 +146,6 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 		logger.Debugf("ジョブ '%s': フロー要素 '%s' を実行します。", j.name, currentElementID)
 
-		var nextElementID string
 		var elementExitStatus core.ExitStatus
 		var elementErr error
 
@@ -156,27 +157,20 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 			// リスタートの場合、既存の StepExecution を取得
 			var stepExecution *core.StepExecution
-			if jobExecution.Status == core.BatchStatusFailed && jobExecution.CurrentStepName == stepName {
-				// 失敗したジョブがこのステップで中断した場合、その StepExecution を再利用
-				// 最新の JobExecution に紐づく StepExecution を取得
-				// TODO: 厳密には、JobExecution.StepExecutions から該当するものを探す
-				// 現状は FindStepExecutionsByJobExecutionID で全て取得し、その中から最新のものを探す
-				// または、JobExecution.CurrentStepName が設定されている場合は、そのステップの最新の StepExecution を取得する
-				// ここでは、JobExecution に既にロードされている StepExecutions から探す
-				for _, se := range jobExecution.StepExecutions {
-					if se.StepName == stepName {
-						stepExecution = se
-						logger.Infof("ジョブ '%s': ステップ '%s' の既存の StepExecution (ID: %s) を再利用します。", j.name, stepName, stepExecution.ID)
-						break
-					}
+			// 失敗したジョブがこのステップで中断した場合、その StepExecution を再利用
+			for _, se := range jobExecution.StepExecutions {
+				if se.StepName == stepName && se.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
+					stepExecution = se
+					logger.Infof("ジョブ '%s': ステップ '%s' の既存の StepExecution (ID: %s) を再利用します。", j.name, stepName, stepExecution.ID)
+					break
 				}
 			}
 
 			if stepExecution == nil {
 				// 新しい StepExecution を作成
 				stepExecutionID := uuid.New().String()
-				stepExecution = core.NewStepExecution(stepExecutionID, jobExecution, stepName)
-				jobExecution.AddStepExecution(stepExecution) // JobExecution に StepExecution を追加
+				stepExecution = core.NewStepExecution(stepExecutionID, jobExecution, stepName) // ★ 修正: stepExecutionID と stepName を渡す
+				jobExecution.AddStepExecution(stepExecution)                                 // ★ 修正: AddStepExecution を呼び出す
 				// 新しい StepExecution を保存
 				if err := j.jobRepository.SaveStepExecution(ctx, stepExecution); err != nil {
 					logger.Errorf("ジョブ '%s': StepExecution (ID: %s) の保存に失敗しました: %v", j.name, stepExecution.ID, err)
@@ -192,25 +186,16 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 			if elementErr != nil {
 				logger.Errorf("ジョブ '%s': ステップ '%s' の実行中にエラーが発生しました: %v", j.name, stepName, elementErr)
-				// StepExecution は既に失敗状態になっているはず
 				jobExecution.AddFailureException(elementErr)
 				jobExecution.MarkAsFailed(elementErr)
-				// エラーが発生した場合でも、遷移ルールを評価して Fail 遷移を探す
-				nextElementID, _ = j.flow.GetNextElementID(currentElementID, elementExitStatus, true) // isError = true
-				if nextElementID == "" {
-					// Fail 遷移が見つからない場合、ジョブ全体を失敗として終了
-					return elementErr
-				}
 			} else {
-				// ステップが正常終了した場合
 				logger.Infof("ジョブ '%s': ステップ '%s' が正常に完了しました。ExitStatus: %s", j.name, stepName, elementExitStatus)
-				nextElementID, _ = j.flow.GetNextElementID(currentElementID, elementExitStatus, false) // isError = false
 			}
 
 		case core.Decision:
 			// デシジョンの実行
 			decisionName := elem.ID()
-			decisionResult, err := elem.Decide(ctx, jobExecution, jobParameters)
+			decisionResult, err := elem.Decide(ctx, jobExecution, jobParameters) // ★ 修正: jobParameters を渡す
 			elementExitStatus = decisionResult
 			elementErr = err
 
@@ -218,15 +203,8 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 				logger.Errorf("ジョブ '%s': デシジョン '%s' の実行中にエラーが発生しました: %v", j.name, decisionName, elementErr)
 				jobExecution.AddFailureException(elementErr)
 				jobExecution.MarkAsFailed(elementErr)
-				// エラーが発生した場合でも、遷移ルールを評価して Fail 遷移を探す
-				nextElementID, _ = j.flow.GetNextElementID(currentElementID, elementExitStatus, true) // isError = true
-				if nextElementID == "" {
-					// Fail 遷移が見つからない場合、ジョブ全体を失敗として終了
-					return elementErr
-				}
 			} else {
 				logger.Infof("ジョブ '%s': デシジョン '%s' が完了しました。結果: %s", j.name, decisionName, decisionResult)
-				nextElementID, _ = j.flow.GetNextElementID(currentElementID, elementExitStatus, false) // isError = false
 			}
 
 		default:
@@ -237,56 +215,46 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 			return err
 		}
 
-		// 遷移先の要素IDを更新
-		currentElementID = nextElementID
-
-		// 遷移ルールが End, Fail, Stop を指示した場合の処理
-		transitionRule, found := j.flow.GetTransitionRule(element.ID(), elementExitStatus, elementErr != nil)
-		if found {
-			if transitionRule.End {
-				logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.name, element.ID())
-				jobExecution.MarkAsCompleted()
-				break
-			}
-			if transitionRule.Fail {
-				logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.name, element.ID())
-				jobExecution.MarkAsFailed(fmt.Errorf("explicit fail transition from %s", element.ID()))
-				break
-			}
-			if transitionRule.Stop {
-				logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.name, element.ID())
-				jobExecution.MarkAsStopped()
-				break
-			}
-		}
-
-		// 次の要素が見つからない場合 (End, Fail, Stop 遷移がない場合)
-		if currentElementID == "" {
+		// 遷移ルールを評価して次の要素を決定
+		transitionRule, found := j.flow.GetTransitionRule(element.ID(), elementExitStatus, elementErr != nil) // ★ 修正: GetTransitionRule を使用
+		if !found {
+			// 遷移ルールが見つからない場合
 			if elementErr == nil {
-				// 正常にフローの終端に達した
-				logger.Infof("ジョブ '%s': フローの終端に達しました。ジョブを完了します。", j.name)
+				// 正常終了だが次の遷移がない場合はジョブ完了
+				logger.Infof("ジョブ '%s': フロー要素 '%s' からの遷移ルールが見つかりません。ジョブを完了します。", j.name, element.ID())
 				jobExecution.MarkAsCompleted()
 			} else {
-				// エラーが発生したが、次の遷移先が見つからなかった
-				logger.Errorf("ジョブ '%s': エラー発生後、次の遷移先が見つかりませんでした。ジョブを失敗として終了します。", j.name)
+				// エラー発生で次の遷移がない場合はジョブ失敗
+				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生しましたが、適切な遷移ルールが見つかりません。ジョブを失敗として終了します。", j.name, element.ID())
 				jobExecution.MarkAsFailed(elementErr)
 			}
 			break
 		}
+
+		// 遷移ルールが End, Fail, Stop を指示した場合の処理
+		if transitionRule.End {
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.name, element.ID())
+			jobExecution.MarkAsCompleted()
+			break
+		}
+		if transitionRule.Fail {
+			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.name, element.ID())
+			jobExecution.MarkAsFailed(fmt.Errorf("explicit fail transition from %s", element.ID()))
+			break
+		}
+		if transitionRule.Stop {
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.name, element.ID())
+			jobExecution.MarkAsStopped()
+			break
+		}
+
+		// 次の要素IDを更新
+		currentElementID = transitionRule.To
 	}
 
-	// ジョブの最終的な ExitStatus を設定
-	if jobExecution.Status == core.BatchStatusCompleted {
-		jobExecution.ExitStatus = core.ExitStatusCompleted
-	} else if jobExecution.Status == core.BatchStatusFailed {
-		jobExecution.ExitStatus = core.ExitStatusFailed
-	} else if jobExecution.Status == core.BatchStatusStopped {
-		jobExecution.ExitStatus = core.ExitStatusStopped
-	} else {
-		// 未知の状態の場合、失敗とみなす
-		jobExecution.ExitStatus = core.ExitStatusUnknown
-	}
-
+	// ジョブの最終的な ExitStatus を設定 (defer で設定されるため、ここでは不要だが念のため)
+	// defer で設定される MarkAsCompleted/Failed/Stopped メソッド内で ExitStatus も設定されるため、
+	// ここでの重複設定は不要。
 	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了しました。", j.name, jobExecution.ID)
 	return nil
 }
