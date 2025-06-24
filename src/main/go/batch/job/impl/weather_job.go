@@ -3,14 +3,16 @@ package impl
 import (
 	"context"
 	"fmt"
-	"time" // time パッケージをインポート
+	"time"
 
-	config "sample/src/main/go/batch/config"
+	"github.com/google/uuid"
+
+	"sample/src/main/go/batch/config"
 	core "sample/src/main/go/batch/job/core"
-	// jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート (JSL Decision の一時的な処理のため) - ★ 修正: 不要になったためコメントアウトまたは削除
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
-	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
+	exception "sample/src/main/go/batch/util/exception"
+	logger "sample/src/main/go/batch/util/logger"
 )
 
 // WeatherJob は天気予報データを取得・処理・保存するバッチジョブです。
@@ -41,11 +43,14 @@ func NewWeatherJob(
 	}
 }
 
-// RegisterListener は JobExecutionListener を登録します。
-// NewWeatherJob でリスナーを受け取るように変更したため、このメソッドは不要になる可能性がありますが、
-// 実行時に動的にリスナーを追加するユースケースのために残しておくこともできます。
-func (j *WeatherJob) RegisterListener(l jobListener.JobExecutionListener) {
-	j.jobListeners = append(j.jobListeners, l)
+// JobName はジョブ名を返します。
+func (j *WeatherJob) JobName() string {
+	return j.config.Batch.JobName
+}
+
+// GetFlow はジョブのフロー定義を返します。
+func (j *WeatherJob) GetFlow() *core.FlowDefinition {
+	return j.flow
 }
 
 // notifyBeforeJob は登録されている JobExecutionListener の BeforeJob メソッドを呼び出します。
@@ -62,347 +67,186 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobE
 	}
 }
 
-// Run メソッドは core.Job インターフェースの実装です。
-// ジョブ全体の実行フローを制御します。
-// Context の完了チェックとリスタートロジックを追加します。
-func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution) error {
-	logger.Infof("Job '%s' (Execution ID: %s) の実行を開始します。", j.JobName(), jobExecution.ID)
+// Run はジョブの実行ロジックを定義します。
+// ジョブのフロー定義に基づいてステップやデシジョンを順次実行します。
+func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error { // ★ 修正: jobParameters を追加
+	logger.Infof("ジョブ '%s' (Execution ID: %s) を開始します。", j.JobName(), jobExecution.ID)
 
-	// Job 実行前処理の通知
+	// JobExecution の開始時刻を設定し、状態をマーク
+	jobExecution.StartTime = time.Now()
+	jobExecution.MarkAsStarted()
+
+	// JobExecution の初期状態を保存
+	if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
+		logger.Errorf("ジョブ '%s': JobExecution の初期状態の更新に失敗しました: %v", j.JobName(), err)
+		jobExecution.AddFailureException(err)
+		jobExecution.MarkAsFailed(err)
+		return exception.NewBatchError(j.JobName(), "JobExecution の初期状態更新エラー", err, false, false)
+	}
+
+	// ジョブ実行前処理の通知
 	j.notifyBeforeJob(ctx, jobExecution)
 
-	// Job 実行後処理 (defer で必ず実行)
+	// ジョブ実行後処理 (defer で必ず実行)
 	defer func() {
-		// ジョブがまだ終了状態としてマークされていなければ完了としてマーク
-		if !jobExecution.Status.IsFinished() {
-			jobExecution.MarkAsCompleted()
-		}
+		// ジョブの終了時刻を設定
+		jobExecution.EndTime = time.Now()
 
-		// Job 実行後処理の通知
+		// ジョブ実行後処理の通知
 		j.notifyAfterJob(ctx, jobExecution)
 
-		// JobExecution の最終状態を永続化
-		// Note: JobOperator.Start/Restart メソッドが JobExecution の最終状態を永続化する責務を持つため、
-		// ここでの UpdateJobExecution は冗長になる可能性があります。
-		// JobOperator が最終永続化を行う場合は、この defer ブロック内の永続化処理を削除することを検討してください。
-		// 現状は、Job.Run が JobExecution の状態を更新し、JobOperator がそれを最終的に保存するという協調関係を維持します。
-		err := j.jobRepository.UpdateJobExecution(ctx, jobExecution)
-		if err != nil {
-			logger.Errorf("Job '%s' (Execution ID: %s) の最終状態永続化に失敗しました: %v", j.JobName(), jobExecution.ID, err)
-			jobExecution.AddFailureException(fmt.Errorf("最終状態永続化エラー: %w", err))
+		// 最終的な JobExecution の状態を保存
+		if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
+			logger.Errorf("ジョブ '%s': JobExecution の最終状態の更新に失敗しました: %v", j.JobName(), err)
 		}
+		logger.Infof("ジョブ '%s' (Execution ID: %s) が終了しました。最終ステータス: %s, 終了ステータス: %s",
+			j.JobName(), jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
 	}()
 
-	// フロー定義が存在しない場合はエラー
-	if j.flow == nil {
-		err := fmt.Errorf("ジョブ '%s' のフロー定義がありません", j.JobName())
-		logger.Errorf("%v", err)
-		jobExecution.MarkAsFailed(err)
-		// defer で最終状態が永続化されるため、ここではエラーを返してループを抜ける
-		return err
+	// フローの開始要素から実行を開始
+	currentElementID := j.flow.StartElement
+	if jobExecution.CurrentStepName != "" && jobExecution.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
+		// リスタートの場合、中断したステップから再開
+		logger.Infof("ジョブ '%s' はステップ '%s' からリスタートします。", j.JobName(), jobExecution.CurrentStepName)
+		currentElementID = jobExecution.CurrentStepName
 	}
 
-	// フローの実行
-	currentElementName := j.flow.StartElement // フローの開始要素名を取得
-
-	// リスタートの場合、前回の停止ステップから開始
-	if jobExecution.CurrentStepName != "" &&
-		(jobExecution.Status == core.JobStatusFailed || // 実行中に失敗した場合
-			jobExecution.Status == core.JobStatusStopped) { // 停止要求により停止した場合
-		currentElementName = jobExecution.CurrentStepName
-		logger.Infof("Job '%s' (Execution ID: %s) をステップ '%s' からリスタートします。",
-			j.JobName(), jobExecution.ID, currentElementName)
-		// TODO: リスタート時に ExecutionContext の状態を復元するロジックが必要
-		//       これは JobOperator.Restart または Job.Run の開始部分で行うべき
-	}
-
-
-	// JobExecution の状態更新エラー変数をループ内で宣言 (スコープをループ全体にする)
-	var updateJobExecErr error
-
-	// フローの要素が存在する限りループ
 	for {
-		// Context の完了をチェック
 		select {
 		case <-ctx.Done():
-			logger.Warnf("Context がキャンセルされたため、Job '%s' の実行を中断します: %v", j.JobName(), ctx.Err())
-			// Context キャンセル時は JobExecution を STOPPED としてマークし、ExitStatus も設定
-			jobExecution.Status = core.JobStatusStopped
-			jobExecution.ExitStatus = core.ExitStatusStopped
-			jobExecution.EndTime = time.Now()
-			jobExecution.LastUpdated = time.Now()
-			jobExecution.AddFailureException(ctx.Err()) // エラー情報を追加
-			// defer で最終状態が永続化されるため、ここではエラーを返してループを抜ける
-			return ctx.Err() // Context エラーを返す
+			logger.Warnf("Context がキャンセルされたため、ジョブ '%s' の実行を中断します: %v", j.JobName(), ctx.Err())
+			jobExecution.AddFailureException(ctx.Err())
+			jobExecution.MarkAsFailed(ctx.Err())
+			return ctx.Err()
 		default:
 		}
 
-		// currentElementName が空文字列の場合、フローは正常に終了したとみなす (例: <end> 遷移)
-		if currentElementName == "" {
-			logger.Infof("Job '%s' (Execution ID: %s) のフローが正常に終了しました。", j.JobName(), jobExecution.ID)
-			// defer で JobExecution が COMPLETED としてマークされ、永続化される
-			return nil // 正常完了
-		}
-
-		// 現在の要素（ステップまたはDecision）を取得
-		currentElement, ok := j.flow.GetElement(currentElementName)
-		if !ok {
-			// フロー定義に要素が見つからない場合はエラー
-			err := fmt.Errorf("フロー定義に要素 '%s' が見つかりません", currentElementName)
-			logger.Errorf("%v", err)
-			// JobExecution を FAILED としてマークし、defer で永続化
-			jobExecution.MarkAsFailed(err)
-			return err // エラーを返してジョブを失敗させる
-		}
-
-		var elementExitStatus core.ExitStatus // 実行した要素の ExitStatus
-		var elementErr error                // 実行した要素が返したエラー
-
-
-		// 要素のタイプに応じて処理を分岐
-		switch element := currentElement.(type) {
-		case core.Step:
-			// ステップの場合の実行ロジック
-			stepName := element.StepName()
-			logger.Infof("ステップ '%s' の実行を開始します。", stepName)
-
-			// StepExecution の作成と初期永続化
-			// リスタートの場合、既存の StepExecution を再利用するのではなく、新しい StepExecution を作成します。
-			// ただし、リスタート可能なステップの場合、前回の StepExecution の情報を引き継ぐ必要があります。
-			// これは Step.Execute メソッド内で行うべき責務です（例: ChunkOrientedStep の CheckpointData）。
-			// 現状は、ステップが失敗した場合、そのステップの最初から再実行されます。
-			// ステップ内のチェックポイントからの再開はサポートされていません。
-			stepExecution := core.NewStepExecution(stepName, jobExecution)
-			// NewStepExecution 内で jobExecution.StepExecutions に追加済み
-
-			// JobExecution の CurrentStepName を更新し永続化 (リスタート対応のため)
-			jobExecution.CurrentStepName = stepName
-			// updateJobExecErr 変数を使用 (ループ全体スコープで宣言済み)
-			updateJobExecErr = j.jobRepository.UpdateJobExecution(ctx, jobExecution)
-			if updateJobExecErr != nil {
-				logger.Errorf("JobExecution (ID: %s) の CurrentStepName 更新に失敗しました: %v", jobExecution.ID, updateJobExecErr)
-				jobExecution.AddFailureException(fmt.Errorf("JobExecution CurrentStepName 更新エラー: %w", updateJobExecErr))
-				// 永続化エラーは記録するが、ステップ実行自体は進める
+		if currentElementID == "" {
+			// フローの終端に達したか、不正な遷移
+			if jobExecution.Status == core.BatchStatusStarted { // ★ 修正: core.BatchStatusStarted を使用
+				jobExecution.MarkAsCompleted()
+				logger.Infof("ジョブ '%s' のフローが正常に完了しました。", j.JobName())
 			}
-
-
-			// StepExecution の初期状態を永続化
-			saveErr := j.jobRepository.SaveStepExecution(ctx, stepExecution)
-			if saveErr != nil {
-				logger.Errorf("StepExecution (ID: %s) の初期永続化に失敗しました: %v", stepExecution.ID, saveErr)
-				stepExecution.MarkAsFailed(fmt.Errorf("StepExecution の初期永続化に失敗しました: %w", saveErr))
-				j.jobRepository.UpdateStepExecution(ctx, stepExecution) // 失敗状態を永続化
-				jobExecution.MarkAsFailed(fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, saveErr))
-				return fmt.Errorf("ステップ '%s' の実行に失敗しました: %w", stepName, saveErr)
-			}
-			logger.Debugf("StepExecution (ID: %s) を JobRepository に初期保存しました。", stepExecution.ID)
-
-			// StepExecution の状態を Started に更新し、永続化
-			stepExecution.MarkAsStarted()
-			// updateStepExecErr 変数を宣言
-			var updateStepExecErr error // StepExecution の更新エラー変数を宣言
-			updateStepExecErr = j.jobRepository.UpdateStepExecution(ctx, stepExecution)
-			if updateStepExecErr != nil {
-				logger.Errorf("StepExecution (ID: %s) の Started 状態への更新に失敗しました: %v", stepExecution.ID, updateStepExecErr)
-				stepExecution.AddFailureException(fmt.Errorf("StepExecution 状態更新エラー (Started): %w", updateStepExecErr))
-				// 永続化エラーは記録するが、ステップ実行自体は進める
-			} else {
-				logger.Debugf("StepExecution (ID: %s) を JobRepository で Started に更新しました。", stepExecution.ID, stepExecution.Status)
-			}
-
-
-			// ステップの Execute メソッドを実行
-			// Execute メソッド内で StepExecution の最終状態が設定されることを期待
-			elementErr = element.Execute(ctx, jobExecution, stepExecution) // Context を渡す
-
-			// ステップ実行完了後の StepExecution の最終状態を永続化
-			// Execute メソッド内で StepExecution の最終状態 (Completed or Failed) は既に設定されています。
-			// ここではその最終状態を JobRepository に保存します。
-			// updateStepExecErr 変数を再利用
-			updateStepExecErr = j.jobRepository.UpdateStepExecution(ctx, stepExecution)
-			if updateStepExecErr != nil {
-				logger.Errorf("StepExecution (ID: %s) の最終状態の更新に失敗しました: %v", stepExecution.ID, updateStepExecErr)
-				stepExecution.AddFailureException(fmt.Errorf("StepExecution 最終状態更新エラー: %w", updateStepExecErr))
-				if stepExecution.ExitStatus != core.ExitStatusFailed {
-					stepExecution.ExitStatus = core.ExitStatusFailed
-					stepExecution.Status = core.JobStatusFailed
-				}
-				if elementErr == nil {
-					elementErr = fmt.Errorf("ステップ実行エラー (%w), StepExecution 最終状態永続化エラー (%w)", elementErr, updateStepExecErr)
-				} else {
-					elementErr = fmt.Errorf("ステップ実行エラー (%w), StepExecution 最終状態永続化エラー (%w)", elementErr, updateStepExecErr)
-				}
-			} else {
-				logger.Debugf("StepExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", stepExecution.ID, stepExecution.Status)
-			}
-
-			// 実行したステップの ExitStatus を取得
-			elementExitStatus = stepExecution.ExitStatus
-
-			// ステップ実行エラーが発生した場合のログ出力
-			if elementErr != nil {
-				logger.Errorf("ステップ '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
-					stepName, stepExecution.ID, elementErr)
-				// elementExitStatus は既に StepExecution から取得済み (エラー発生時は通常 FAILED)
-			} else {
-				// ステップが正常に完了した場合のログ出力
-				logger.Infof("ステップ '%s' (Execution ID: %s) が正常に完了しました。最終状態: %s",
-					stepName, stepExecution.ID, stepExecution.Status)
-				// elementExitStatus は既に StepExecution から取得済み (成功時は通常 COMPLETED)
-			}
-
-
-		case core.Decision:
-			// Decision の実行ロジック
-			decisionName := element.DecisionName()
-			logger.Infof("Decision '%s' の実行を開始します。", decisionName)
-
-			// DecisionExecution の作成 (StepExecution と同様のライフサイクル管理が必要であれば)
-			// 現状は StepExecution を使用
-			decisionExecution := core.NewStepExecution(decisionName, jobExecution) // 仮にStepExecutionを使用
-			if saveErr := j.jobRepository.SaveStepExecution(ctx, decisionExecution); saveErr != nil {
-				logger.Errorf("DecisionExecution (ID: %s) の初期永続化に失敗しました: %v", decisionExecution.ID, saveErr)
-				jobExecution.MarkAsFailed(fmt.Errorf("Decision '%s' の実行に失敗しました: %w", decisionName, saveErr))
-				return fmt.Errorf("Decision '%s' の実行に失敗しました: %w", decisionName, saveErr)
-			}
-			decisionExecution.MarkAsStarted()
-			j.jobRepository.UpdateStepExecution(ctx, decisionExecution)
-
-			// Decide メソッドを実行
-			exitStatus, err := element.Decide(ctx, jobExecution, decisionExecution)
-			if err != nil {
-				logger.Errorf("Decision '%s' の実行中にエラーが発生しました: %v", decisionName, err)
-				decisionExecution.MarkAsFailed(err)
-				jobExecution.AddFailureException(err)
-			} else {
-				decisionExecution.MarkAsCompleted()
-			}
-
-			if updateErr := j.jobRepository.UpdateStepExecution(ctx, decisionExecution); updateErr != nil {
-				logger.Errorf("DecisionExecution (ID: %s) の最終状態の更新に失敗しました: %v", decisionExecution.ID, updateErr)
-				jobExecution.AddFailureException(updateErr)
-				if err == nil { // Decide 自体はエラーでなくても、永続化でエラーならジョブ失敗
-					err = fmt.Errorf("DecisionExecution 最終状態の永続化に失敗しました: %w", updateErr)
-				}
-			}
-
-			elementExitStatus = exitStatus
-			elementErr = err
-
-			if elementErr != nil {
-				logger.Errorf("Decision '%s' (Execution ID: %s) がエラーで完了しました: %v",
-					decisionName, decisionExecution.ID, elementErr)
-			} else {
-				logger.Infof("Decision '%s' (Execution ID: %s) が正常に完了しました。結果: %s",
-					decisionName, decisionExecution.ID, elementExitStatus)
-			}
-
-		default:
-			// 未知の要素タイプの場合
-			err := fmt.Errorf("フロー定義に未知の要素タイプ '%T' が含まれています (要素名: '%s')", currentElement, currentElementName)
-			logger.Errorf("%v", err)
-			jobExecution.MarkAsFailed(err)
-			return err // エラーを返してジョブを失敗させる
-		}
-
-		// --- 遷移評価 ---
-		// 実行した要素の名前と ExitStatus に基づいて遷移ルールを検索
-		transition := j.flow.FindTransition(currentElementName, elementExitStatus)
-
-		if transition == nil {
-			// 一致する遷移ルールが見つからない場合はエラー
-			err := fmt.Errorf("要素 '%s' (ExitStatus: %s) に対する遷移ルールが見つかりません。", currentElementName, elementExitStatus)
-			logger.Errorf("%v", err)
-			jobExecution.MarkAsFailed(err)
-			return err // エラーを返してジョブを失敗させる
-		}
-
-		// 見つかった遷移ルールを評価
-		if transition.End {
-			// End 遷移: ジョブを完了としてマークし、ループを終了
-			logger.Infof("遷移ルールにより Job '%s' (Execution ID: %s) を終了します。最終 ExitStatus: %s",
-				j.JobName(), jobExecution.ID, core.ExitStatusCompleted) // ここを修正
-			jobExecution.Status = core.JobStatusCompleted
-			jobExecution.ExitStatus = core.ExitStatusCompleted // ここを修正
-			currentElementName = "" // ループを終了するための条件を設定
-		} else if transition.Fail {
-			// Fail 遷移: ジョブを失敗としてマークし、ループを終了
-			logger.Errorf("遷移ルールにより Job '%s' (Execution ID: %s) を失敗とします。最終 ExitStatus: %s",
-				j.JobName(), jobExecution.ID, core.ExitStatusFailed) // ここを修正
-			jobExecution.Status = core.JobStatusFailed
-			jobExecution.ExitStatus = core.ExitStatusFailed // ここを修正
-			jobExecution.AddFailureException(fmt.Errorf("遷移ルールによるジョブ失敗 (ExitStatus: %s)", core.ExitStatusFailed)) // ここを修正
-			currentElementName = "" // ループを終了するための条件を設定
-		} else if transition.Stop {
-			// Stop 遷移: ジョブを停止としてマークし、ループを終了
-			logger.Warnf("遷移ルールにより Job '%s' (Execution ID: %s) を停止します。",
-				j.JobName(), jobExecution.ID)
-			jobExecution.Status = core.JobStatusStopped // Stop 遷移の場合、Status は STOPPED
-			jobExecution.ExitStatus = core.ExitStatusStopped // ExitStatus は通常 STOPPED
-			currentElementName = "" // ループを終了するための条件を設定
-		} else if transition.To != "" {
-			// Next 遷移: 次の要素に進む
-			logger.Debugf("遷移ルールにより次の要素 '%s' へ進みます。", transition.To)
-			currentElementName = transition.To // 次のループで実行する要素名を設定
-		} else {
-			// 遷移ルールが無効 (To, End, Fail, Stop のいずれも指定されていない)
-			err := fmt.Errorf("要素 '%s' (ExitStatus: %s) に対する遷移ルールが無効です (To, End, Fail, Stop のいずれも指定されていません)。",
-				currentElementName, elementExitStatus)
-			logger.Errorf("%v", err)
-			jobExecution.MarkAsFailed(err)
-			return err // エラーを返してジョブを失敗させる
-		}
-
-		// 要素の実行でエラーが発生した場合 (elementErr != nil) でも、遷移ルールが見つかればそのルールに従います。
-		// ただし、elementErr は JobExecution の Failures に追加されています。
-		if elementErr != nil {
-			// elementErr は StepExecution.Failures に追加済みだが、JobExecution にも追加
-			jobExecution.AddFailureException(elementErr)
-		}
-
-		// 各要素の処理と遷移評価の後、JobExecution の状態を JobRepository に更新
-		// これにより、JobExecution の CurrentStepName や Status が永続化され、リスタート時に利用できます。
-		// updateJobExecErr 変数を使用 (ループ全体スコープで宣言済み)
-		updateJobExecErr = j.jobRepository.UpdateJobExecution(ctx, jobExecution)
-		if updateJobExecErr != nil {
-			logger.Errorf("JobExecution (ID: %s) の状態更新に失敗しました (要素 '%s' 処理後): %v",
-				jobExecution.ID, currentElementName, updateJobExecErr)
-			jobExecution.AddFailureException(fmt.Errorf("JobExecution 状態更新エラー (要素 '%s' 処理後): %w", currentElementName, updateJobExecErr))
-			// この永続化エラーが発生した場合、ジョブを即座に失敗させるか検討が必要です。
-			// フローが終了遷移でない場合、ログ出力して続行する選択肢もあります。
-			// ここでは、フローが終了遷移でない限りログ出力に留めます。
-			if currentElementName == "" { // フローが終了遷移でループを抜ける場合
-				// 最終状態の永続化に失敗した場合はエラーを返す
-				return fmt.Errorf("JobExecution (ID: %s) の最終状態の永続化に失敗しました: %w", jobExecution.ID, updateJobExecErr)
-			}
-		}
-
-		// currentElementName が空文字列になった場合はループを終了
-		if currentElementName == "" {
 			break
 		}
 
-	} // フロー実行ループ終了
+		element, ok := j.flow.Elements[currentElementID]
+		if !ok {
+			err := exception.NewBatchErrorf(j.JobName(), "フロー要素 '%s' が見つかりません", currentElementID)
+			logger.Errorf("ジョブ '%s': %v", j.JobName(), err)
+			jobExecution.AddFailureException(err)
+			jobExecution.MarkAsFailed(err)
+			return err
+		}
 
-	// ループが終了した場合、defer 関数が JobExecution の最終状態を JobRepository に永続化します。
-	// ループの終了は、End, Fail, Stop 遷移によるものか、または currentElementName が空になった場合です。
-	// End, Fail, Stop 遷移の場合は、ループ内で jobExecution.Status/ExitStatus が既に設定されています。
-	// currentElementName が空になった場合は、defer で COMPLETED としてマークされます。
+		logger.Debugf("ジョブ '%s': フロー要素 '%s' を実行します。", j.JobName(), currentElementID)
 
-	// ここに到達するのは、ループが break で終了した場合（End, Fail, Stop 遷移）
-	// この場合、defer 関数が JobExecution の最終状態を永続化します。
-	// ループ内でエラーが発生して return された場合は、ここまで到達しません。
+		var elementExitStatus core.ExitStatus
+		var elementErr error
 
-	// 正常終了の場合、nil を返す
+		switch elem := element.(type) {
+		case core.Step:
+			// ステップの実行
+			stepName := elem.StepName()
+			jobExecution.CurrentStepName = stepName // 現在実行中のステップ名を JobExecution に設定
+
+			// リスタートの場合、既存の StepExecution を取得
+			var stepExecution *core.StepExecution
+			// 失敗したジョブがこのステップで中断した場合、その StepExecution を再利用
+			for _, se := range jobExecution.StepExecutions {
+				if se.StepName == stepName && se.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
+					stepExecution = se
+					logger.Infof("ジョブ '%s': ステップ '%s' の既存の StepExecution (ID: %s) を再利用します。", j.JobName(), stepName, stepExecution.ID)
+					break
+				}
+			}
+
+			if stepExecution == nil {
+				// 新しい StepExecution を作成
+				stepExecutionID := uuid.New().String()
+				stepExecution = core.NewStepExecution(stepExecutionID, jobExecution, stepName) // ★ 修正: stepExecutionID と stepName を渡す
+				jobExecution.AddStepExecution(stepExecution)                                 // ★ 修正: AddStepExecution を呼び出す
+				// 新しい StepExecution を保存
+				if err := j.jobRepository.SaveStepExecution(ctx, stepExecution); err != nil {
+					logger.Errorf("ジョブ '%s': StepExecution (ID: %s) の保存に失敗しました: %v", j.JobName(), stepExecution.ID, err)
+					jobExecution.AddFailureException(err)
+					jobExecution.MarkAsFailed(err)
+					return exception.NewBatchError(j.JobName(), "StepExecution の保存エラー", err, false, false)
+				}
+				logger.Infof("ジョブ '%s': 新しい StepExecution (ID: %s) を作成しました。", j.JobName(), stepExecution.ID)
+			}
+
+			elementErr = elem.Execute(ctx, jobExecution, stepExecution) // StepExecution を渡す
+			elementExitStatus = stepExecution.ExitStatus                // ステップの終了ステータスを取得
+
+			if elementErr != nil {
+				logger.Errorf("ジョブ '%s': ステップ '%s' の実行中にエラーが発生しました: %v", j.JobName(), stepName, elementErr)
+				jobExecution.AddFailureException(elementErr)
+				jobExecution.MarkAsFailed(elementErr)
+			} else {
+				logger.Infof("ジョブ '%s': ステップ '%s' が正常に完了しました。ExitStatus: %s", j.JobName(), stepName, elementExitStatus)
+			}
+
+		case core.Decision:
+			// デシジョンの実行
+			decisionName := elem.ID()
+			decisionResult, err := elem.Decide(ctx, jobExecution, jobParameters) // ★ 修正: jobParameters を渡す
+			elementExitStatus = decisionResult
+			elementErr = err
+
+			if elementErr != nil {
+				logger.Errorf("ジョブ '%s': デシジョン '%s' の実行中にエラーが発生しました: %v", j.JobName(), decisionName, elementErr)
+				jobExecution.AddFailureException(elementErr)
+				jobExecution.MarkAsFailed(elementErr)
+			} else {
+				logger.Infof("ジョブ '%s': デシジョン '%s' が完了しました。結果: %s", j.JobName(), decisionName, decisionResult)
+			}
+
+		default:
+			err := exception.NewBatchErrorf(j.JobName(), "不明なフロー要素の型: %T (ID: %s)", elem, currentElementID)
+			logger.Errorf("ジョブ '%s': %v", j.JobName(), err)
+			jobExecution.AddFailureException(err)
+			jobExecution.MarkAsFailed(err)
+			return err
+		}
+
+		// 遷移ルールを評価して次の要素を決定
+		transitionRule, found := j.flow.GetTransitionRule(element.ID(), elementExitStatus, elementErr != nil) // ★ 修正: GetTransitionRule を使用
+		if !found {
+			// 遷移ルールが見つからない場合
+			if elementErr == nil {
+				// 正常終了だが次の遷移がない場合はジョブ完了
+				logger.Infof("ジョブ '%s': フロー要素 '%s' からの遷移ルールが見つかりません。ジョブを完了します。", j.JobName(), element.ID())
+				jobExecution.MarkAsCompleted()
+			} else {
+				// エラー発生で次の遷移がない場合はジョブ失敗
+				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生しましたが、適切な遷移ルールが見つかりません。ジョブを失敗として終了します。", j.JobName(), element.ID())
+				jobExecution.MarkAsFailed(elementErr)
+			}
+			break
+		}
+
+		// 遷移ルールが End, Fail, Stop を指示した場合の処理
+		if transitionRule.End {
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.JobName(), element.ID())
+			jobExecution.MarkAsCompleted()
+			break
+		}
+		if transitionRule.Fail {
+			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.JobName(), element.ID())
+			jobExecution.MarkAsFailed(fmt.Errorf("explicit fail transition from %s", element.ID()))
+			break
+		}
+		if transitionRule.Stop {
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.JobName(), element.ID())
+			jobExecution.MarkAsStopped()
+			break
+		}
+
+		// 次の要素IDを更新
+		currentElementID = transitionRule.To
+	}
+
+	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了しました。", j.JobName(), jobExecution.ID)
 	return nil
-}
-
-// JobName はジョブ名を返します。core.Job インターフェースの実装です。
-func (j *WeatherJob) JobName() string {
-	return j.config.Batch.JobName
-}
-
-// GetFlow はジョブのフロー定義を返します。core.Job インターフェースの実装です。
-func (j *WeatherJob) GetFlow() *core.FlowDefinition {
-	return j.flow
 }
