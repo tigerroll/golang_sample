@@ -1,4 +1,3 @@
-// src/main/go/batch/step/tasklet_step.go
 package step
 
 import (
@@ -78,9 +77,8 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	// StepExecution の ExecutionContext から Tasklet の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("Taskletステップ '%s': ExecutionContext から Tasklet の状態を復元します。", s.name)
-		// taskletECVal は interface{} 型、ok は bool 型
-		if taskletECVal, ok := stepExecution.ExecutionContext.Get("tasklet_context"); ok { // ★ 修正: 2つの戻り値を受け取る
-			if taskletEC, isEC := taskletECVal.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
+		if taskletECVal, ok := stepExecution.ExecutionContext.Get("tasklet_context"); ok {
+			if taskletEC, isEC := taskletECVal.(core.ExecutionContext); isEC {
 				if err := s.tasklet.SetExecutionContext(ctx, taskletEC); err != nil {
 					logger.Errorf("Taskletステップ '%s': Tasklet の ExecutionContext 復元に失敗しました: %v", s.name, err)
 					stepExecution.AddFailureException(err)
@@ -112,7 +110,7 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	if err != nil {
 		logger.Errorf("Taskletステップ '%s' の実行中にエラーが発生しました: %v", s.name, err)
 		stepExecution.MarkAsFailed(err)
-		jobExecution.AddFailureException(err) // JobExecution にもエラーを追加
+		jobExecution.AddFailureException(err)
 		return exception.NewBatchError(s.name, "Tasklet 実行エラー", err, false, false)
 	}
 
@@ -137,7 +135,6 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	if exitStatus == core.ExitStatusCompleted {
 		stepExecution.MarkAsCompleted()
 	} else {
-		// Tasklet が COMPLETED 以外を返した場合、ステップは失敗とみなす
 		stepExecution.MarkAsFailed(fmt.Errorf("Tasklet returned non-completed exit status: %s", exitStatus))
 	}
 

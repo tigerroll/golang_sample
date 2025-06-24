@@ -235,7 +235,7 @@ func main() {
 		jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
 	// JobExecution の状態に基づいてアプリケーションの終了コードを制御
-	if jobExecution.Status == core.JobStatusFailed || jobExecution.Status == core.JobStatusAbandoned {
+	if jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned { // ★ 修正: core.BatchStatusFailed と core.BatchStatusAbandoned に変更
 		logger.Errorf(
 			"Job '%s' は失敗しました。詳細は JobExecution (ID: %s) およびログを確認してください。",
 			jobExecution.JobName,
