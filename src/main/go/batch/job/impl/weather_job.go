@@ -70,7 +70,7 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobE
 // Run はジョブの実行ロジックを定義します。
 // ジョブのフロー定義に基づいてステップやデシジョンを順次実行します。
 func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error { // ★ 修正: jobParameters を追加
-	logger.Infof("ジョブ '%s' (Execution ID: %s) を開始します。", j.JobName(), jobExecution.ID)
+	logger.Infof("ジョブ '%s' (Execution ID: %s) 実行開始！", j.JobName(), jobExecution.ID)
 
 	// JobExecution の開始時刻を設定し、状態をマーク
 	jobExecution.StartTime = time.Now()
