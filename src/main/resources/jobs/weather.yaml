@@ -14,6 +14,7 @@ flow:
         ref: weatherWriter # JobFactory で登録されているコンポーネント名
       chunk:
         item-count: 50 # config.Batch.ChunkSize を利用
+        commit-interval: 50 # ★ 追加: コミット間隔を設定
       transitions:
         - on: COMPLETED # ステップが正常完了した場合
           to: processDummyDataStep # 次のステップへ遷移
@@ -29,6 +30,7 @@ flow:
         ref: dummyWriter # JobFactory で登録されているダミーコンポーネント名
       chunk:
         item-count: 10 # このステップのチャンクサイズ
+        commit-interval: 10 # ★ 追加: コミット間隔を設定
       transitions:
         - on: COMPLETED
           end: true # ジョブ全体を正常完了として終了
