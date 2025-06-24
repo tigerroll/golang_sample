@@ -6,6 +6,7 @@ import (
 	"time" // time パッケージをインポート
 
 	entity "sample/src/main/go/batch/domain/entity" // entity パッケージをインポート
+	logger "sample/src/main/go/batch/util/logger"   // logger パッケージをインポート
 )
 
 // DummyProcessor は入力アイテムをそのまま返すダミーの Processor です。
@@ -26,7 +27,7 @@ func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { /
 	default:
 	}
 
-	// logger.Debugf("DummyProcessor.Process が呼び出されました。入力アイテムをダミーの WeatherDataToStore に変換します。")
+	logger.Debugf("DummyProcessor.Process が呼び出されました。入力アイテムをダミーの WeatherDataToStore に変換します。")
 
 	// ダミーの WeatherDataToStore を作成
 	// 実際の処理では item を変換するロジックが入る
