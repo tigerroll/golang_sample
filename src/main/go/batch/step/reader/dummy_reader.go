@@ -5,6 +5,7 @@ import (
   "io" // io パッケージをインポート
 
   core "sample/src/main/go/batch/job/core" // core パッケージをインポート
+  logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 )
 
 // DummyReader は常に io.EOF を返すダミーの Reader です。
@@ -30,7 +31,7 @@ func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any
     return nil, ctx.Err()
   default:
   }
-  // logger.Debugf("DummyReader.Read が呼び出されました。io.EOF を返します。") // Logger はこのパッケージにないためコメントアウトまたは削除
+  logger.Debugf("DummyReader.Read が呼び出されました。io.EOF を返します。")
   return nil, io.EOF // 常に終端を示す
 }
 
@@ -43,7 +44,7 @@ func (r *DummyReader) Close(ctx context.Context) error {
     return ctx.Err()
   default:
   }
-  // logger.Debugf("DummyReader.Close が呼び出されました。")
+  logger.Debugf("DummyReader.Close が呼び出されました。")
   return nil
 }
 
@@ -57,7 +58,7 @@ func (r *DummyReader) SetExecutionContext(ctx context.Context, ec core.Execution
   default:
   }
   r.executionContext = ec
-  // logger.Debugf("DummyReader.SetExecutionContext が呼び出されました。")
+  logger.Debugf("DummyReader.SetExecutionContext が呼び出されました。")
   return nil
 }
 
@@ -70,7 +71,7 @@ func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionCo
     return nil, ctx.Err()
   default:
   }
-  // logger.Debugf("DummyReader.GetExecutionContext が呼び出されました。")
+  logger.Debugf("DummyReader.GetExecutionContext が呼び出されました。")
   return r.executionContext, nil
 }
 
