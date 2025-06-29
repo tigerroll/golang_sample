@@ -2,7 +2,6 @@
 package factory
 
 import (
-	"context"
 	"fmt"
 	"reflect" // reflect パッケージをインポート
 
