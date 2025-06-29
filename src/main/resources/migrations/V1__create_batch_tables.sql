@@ -70,18 +70,24 @@ CREATE TABLE IF NOT EXISTS execution_context (
         (job_execution_id IS NOT NULL AND step_execution_id IS NULL) OR
         (job_execution_id IS NULL AND step_execution_id IS NOT NULL)
     ),
-    -- 各スコープ内でキーが一意であることを保証
-    CONSTRAINT uk_job_context UNIQUE (job_execution_id, key_name),
-    CONSTRAINT uk_step_context UNIQUE (step_execution_id, key_name),
     FOREIGN KEY (job_execution_id) REFERENCES job_executions(id) ON DELETE CASCADE,
     FOREIGN KEY (step_execution_id) REFERENCES step_executions(id) ON DELETE CASCADE
 );
 
+-- 各スコープ内でキーが一意であることを保証 (部分ユニークインデックス)
+-- job_execution_id が NULL でない場合に (job_execution_id, key_name) の組み合わせが一意であることを保証
+CREATE UNIQUE INDEX IF NOT EXISTS uk_job_context_partial ON execution_context (job_execution_id, key_name) WHERE job_execution_id IS NOT NULL;
+-- step_execution_id が NULL でない場合に (step_execution_id, key_name) の組み合わせが一意であることを保証
+CREATE UNIQUE INDEX IF NOT EXISTS uk_step_context_partial ON execution_context (step_execution_id, key_name) WHERE step_execution_id IS NOT NULL;
+
+
 -- インデックスの追加 (パフォーマンス向上のため)
 CREATE INDEX IF NOT EXISTS idx_job_executions_job_instance_id ON job_executions (job_instance_id);
 CREATE INDEX IF NOT EXISTS idx_step_executions_job_execution_id ON step_executions (job_execution_id);
-CREATE INDEX IF NOT EXISTS idx_execution_context_job_execution_id ON execution_context (job_execution_id);
-CREATE INDEX IF NOT EXISTS idx_execution_context_step_execution_id ON execution_context (step_execution_id);
+-- execution_context のインデックスは部分ユニークインデックスでカバーされるため、一般的なインデックスは不要な場合が多い
+-- 必要であれば追加
+-- CREATE INDEX IF NOT EXISTS idx_execution_context_job_execution_id ON execution_context (job_execution_id);
+-- CREATE INDEX IF NOT EXISTS idx_execution_context_step_execution_id ON execution_context (step_execution_id);
 
 -- 更新時刻を自動更新するトリガー (PostgreSQLの場合)
 -- job_instances
