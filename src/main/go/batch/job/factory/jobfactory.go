@@ -7,7 +7,6 @@ import (
 
 	config "sample/src/main/go/batch/config"
 	core "sample/src/main/go/batch/job/core"
-	impl "sample/src/main/go/batch/job/impl" // impl パッケージをインポート
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
@@ -17,6 +16,7 @@ import (
 	weather_processor "sample/src/main/go/batch/weather/step/processor"
 	weather_reader "sample/src/main/go/batch/weather/step/reader"
 	weather_writer "sample/src/main/go/batch/weather/step/writer"
+	weather_job "sample/src/main/go/batch/weather/job" // weather_job パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 
@@ -199,7 +199,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// 5. Job インスタンスの作成
 	// impl パッケージで定義された NewWeatherJob コンストラクタを呼び出す
 	// このコンストラクタは *impl.WeatherJob を返しますが、core.Job インターフェースとして扱われます。
-	weatherJobImpl := impl.NewWeatherJob(
+	weatherJobImpl := weather_job.NewWeatherJob(
 		f.jobRepository, // JobRepository を渡す
 		f.config,        // Config を渡す
 		jobListeners,    // 構築した JobExecutionListener を渡す
