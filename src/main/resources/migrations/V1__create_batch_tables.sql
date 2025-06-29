@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS job_instances (
     job_name VARCHAR(255) NOT NULL,
     job_key TEXT NOT NULL, -- ジョブパラメータのハッシュなど、ジョブインスタンスを一意に識別するキー
     version INTEGER NOT NULL DEFAULT 0, -- 楽観的ロックのためのバージョン
-    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- MySQL: TIMESTAMP を使用 (DATETIME との衝突を避けるため)
-    last_updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- MySQL: 自動更新
+    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- MySQL: TIMESTAMP を使用
+    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- MySQL: 自動更新 (TIMESTAMP 型に修正)
     CONSTRAINT uk_job_instance_name_key UNIQUE (job_name, job_key)
 );
 
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS job_executions (
     status VARCHAR(50) NOT NULL, -- 例: STARTED, COMPLETED, FAILED, ABANDONED
     exit_code VARCHAR(255),
     exit_description TEXT,
-    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- MySQL: TIMESTAMP を使用 (DATETIME との衝突を避けるため)
-    last_updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- MySQL: 自動更新 (TIMESTAMP 型に修正)
     version INTEGER NOT NULL DEFAULT 0,
     job_parameters TEXT, -- ジョブ実行時のパラメータをJSON文字列などで保存
     FOREIGN KEY (job_instance_id) REFERENCES job_instances(id) ON DELETE CASCADE
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS step_executions (
     write_skip_count INTEGER NOT NULL DEFAULT 0,
     filter_count INTEGER NOT NULL DEFAULT 0,
     version INTEGER NOT NULL DEFAULT 0,
-    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- MySQL: TIMESTAMP を使用 (DATETIME との衝突を避けるため)
-    last_updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- MySQL: 自動更新 (TIMESTAMP 型に修正)
     FOREIGN KEY (job_execution_id) REFERENCES job_executions(id) ON DELETE CASCADE
 );
 
@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS execution_context (
     key_name VARCHAR(255) NOT NULL, -- 'key' は予約語の可能性があるため 'key_name' に変更
     value_data TEXT, -- 'value' は予約語の可能性があるため 'value_data' に変更
     value_type VARCHAR(50) NOT NULL, -- 例: STRING, INT, FLOAT, BOOL, JSON
-    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- MySQL: TIMESTAMP を使用 (DATETIME との衝突を避けるため)
-    last_updated_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- MySQL: 自動更新 (TIMESTAMP 型に修正)
     -- ジョブまたはステップのどちらか一方に紐づくことを保証 (MySQL 8.0.16+ でサポート)
     CONSTRAINT chk_job_or_step_execution CHECK (
         (job_execution_id IS NOT NULL AND step_execution_id IS NULL) OR
