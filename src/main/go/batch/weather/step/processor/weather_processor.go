@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	weather_entity "sample/src/main/go/batch/weather/domain/entity"
+	weather_entity "sample/src/main/go/batch/weather/domain/entity" // weather_entity パッケージをインポート
+	processor "sample/src/main/go/batch/step/processor" // Processor インターフェースをインポート
 )
 
 type WeatherProcessor struct {
@@ -68,4 +69,4 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認
-var _ Processor[any, any] = (*WeatherProcessor)(nil)
+var _ processor.Processor[any, any] = (*WeatherProcessor)(nil)

@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"time" // time パッケージをインポート
 
-	weather_config "sample/src/main/go/batch/weather/config" // config パッケージをインポート
-	weather_entity "sample/src/main/go/batch/weather/domain/entity" // entity パッケージをインポート
+	weather_config "sample/src/main/go/batch/weather/config" // weather_config パッケージをインポート
+	weather_entity "sample/src/main/go/batch/weather/domain/entity" // weather_entity パッケージをインポート
 	core "sample/src/main/go/batch/job/core" // core パッケージをインポート
+	reader "sample/src/main/go/batch/step/reader" // Reader インターフェースをインポート
 	logger "sample/src/main/go/batch/util/logger"
 )
 
@@ -185,4 +186,4 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
 }
 
 // WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
-var _ Reader[any] = (*WeatherReader)(nil)
+var _ reader.Reader[any] = (*WeatherReader)(nil)

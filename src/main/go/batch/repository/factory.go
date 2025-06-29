@@ -10,6 +10,7 @@ import (
 	"sample/src/main/go/batch/config"
 	"sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
+	weather_repo "sample/src/main/go/batch/weather/repository" // weather_repo パッケージをインポート
 
 	_ "github.com/lib/pq"              // PostgreSQL/Redshift ドライバ
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ
@@ -18,7 +19,7 @@ import (
 
 // NewWeatherRepository は WeatherRepository を生成する既存の関数です。
 // ... (既存の NewWeatherRepository 関数は省略せずそのまま残してください) ...
-func NewWeatherRepository(ctx context.Context, cfg config.Config) (WeatherRepository, error) {
+func NewWeatherRepository(ctx context.Context, cfg config.Config) (weather_repo.WeatherRepository, error) { // 戻り値の型を修正
 	module := "repository_factory" // このモジュールの名前を定義
 	logger.Debugf("WeatherRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 

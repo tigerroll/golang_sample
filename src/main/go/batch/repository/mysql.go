@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
-	weather_entity "sample/src/main/go/batch/weather/domain/entity"
+	weather_entity "sample/src/main/go/batch/weather/domain/entity" // weather_entity パッケージをインポート
 	"sample/src/main/go/batch/util/logger" // logger を直接インポート
 	"sample/src/main/go/batch/util/exception" // exception を直接インポート
 	weather_repo "sample/src/main/go/batch/weather/repository"

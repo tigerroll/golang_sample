@@ -8,6 +8,7 @@ import (
 	weather_entity "sample/src/main/go/batch/weather/domain/entity"
 	core "sample/src/main/go/batch/job/core"
 	weather_repo "sample/src/main/go/batch/weather/repository" // repository パッケージをインポート
+	writer "sample/src/main/go/batch/step/writer" // Writer インターフェースをインポート
 	"sample/src/main/go/batch/util/logger"
 )
 
@@ -105,4 +106,4 @@ func (w *WeatherItemWriter) GetExecutionContext(ctx context.Context) (core.Execu
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ Writer[any] = (*WeatherItemWriter)(nil)
+var _ writer.Writer[any] = (*WeatherItemWriter)(nil)

@@ -20,9 +20,9 @@ import (
 	logger "sample/src/main/go/batch/util/logger"
 
 	// JSLでコンポーネントを動的に解決するため、Reader/Processor/Writerのパッケージをインポート
-	_ "sample/src/main/go/batch/weather/step/processor" // NewWeatherProcessor が参照されるためインポート
-	_ "sample/src/main/go/batch/weather/step/reader"    // NewWeatherReader が参照されるためインポート
-	_ "sample/src/main/go/batch/weather/step/writer"    // NewWeatherWriter が参照されるためインポート
+	_ "sample/src/main/go/batch/weather/step/processor"
+	_ "sample/src/main/go/batch/weather/step/reader"
+	_ "sample/src/main/go/batch/weather/step/writer"
 	_ "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
 	_ "sample/src/main/go/batch/step/reader"    // dummy_reader.go がこのパッケージに属する
 	_ "sample/src/main/go/batch/step/writer"    // dummy_writer.go がこのパッケージに属する
