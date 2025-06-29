@@ -113,7 +113,7 @@ func main() {
 	switch cfg.Database.Type {
 	case "postgres", "redshift":
 		dbDriverName = "postgres"
-		migrateDBURL = fmt.Sprintf("postgres://%s", dbDSN) // postgres://user:pass@host:port/db?sslmode=disable
+		migrateDBURL = dbDSN // config.ConnectionString() が既に "postgres://" を含んでいるため、そのまま使用
 	case "mysql":
 		dbDriverName = "mysql"
 		migrateDBURL = fmt.Sprintf("mysql://%s", dbDSN) // mysql://user:pass@tcp(host:port)/db
