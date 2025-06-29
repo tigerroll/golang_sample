@@ -4,6 +4,10 @@
 -- PostgreSQL 13 以降では不要ですが、互換性のために含めます。
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- トリガー関数で使用する plpgsql 言語が利用可能であることを確認
+-- 通常はデフォルトで利用可能ですが、環境によっては必要になる場合があります。
+CREATE LANGUAGE plpgsql;
+
 -- job_instances テーブル
 -- ジョブのユニークな定義を保持します。job_name と job_key の組み合わせで一意になります。
 CREATE TABLE IF NOT EXISTS job_instances (
