@@ -139,6 +139,8 @@ func main() {
 	// マイグレーションソースのパス
 	// プロジェクトのルートからの相対パスを想定
 	migrationsPath := "file://src/main/resources/migrations" // ★ マイグレーションファイルのパスを設定
+	logger.Debugf("マイグレーションパス: %s", migrationsPath)
+	logger.Debugf("マイグレーション用DB接続文字列: %s", dbURL) // Log the DSN
 
 	m, err := migrate.New(
 		migrationsPath,
@@ -155,8 +157,27 @@ func main() {
 	}
 	logger.Infof("データベースマイグレーションが完了しました。")
 
+	// ★ 追加: マイグレーション後のテーブル存在チェック ★
+	logger.Infof("マイグレーション後の 'job_instances' テーブルの存在を確認します...")
+	var exists int
+	// dbForMigrate を使用してこのチェックを実行します。これは既に開かれ、接続が確認されています。
+	// これにより、この接続からテーブルが見えるかどうかを確認します。
+	err = dbForMigrate.QueryRowContext(ctx, "SELECT 1 FROM job_instances LIMIT 1;").Scan(&exists)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logger.Warnf("'job_instances' テーブルは存在しますが、データがありません。")
+		} else {
+			logger.Fatalf("'job_instances' テーブルの存在確認に失敗しました: %v", exception.NewBatchError("main", "'job_instances' テーブルの存在確認に失敗しました", err, false, false))
+		}
+	} else {
+		logger.Infof("'job_instances' テーブルが正常に存在することを確認しました。")
+	}
+	// ★ 追加ここまで ★
+
 	// Step 1: Job Repository の生成
 	// マイグレーション後にデータベース接続を確立
+	// NewJobRepository は独自の接続を開きます。
+	logger.Debugf("Job Repository 用DB接続文字列: %s", cfg.Database.ConnectionString()) // Log the DSN for JobRepository
 	jobRepository, err := repository.NewJobRepository(ctx, *cfg)
 	if err != nil {
 		logger.Fatalf("Job Repository の生成に失敗しました: %v", exception.NewBatchError("main", "Job Repository の生成に失敗しました", err, false, false))
