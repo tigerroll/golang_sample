@@ -1,5 +1,9 @@
 -- V1__create_batch_tables.sql
 
+-- UUID 生成関数 gen_random_uuid() を使用するために uuid-ossp 拡張を有効化
+-- PostgreSQL 13 以降では不要ですが、互換性のために含めます。
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- job_instances テーブル
 -- ジョブのユニークな定義を保持します。job_name と job_key の組み合わせで一意になります。
 CREATE TABLE IF NOT EXISTS job_instances (
