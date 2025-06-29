@@ -8,9 +8,10 @@ import (
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (Redshift も互換性があるため使用)
 	"sample/src/main/go/batch/config"
-	"sample/src/main/go/batch/domain/entity"
+	weather_entity "sample/src/main/go/batch/weather/domain/entity"
 	"sample/src/main/go/batch/util/exception" // exception を直接インポート
 	"sample/src/main/go/batch/util/logger"    // logger を直接インポート
+	weather_repo "sample/src/main/go/batch/weather/repository"
 )
 
 // RedshiftRepository 型を定義
@@ -44,7 +45,7 @@ func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftReposi
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをRedshiftに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
 // トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
-func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error {
+func (r *RedshiftRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []weather_entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -107,4 +108,4 @@ func (r *RedshiftRepository) Close() error {
 }
 
 // RedshiftRepository が WeatherRepository インターフェースを満たすことを確認
-var _ WeatherRepository = (*RedshiftRepository)(nil)
+var _ weather_repo.WeatherRepository = (*RedshiftRepository)(nil)

@@ -81,12 +81,6 @@ type Config struct {
   System   SystemConfig   `yaml:"system"`
 }
 
-// WeatherReader に必要な設定のみを持つ構造体
-type WeatherReaderConfig struct {
-  APIEndpoint string
-  APIKey      string
-}
-
 // WeatherProcessor に必要な設定のみを持つ構造体 (現時点ではなし、必要に応じて追加)
 // type WeatherProcessorConfig struct {}
 

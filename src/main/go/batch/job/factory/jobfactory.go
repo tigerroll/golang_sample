@@ -12,9 +12,12 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	stepReader "sample/src/main/go/batch/step/reader" // ★ 追加: stepReader パッケージをインポート
-	stepProcessor "sample/src/main/go/batch/step/processor" // ★ 追加: stepProcessor パッケージをインポート
-	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
+	// weather 関連のパッケージをインポート
+	weather_config "sample/src/main/go/batch/weather/config"
+	weather_repo "sample/src/main/go/batch/weather/repository"
+	weather_processor "sample/src/main/go/batch/weather/step/processor"
+	weather_reader "sample/src/main/go/batch/weather/step/reader"
+	weather_writer "sample/src/main/go/batch/weather/step/writer"
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 
@@ -26,12 +29,14 @@ import (
 	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
 	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
 	step "sample/src/main/go/batch/step"           // JSLAdaptedStep が参照されるためインポート
+	stepReader "sample/src/main/go/batch/step/reader" // ★ 追加: stepReader パッケージをインポート
+	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
 // 依存関係 (config, repo など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
 // ジェネリックインターフェースを返すため、any を使用します。
-type ComponentBuilder func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) // weatherRepo を受け取るように修正
+type ComponentBuilder func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) // weatherRepo を受け取るように修正
 
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
@@ -62,43 +67,43 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 
 // registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を登録します。
 func (f *JobFactory) registerComponentBuilders() {
-	f.componentBuilders["weatherReader"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
-		weatherReaderCfg := &config.WeatherReaderConfig{ // config.WeatherReaderConfig は config パッケージにある
+	f.componentBuilders["weatherReader"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		weatherReaderCfg := &weather_config.WeatherReaderConfig{ // weather_config.WeatherReaderConfig を使用
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
 		// Reader[*entity.OpenMeteoForecast] を返す
-		return stepReader.NewWeatherReader(weatherReaderCfg), nil // ★ 修正: stepReader.NewWeatherReader
+		return weather_reader.NewWeatherReader(weatherReaderCfg), nil // ★ 修正: weather_reader.NewWeatherReader
 	}
-	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["weatherProcessor"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] を返す
-		return stepProcessor.NewWeatherProcessor(), nil // ★ 修正: stepProcessor.NewWeatherProcessor
+		return weather_processor.NewWeatherProcessor(), nil // ★ 修正: weather_processor.NewWeatherProcessor
 	}
-	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["weatherWriter"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Writer[*entity.WeatherDataToStore] を返す
-		return stepWriter.NewWeatherItemWriter(weatherRepo), nil // ★ 修正: stepWriter.NewWeatherItemWriter
+		return weather_writer.NewWeatherWriter(weatherRepo), nil // ★ 修正: weather_writer.NewWeatherWriter (統合されたもの)
 	}
-	f.componentBuilders["dummyReader"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["dummyReader"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Reader[any] を返す
 		return dummyReader.NewDummyReader(), nil
 	}
-	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["dummyProcessor"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Processor[any, any] を返す
 		return dummyProcessor.NewDummyProcessor(), nil
 	}
-	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["dummyWriter"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Writer[any] を返す
 		return dummyWriter.NewDummyWriter(), nil
 	}
 	// ★ 新しいコンポーネントの登録 ★
-	f.componentBuilders["executionContextReader"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["executionContextReader"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		return stepReader.NewExecutionContextReader(), nil
 	}
-	f.componentBuilders["executionContextWriter"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["executionContextWriter"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		return stepWriter.NewExecutionContextWriter(), nil
 	}
 	// Tasklet の登録例
-	f.componentBuilders["sampleTasklet"] = func(cfg *config.Config, weatherRepo repository.WeatherRepository) (any, error) {
+	f.componentBuilders["sampleTasklet"] = func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
 		// Tasklet は通常、リポジトリを直接受け取らないが、必要であればここで渡す
 		return step.NewSampleTasklet(), nil // NewSampleTasklet は Tasklet インターフェースを実装する
 	}
@@ -120,8 +125,32 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	componentInstances := make(map[string]any) // map[string]any に変更
 
 	// WeatherRepository は WeatherWriter が必要とするので、ここで作成する。
-	weatherRepo, err := repository.NewWeatherRepository(context.Background(), *f.config)
-	if err != nil {
+	// config.Database.Type に応じて適切なリポジトリを生成
+	var weatherRepo weather_repo.WeatherRepository
+	var err error
+	switch f.config.Database.Type {
+	case "postgres":
+		db, dbErr := repository.NewPostgresRepositoryFromConfig(f.config.Database)
+		if dbErr != nil {
+			return nil, exception.NewBatchError("job_factory", "PostgresRepository の生成に失敗しました", dbErr, false, false)
+		}
+		weatherRepo = db
+	case "mysql":
+		db, dbErr := repository.NewMySQLRepositoryFromConfig(f.config.Database)
+		if dbErr != nil {
+			return nil, exception.NewBatchError("job_factory", "MySQLRepository の生成に失敗しました", dbErr, false, false)
+		}
+		weatherRepo = db
+	case "redshift":
+		db, dbErr := repository.NewRedshiftRepositoryFromConfig(f.config.Database)
+		if dbErr != nil {
+			return nil, exception.NewBatchError("job_factory", "RedshiftRepository の生成に失敗しました", dbErr, false, false)
+		}
+		weatherRepo = db
+	default:
+		return nil, exception.NewBatchErrorf("job_factory", "未対応のデータベースタイプです: %s", f.config.Database.Type)
+	}
+	if err != nil { // This err check is for the switch block, but it's always nil here. The dbErr is checked inside.
 		return nil, exception.NewBatchError("job_factory", "WeatherRepository の生成に失敗しました", err, false, false)
 	}
 	// Note: リポジトリのリソース解放 (Close メソッドを持つ場合) は Job の Run メソッド内で defer されるため、ここでは不要

@@ -9,9 +9,10 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
-	"sample/src/main/go/batch/domain/entity"
+	weather_entity "sample/src/main/go/batch/weather/domain/entity"
 	"sample/src/main/go/batch/util/logger" // logger を直接インポート
 	"sample/src/main/go/batch/util/exception" // exception を直接インポート
+	weather_repo "sample/src/main/go/batch/weather/repository"
 )
 
 type MySQLRepository struct {
@@ -43,7 +44,7 @@ func NewMySQLRepositoryFromConfig(cfg config.DatabaseConfig) (*MySQLRepository, 
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをMySQLに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
 // トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
-func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error { // ★ tx を追加
+func (r *MySQLRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []weather_entity.WeatherDataToStore) error { // ★ tx を追加
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -123,4 +124,4 @@ func (r *MySQLRepository) Close() error {
 // この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
 // またはインポート可能なパッケージで定義されていることを前提としています。
 // もしWeatherRepositoryが未定義であれば、別途定義が必要です。
-var _ WeatherRepository = (*MySQLRepository)(nil)
+var _ weather_repo.WeatherRepository = (*MySQLRepository)(nil)

@@ -8,9 +8,10 @@ import (
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
-	"sample/src/main/go/batch/domain/entity"
+	weather_entity "sample/src/main/go/batch/weather/domain/entity"
 	"sample/src/main/go/batch/util/exception" // exception を直接インポート
 	"sample/src/main/go/batch/util/logger"    // logger を直接インポート
+	weather_repo "sample/src/main/go/batch/weather/repository"
 )
 
 type PostgresRepository struct {
@@ -41,7 +42,7 @@ func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresReposi
 // BulkInsertWeatherData は加工済みの天気予報データアイテムのチャンクをPostgreSQLに保存します。
 // このメソッドは、ItemWriterから呼び出されることを想定しています。
 // トランザクションは呼び出し元 (JSLAdaptedStep) から渡されるように変更します。
-func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []entity.WeatherDataToStore) error {
+func (r *PostgresRepository) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []weather_entity.WeatherDataToStore) error {
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -106,4 +107,4 @@ func (r *PostgresRepository) Close() error {
 // この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
 // またはインポート可能なパッケージで定義されていることを前提としています。
 // もしWeatherRepositoryが未定義であれば、別途定義が必要です。
-var _ WeatherRepository = (*PostgresRepository)(nil)
+var _ weather_repo.WeatherRepository = (*PostgresRepository)(nil)
