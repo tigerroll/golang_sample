@@ -101,19 +101,22 @@ func main() {
 		cancel() // Context をキャンセルしてジョブ実行を中断
 	}()
 
-	// データベース接続文字列を構築
-	dbURL := cfg.Database.ConnectionString()
-	if dbURL == "" {
+	// データベース接続文字列を構築 (sql.Open 用の DSN)
+	dbDSN := cfg.Database.ConnectionString()
+	if dbDSN == "" {
 		logger.Fatalf("データベース接続文字列の構築に失敗しました。")
 	}
 
-	// データベースドライバ名の決定
+	// データベースドライバ名の決定と migrate 用 URL の構築
 	dbDriverName := ""
+	migrateDBURL := "" // golang-migrate 用の URL (スキーム付き)
 	switch cfg.Database.Type {
 	case "postgres", "redshift":
 		dbDriverName = "postgres"
+		migrateDBURL = fmt.Sprintf("postgres://%s", dbDSN) // postgres://user:pass@host:port/db?sslmode=disable
 	case "mysql":
 		dbDriverName = "mysql"
+		migrateDBURL = fmt.Sprintf("mysql://%s", dbDSN) // mysql://user:pass@tcp(host:port)/db
 	default:
 		logger.Fatalf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 	}
@@ -121,7 +124,7 @@ func main() {
 	// ★ データベースマイグレーションの実行前に、DB接続をリトライ付きで確立 ★
 	// マイグレーション用のDB接続を確立 (リトライ付き)
 	// 10回リトライ、5秒間隔で最大50秒待機
-	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbURL, 10, 5*time.Second)
+	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbDSN, 10, 5*time.Second)
 	if err != nil {
 		logger.Fatalf("データベースへの接続に失敗しました: %v", exception.NewBatchError("main", "データベースへの接続に失敗しました", err, false, false))
 	}
@@ -140,11 +143,11 @@ func main() {
 	// プロジェクトのルートからの相対パスを想定
 	migrationsPath := "file://src/main/resources/migrations" // ★ マイグレーションファイルのパスを設定
 	logger.Debugf("マイグレーションパス: %s", migrationsPath)
-	logger.Debugf("マイグレーション用DB接続文字列: %s", dbURL) // Log the DSN
+	logger.Debugf("マイグレーション用DB接続文字列 (migrate tool): %s", migrateDBURL) // Log the DSN for migrate
 
 	m, err := migrate.New(
 		migrationsPath,
-		dbURL, // golang-migrate/migrate は内部で新しい接続を開くため、dbForMigrate は直接渡さない
+		migrateDBURL, // golang-migrate/migrate は内部で新しい接続を開くため、dbForMigrate は直接渡さない
 	)
 	if err != nil {
 		// ここで発生するエラーの詳細をログに出力するように変更
