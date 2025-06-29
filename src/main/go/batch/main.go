@@ -152,6 +152,14 @@ func main() {
 		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
 	}
 	logger.Infof("データベースマイグレーションを開始します...")
+
+	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
+	// 本番環境ではこのロジックは使用しないでください。
+	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
+		logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
+	} else if err == nil {
+		logger.Debugf("既存のマイグレーションをダウンしました。")
+	}
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		logger.Fatalf("データベースマイグレーションの実行に失敗しました: %v", exception.NewBatchError("main", "データベースマイグレーションの実行に失敗しました", err, false, false))
 	}
