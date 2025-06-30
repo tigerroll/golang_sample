@@ -3,12 +3,13 @@ package main // アプリケーションのエントリポイントなので mai
 import (
 	"context"
 	"database/sql"
-	"embed" // embed パッケージをインポート
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "embed"
 
 	"github.com/joho/godotenv"
 
