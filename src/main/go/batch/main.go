@@ -246,7 +246,6 @@ func main() {
 	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
 		// weatherWriter は weather_repo.WeatherRepository を必要とするため、ここで作成し、db を渡す
 		var weatherSpecificRepo weather_repo.WeatherRepository
-		var err error
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
 			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(db)
@@ -255,9 +254,7 @@ func main() {
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}
-		if err != nil {
-			return nil, fmt.Errorf("weather repository の生成に失敗しました: %w", err)
-		}
+		// NewPostgresWeatherRepository/NewMySQLWeatherRepository はエラーを返さないため、errチェックは不要
 
 		return weather_writer.NewWeatherWriter(weatherSpecificRepo), nil
 	})
