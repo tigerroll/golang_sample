@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"sample/src/main/go/batch/config"
+	config "sample/src/main/go/batch/config"
 	core "sample/src/main/go/batch/job/core"
 	jobListener "sample/src/main/go/batch/job/listener"
 	batch_repository "sample/src/main/go/batch/repository" // エイリアスを追加
