@@ -15,6 +15,7 @@ import (
 	job "sample/src/main/go/batch/job" // job パッケージをインポート
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory" // factory パッケージをインポート
+	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger"
@@ -24,8 +25,11 @@ import (
 	_ "sample/src/main/go/batch/weather/step/reader"
 	_ "sample/src/main/go/batch/weather/step/writer"
 	_ "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
+	dummyProcessor "sample/src/main/go/batch/step/processor" // NewDummyProcessor のためにインポート
 	_ "sample/src/main/go/batch/step/reader"    // dummy_reader.go がこのパッケージに属する
+	dummyReader "sample/src/main/go/batch/step/reader" // NewDummyReader のためにインポート
 	_ "sample/src/main/go/batch/step/writer"    // dummy_writer.go がこのパッケージに属する
+	dummyWriter "sample/src/main/go/batch/step/writer" // NewDummyWriter のためにインポート
 	_ "sample/src/main/go/batch/step"           // JSLAdaptedStep が参照されるためインポート
 
 	// ★ マイグレーション関連のインポートを追加 ★
@@ -35,6 +39,17 @@ import (
 	_ "github.com/go-sql-driver/mysql"                        // MySQL ドライバ
 	_ "github.com/lib/pq"                                     // PostgreSQL/Redshift ドライバ
 	_ "github.com/snowflakedb/gosnowflake"                    // Snowflake ドライバ (必要に応じて)
+
+	// weather 関連のパッケージをインポート (JobFactory への登録用)
+	weather_config "sample/src/main/go/batch/weather/config"
+	weather_repo "sample/src/main/go/batch/weather/repository"
+	weather_processor "sample/src/main/go/batch/weather/step/processor"
+	weather_reader "sample/src/main/go/batch/weather/step/reader"
+	weather_writer "sample/src/main/go/batch/weather/step/writer"
+	weather_job "sample/src/main/go/batch/weather/job"
+	executionContextReader "sample/src/main/go/batch/step/reader" // NewExecutionContextReader のためにインポート
+	executionContextWriter "sample/src/main/go/batch/step/writer" // NewExecutionContextWriter のためにインポート
+	sampleTasklet "sample/src/main/go/batch/step" // NewSampleTasklet のためにインポート
 )
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
@@ -208,6 +223,54 @@ func main() {
 	// Step 3: JobFactory の生成
 	jobFactory := factory.NewJobFactory(cfg, jobRepository)
 	logger.Debugf("JobFactory を Job Repository と共に作成しました。")
+
+	// ★ ここからが新しい登録ロジック ★
+	// コンポーネントビルダーの登録
+	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		weatherReaderCfg := &weather_config.WeatherReaderConfig{
+			APIEndpoint: cfg.Batch.APIEndpoint,
+			APIKey:      cfg.Batch.APIKey,
+		}
+		return weather_reader.NewWeatherReader(weatherReaderCfg), nil
+	})
+	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		return weather_processor.NewWeatherProcessor(), nil
+	})
+	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		return weather_writer.NewWeatherWriter(weatherRepo), nil
+	})
+	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		return dummyReader.NewDummyReader(), nil
+	})
+	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		return dummyProcessor.NewDummyProcessor(), nil
+	})
+	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		return dummyWriter.NewDummyWriter(), nil
+	})
+	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		// ExecutionContextReader は weatherRepo を直接使用しないが、シグネチャに合わせる
+		return executionContextReader.NewExecutionContextReader(), nil
+	})
+	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		// ExecutionContextWriter は weatherRepo を直接使用しないが、シグネチャに合わせる
+		return executionContextWriter.NewExecutionContextWriter(), nil
+	})
+	jobFactory.RegisterComponentBuilder("sampleTasklet", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+		// SampleTasklet は weatherRepo を直接使用しないが、シグネチャに合わせる
+		return sampleTasklet.NewSampleTasklet(), nil
+	})
+
+	// ジョブビルダーの登録
+	jobFactory.RegisterJobBuilder("weather", func(
+		jobRepository repository.JobRepository,
+		cfg *config.Config,
+		listeners []jobListener.JobExecutionListener, // jobListener パッケージの JobExecutionListener を使用
+		flow *core.FlowDefinition,
+	) (core.Job, error) {
+		return weather_job.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
+	})
+	// ★ ここまでが新しい登録ロジック ★
 
 
 	// 実行するジョブ名を指定 (JSLファイルで定義されたID)
