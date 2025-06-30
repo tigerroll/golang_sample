@@ -4,7 +4,7 @@ version: '3'
 
 vars:
   MODULE_NAME: sample
-  SRC_DIR: ./src/main/go/batch
+  SRC_DIR: ./src/main/go/batch/weather # main.go の新しい場所
   TEST_DIR: ./src/test/go/batch
   BINARY_NAME: batch
   BUILD_OUTPUT_DIR: dist
@@ -23,7 +23,7 @@ tasks:
       - dir: [".{{.BUILD_OUTPUT_DIR}}"]
     cmds:
       - cp src/main/resources/application.yaml src/main/go/batch/config
-      - go build -v -gcflags="all=-N -l" -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.SRC_DIR}}
+      - go build -v -gcflags="all=-N -l" -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.MODULE_NAME}}/{{.SRC_DIR}} # モジュールパスで指定
       - rm src/main/go/batch/config/application.yaml
       - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     generates:
