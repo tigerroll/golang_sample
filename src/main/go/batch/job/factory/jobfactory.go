@@ -32,6 +32,15 @@ import (
 	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
 )
 
+// JobBuilder は、特定の Job を生成するための関数型です。
+// 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
+type JobBuilder func(
+	jobRepository repository.JobRepository,
+	cfg *config.Config,
+	listeners []jobListener.JobExecutionListener,
+	flow *core.FlowDefinition,
+) (core.Job, error)
+
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
 // 依存関係 (config, repo など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
 // ジェネリックインターフェースを返すため、any を使用します。
@@ -42,6 +51,7 @@ type JobFactory struct {
 	config            *config.Config
 	jobRepository     repository.JobRepository // JobRepository を依存として追加
 	componentBuilders map[string]ComponentBuilder // コンポーネント生成関数を保持するマップ
+	jobBuilders       map[string]JobBuilder       // ★ 追加: ジョブ生成関数を保持するマップ
 }
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
@@ -56,10 +66,12 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 		config:        cfg,
 		jobRepository: repo, // JobRepository を初期化
 		componentBuilders: make(map[string]ComponentBuilder),
+		jobBuilders:       make(map[string]JobBuilder), // ★ 初期化
 	}
 
 	// コンポーネントビルダーを登録
 	jf.registerComponentBuilders()
+	jf.registerJobBuilders() // ★ 追加: ジョブビルダーを登録
 
 	return jf
 }
@@ -109,6 +121,20 @@ func (f *JobFactory) registerComponentBuilders() {
 	// 他のコンポーネントがあればここに追加登録
 }
 
+// registerJobBuilders は、利用可能な全てのジョブのビルド関数を登録します。
+func (f *JobFactory) registerJobBuilders() {
+	// "weather" ジョブのビルダーを登録
+	f.jobBuilders["weather"] = func(
+		jobRepository repository.JobRepository,
+		cfg *config.Config,
+		listeners []jobListener.JobExecutionListener,
+		flow *core.FlowDefinition,
+	) (core.Job, error) {
+		return weather_job.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
+	}
+	// 他のジョブタイプがあればここに追加登録
+}
+
 // CreateJob は指定されたジョブ名の core.Job オブジェクトを作成します。
 // JSL 定義からジョブを構築するロジックをここに集約します。
 func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns core.Job, error
@@ -118,6 +144,12 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	jslJob, ok := jsl.GetJobDefinition(jobName)
 	if !ok {
 		return nil, exception.NewBatchErrorf("job_factory", "指定された Job '%s' のJSL定義が見つかりません", jobName)
+	}
+
+	// 2. ジョブビルダーを取得
+	jobBuilder, found := f.jobBuilders[jobName]
+	if !found {
+		return nil, exception.NewBatchErrorf("job_factory", "指定された Job '%s' のビルダーが登録されていません", jobName)
 	}
 
 	// 2. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
@@ -196,17 +228,19 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		// 他の共通リスナーがあればここに追加
 	}
 
-	// 5. Job インスタンスの作成
-	// impl パッケージで定義された NewWeatherJob コンストラクタを呼び出す
-	// このコンストラクタは *impl.WeatherJob を返しますが、core.Job インターフェースとして扱われます。
-	weatherJobImpl := weather_job.NewWeatherJob(
+	// 5. 登録されたジョブビルダーを使用して Job インスタンスを作成
+	jobInstance, err := jobBuilder(
 		f.jobRepository, // JobRepository を渡す
 		f.config,        // Config を渡す
 		jobListeners,    // 構築した JobExecutionListener を渡す
 		coreFlow,        // 構築した FlowDefinition を渡す
 	)
+	// jobBuilder から返されたエラーをチェック
+	if err != nil {
+		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("ジョブ '%s' のインスタンス化に失敗しました", jobName), err, false, false)
+	}
 
-	logger.Debugf("WeatherJob created and configured successfully from JSL definition '%s'", jobName)
+	logger.Debugf("Job '%s' created and configured successfully from JSL definition.", jobName)
 
-	return weatherJobImpl, nil // Returns core.Job, error
+	return jobInstance, nil // Returns core.Job, error
 }
