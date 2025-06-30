@@ -20,13 +20,13 @@ CREATE TABLE IF NOT EXISTS job_instances (
     job_key TEXT NOT NULL, -- ジョブパラメータのハッシュなど、ジョブインスタンスを一意に識別するキー
     version INTEGER NOT NULL DEFAULT 0, -- 楽観的ロックのためのバージョン
     create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL, -- DEFAULT CURRENT_TIMESTAMP を削除
     CONSTRAINT uk_job_instance_name_key UNIQUE (job_name, job_key)
 );
 
 -- job_instances テーブルの last_updated_time を自動更新するトリガー
 CREATE TRIGGER set_job_instances_last_updated_time
-BEFORE UPDATE ON job_instances
+BEFORE INSERT OR UPDATE ON job_instances -- INSERT 時もトリガーを発火させる
 FOR EACH ROW
 EXECUTE FUNCTION update_last_updated_time();
 
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS job_executions (
     exit_code VARCHAR(255),
     exit_description TEXT,
     create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL, -- DEFAULT CURRENT_TIMESTAMP を削除
     version INTEGER NOT NULL DEFAULT 0,
     job_parameters TEXT, -- ジョブ実行時のパラメータをJSON文字列などで保存
     FOREIGN KEY (job_instance_id) REFERENCES job_instances(id) ON DELETE CASCADE
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS job_executions (
 
 -- job_executions テーブルの last_updated_time を自動更新するトリガー
 CREATE TRIGGER set_job_executions_last_updated_time
-BEFORE UPDATE ON job_executions
+BEFORE INSERT OR UPDATE ON job_executions -- INSERT 時もトリガーを発火させる
 FOR EACH ROW
 EXECUTE FUNCTION update_last_updated_time();
 
@@ -74,13 +74,13 @@ CREATE TABLE IF NOT EXISTS step_executions (
     filter_count INTEGER NOT NULL DEFAULT 0,
     version INTEGER NOT NULL DEFAULT 0,
     create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL, -- DEFAULT CURRENT_TIMESTAMP を削除
     FOREIGN KEY (job_execution_id) REFERENCES job_executions(id) ON DELETE CASCADE
 );
 
 -- step_executions テーブルの last_updated_time を自動更新するトリガー
 CREATE TRIGGER set_step_executions_last_updated_time
-BEFORE UPDATE ON step_executions
+BEFORE INSERT OR UPDATE ON step_executions -- INSERT 時もトリガーを発火させる
 FOR EACH ROW
 EXECUTE FUNCTION update_last_updated_time();
 
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS execution_context (
     value_data TEXT,
     value_type VARCHAR(50) NOT NULL, -- 例: STRING, INT, FLOAT, BOOL, JSON
     create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_time TIMESTAMP NOT NULL, -- DEFAULT CURRENT_TIMESTAMP を削除
     -- ジョブまたはステップのどちらか一方に紐づくことを保証
     CONSTRAINT chk_job_or_step_execution CHECK (
         (job_execution_id IS NOT NULL AND step_execution_id IS NULL) OR
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS execution_context (
 
 -- execution_context テーブルの last_updated_time を自動更新するトリガー
 CREATE TRIGGER set_execution_context_last_updated_time
-BEFORE UPDATE ON execution_context
+BEFORE INSERT OR UPDATE ON execution_context -- INSERT 時もトリガーを発火させる
 FOR EACH ROW
 EXECUTE FUNCTION update_last_updated_time();
 
