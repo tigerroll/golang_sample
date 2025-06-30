@@ -3,6 +3,7 @@ package main // アプリケーションのエントリポイントなので mai
 import (
 	"context"
 	"database/sql"
+	"embed" // embed パッケージをインポート
 	"fmt"
 	"os"
 	"os/signal"
@@ -52,6 +53,9 @@ import (
 	sampleTasklet "sample/src/main/go/batch/step"
 )
 
+//go:embed resources/application.yaml
+var embeddedConfig []byte // application.yaml の内容をバイトスライスとして埋め込む (main.go と resources は同じディレクトリ階層にあるため、相対パスで指定)
+
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
 func connectWithRetry(ctx context.Context, driverName, dataSourceName string, maxRetries int, delay time.Duration) (*sql.DB, error) {
 	var db *sql.DB
@@ -86,9 +90,9 @@ func main() {
 	}
 
 	// 設定のロード
-	// weather アプリケーション固有の ConfigLoader を使用
-	weatherLoader := weather_config.NewWeatherConfigLoader()
-	cfg, err := weatherLoader.Load()
+	// 汎用的な BytesConfigLoader を使用して埋め込み設定をロード
+	bytesLoader := config.NewBytesConfigLoader(embeddedConfig)
+	cfg, err := bytesLoader.Load()
 	if err != nil {
 		logger.Fatalf("設定のロードに失敗しました: %v", exception.NewBatchError("main", "設定のロードに失敗しました", err, false, false))
 	}

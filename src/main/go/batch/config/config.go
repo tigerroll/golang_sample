@@ -113,9 +113,3 @@ func NewConfig() *Config {
 // LoadConfig は loader.go で定義されているものを使用します。
 // loadYamlConfig は loader.go で定義されているものを使用します。
 // loadEnvVars は loader.go で定義されているものを使用します。
-
-// ConfigLoader は設定をロードするためのインターフェースです。
-// これにより、設定のロード元（ファイル、埋め込みデータ、環境変数など）を抽象化できます。
-type ConfigLoader interface {
-	Load() (*Config, error)
-}
