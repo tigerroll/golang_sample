@@ -3,10 +3,10 @@ package processor
 
 import (
 	"context"
-	"time" // time パッケージをインポート
+	"fmt" // Add fmt for Sprintf
+	"time"
 
-	weather_entity "sample/src/main/go/batch/weather/domain/entity" // weather_entity パッケージをインポート
-	logger "sample/src/main/go/batch/util/logger"   // logger パッケージをインポート
+	logger "sample/src/main/go/batch/util/logger"
 )
 
 // DummyProcessor は入力アイテムをそのまま返すダミーの Processor です。
@@ -17,8 +17,7 @@ type DummyProcessor struct{}
 func NewDummyProcessor() *DummyProcessor { return &DummyProcessor{} }
 
 // Process は Processor インターフェースの実装です。
-// 入力として受け取ったアイテムを []*entity.WeatherDataToStore 型に変換して返します。
-// これは JSLAdaptedStep が期待する型に合わせるためのダミー実装です。
+// 入力として受け取ったアイテムをそのまま返すか、汎用的なダミーデータを返します。
 func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { // I は any, O は any
 	// Context の完了をチェック
 	select {
@@ -27,20 +26,11 @@ func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { /
 	default:
 	}
 
-	logger.Debugf("DummyProcessor.Process が呼び出されました。入力アイテムをダミーの WeatherDataToStore に変換します。")
+	logger.Debugf("DummyProcessor.Process が呼び出されました。入力アイテムをダミーのデータに変換します。")
 
-	// ダミーの WeatherDataToStore を作成
-	// 実際の処理では item を変換するロジックが入る
-	dummyData := &weather_entity.WeatherDataToStore{
-		Latitude:      35.0,
-		Longitude:     135.0,
-		Time:          time.Now(),
-		WeatherCode:   1,
-		Temperature2M: 25.5,
-	}
-
-	// JSLAdaptedStep が []*entity.WeatherDataToStore を期待するため、スライスで返す
-	return any([]*weather_entity.WeatherDataToStore{dummyData}), nil // ★ any に明示的にキャスト
+	// 汎用的なダミーデータを返す
+	// 例: 入力アイテムをそのまま返す、またはシンプルな文字列を返す
+	return any(fmt.Sprintf("Processed dummy item: %v at %s", item, time.Now().Format(time.RFC3339))), nil
 }
 
 // DummyProcessor が Processor[any, any] インターフェースを満たすことを確認

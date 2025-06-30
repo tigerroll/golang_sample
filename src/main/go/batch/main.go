@@ -2,54 +2,54 @@ package main
 
 import (
 	"context"
-	"database/sql" // database/sql パッケージをインポート
-	"fmt"          // fmt パッケージをインポート
+	"database/sql"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time" // time パッケージをインポート
+	"time"
 
-	"github.com/joho/godotenv" // .env ファイルを読み込むためにインポート
+	"github.com/joho/godotenv"
 
 	config "sample/src/main/go/batch/config"
-	job "sample/src/main/go/batch/job" // job パッケージをインポート
+	job "sample/src/main/go/batch/job"
 	core "sample/src/main/go/batch/job/core"
-	factory "sample/src/main/go/batch/job/factory" // factory パッケージをインポート
-	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
-	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
+	factory "sample/src/main/go/batch/job/factory"
+	jobListener "sample/src/main/go/batch/job/listener"
+	repository "sample/src/main/go/batch/repository"
+	exception "sample/src/main/go/batch/util/exception"
 	logger "sample/src/main/go/batch/util/logger"
 
 	// JSLでコンポーネントを動的に解決するため、Reader/Processor/Writerのパッケージをインポート
 	_ "sample/src/main/go/batch/weather/step/processor"
 	_ "sample/src/main/go/batch/weather/step/reader"
 	_ "sample/src/main/go/batch/weather/step/writer"
-	_ "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
-	dummyProcessor "sample/src/main/go/batch/step/processor" // NewDummyProcessor のためにインポート
-	_ "sample/src/main/go/batch/step/reader"    // dummy_reader.go がこのパッケージに属する
-	dummyReader "sample/src/main/go/batch/step/reader" // NewDummyReader のためにインポート
-	_ "sample/src/main/go/batch/step/writer"    // dummy_writer.go がこのパッケージに属する
-	dummyWriter "sample/src/main/go/batch/step/writer" // NewDummyWriter のためにインポート
-	_ "sample/src/main/go/batch/step"           // JSLAdaptedStep が参照されるためインポート
+	_ "sample/src/main/go/batch/step/processor"
+	dummyProcessor "sample/src/main/go/batch/step/processor"
+	_ "sample/src/main/go/batch/step/reader"
+	dummyReader "sample/src/main/go/batch/step/reader"
+	_ "sample/src/main/go/batch/step/writer"
+	dummyWriter "sample/src/main/go/batch/step/writer"
+	_ "sample/src/main/go/batch/step"
 
-	// ★ マイグレーション関連のインポートを追加 ★
+	// マイグレーション関連のインポート
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres" // PostgreSQL ドライバ
-	_ "github.com/golang-migrate/migrate/v4/source/file"      // ファイルソース
-	_ "github.com/go-sql-driver/mysql"                        // MySQL ドライバ
-	_ "github.com/lib/pq"                                     // PostgreSQL/Redshift ドライバ
-	_ "github.com/snowflakedb/gosnowflake"                    // Snowflake ドライバ (必要に応じて)
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
+	_ "github.com/snowflakedb/gosnowflake"
 
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
 	weather_config "sample/src/main/go/batch/weather/config"
-	weather_repo "sample/src/main/go/batch/weather/repository"
+	weather_repo "sample/src/main/go/batch/weather/repository" // Keep weather_repo import for specific repo creation
 	weather_processor "sample/src/main/go/batch/weather/step/processor"
 	weather_reader "sample/src/main/go/batch/weather/step/reader"
 	weather_writer "sample/src/main/go/batch/weather/step/writer"
 	weather_job "sample/src/main/go/batch/weather/job"
-	executionContextReader "sample/src/main/go/batch/step/reader" // NewExecutionContextReader のためにインポート
-	executionContextWriter "sample/src/main/go/batch/step/writer" // NewExecutionContextWriter のためにインポート
-	sampleTasklet "sample/src/main/go/batch/step" // NewSampleTasklet のためにインポート
+	executionContextReader "sample/src/main/go/batch/step/reader"
+	executionContextWriter "sample/src/main/go/batch/step/writer"
+	sampleTasklet "sample/src/main/go/batch/step"
 )
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
@@ -136,7 +136,7 @@ func main() {
 		logger.Fatalf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 	}
 
-	// ★ データベースマイグレーションの実行前に、DB接続をリトライ付きで確立 ★
+	// データベースマイグレーションの実行前に、DB接続をリトライ付きで確立
 	// マイグレーション用のDB接続を確立 (リトライ付き)
 	// 10回リトライ、5秒間隔で最大50秒待機
 	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbDSN, 10, 5*time.Second)
@@ -156,16 +156,15 @@ func main() {
 
 	// マイグレーションソースのパス
 	// プロジェクトのルートからの相対パスを想定
-	migrationsPath := "file://src/main/resources/migrations" // ★ マイグレーションファイルのパスを設定
+	migrationsPath := "file://src/main/resources/migrations"
 	logger.Debugf("マイグレーションパス: %s", migrationsPath)
-	logger.Debugf("マイグレーション用DB接続文字列 (migrate tool): %s", migrateDBURL) // Log the DSN for migrate
+	logger.Debugf("マイグレーション用DB接続文字列 (migrate tool): %s", migrateDBURL)
 
 	m, err := migrate.New(
 		migrationsPath,
-		migrateDBURL, // golang-migrate/migrate は内部で新しい接続を開くため、dbForMigrate は直接渡さない
+		migrateDBURL,
 	)
 	if err != nil {
-		// ここで発生するエラーの詳細をログに出力するように変更
 		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false)
 		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
 	}
@@ -183,11 +182,9 @@ func main() {
 	}
 	logger.Infof("データベースマイグレーションが完了しました。")
 
-	// ★ 追加: マイグレーション後のテーブル存在チェック ★
+	// マイグレーション後のテーブル存在チェック
 	logger.Infof("マイグレーション後の 'job_instances' テーブルの存在を確認します...")
 	var exists int
-	// dbForMigrate を使用してこのチェックを実行します。これは既に開かれ、接続が確認されています。
-	// これにより、この接続からテーブルが見えるかどうかを確認します。
 	err = dbForMigrate.QueryRowContext(ctx, "SELECT 1 FROM job_instances LIMIT 1;").Scan(&exists)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -198,12 +195,11 @@ func main() {
 	} else {
 		logger.Infof("'job_instances' テーブルが正常に存在することを確認しました。")
 	}
-	// ★ 追加ここまで ★
 
 	// Step 1: Job Repository の生成
 	// マイグレーション後にデータベース接続を確立
 	// NewJobRepository は独自の接続を開きます。
-	logger.Debugf("Job Repository 用DB接続文字列: %s", cfg.Database.ConnectionString()) // Log the DSN for JobRepository
+	logger.Debugf("Job Repository 用DB接続文字列: %s", cfg.Database.ConnectionString())
 	jobRepository, err := repository.NewJobRepository(ctx, *cfg)
 	if err != nil {
 		logger.Fatalf("Job Repository の生成に失敗しました: %v", exception.NewBatchError("main", "Job Repository の生成に失敗しました", err, false, false))
@@ -219,45 +215,68 @@ func main() {
 	}()
 	logger.Infof("Job Repository を生成しました。")
 
+	// JobRepository から基盤となる *sql.DB 接続を取得
+	// この接続は JobFactory の ComponentBuilder に渡される
+	sqlJobRepo, ok := jobRepository.(*repository.SQLJobRepository)
+	if !ok {
+		logger.Fatalf("JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
+	}
+	dbConnectionForComponents := sqlJobRepo.GetDB()
+	if dbConnectionForComponents == nil {
+		logger.Fatalf("JobRepository からデータベース接続を取得できませんでした。")
+	}
+
 
 	// Step 3: JobFactory の生成
 	jobFactory := factory.NewJobFactory(cfg, jobRepository)
 	logger.Debugf("JobFactory を Job Repository と共に作成しました。")
 
-	// ★ ここからが新しい登録ロジック ★
+	// ここからが新しい登録ロジック
 	// コンポーネントビルダーの登録
-	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		weatherReaderCfg := &weather_config.WeatherReaderConfig{
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
 		return weather_reader.NewWeatherReader(weatherReaderCfg), nil
 	})
-	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return weather_processor.NewWeatherProcessor(), nil
 	})
-	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
-		return weather_writer.NewWeatherWriter(weatherRepo), nil
+	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
+		// weatherWriter は weather_repo.WeatherRepository を必要とするため、ここで作成し、db を渡す
+		var weatherSpecificRepo weather_repo.WeatherRepository
+		var err error
+		switch cfg.Database.Type {
+		case "postgres", "redshift":
+			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(db)
+		case "mysql":
+			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(db)
+		default:
+			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("weather repository の生成に失敗しました: %w", err)
+		}
+
+		return weather_writer.NewWeatherWriter(weatherSpecificRepo), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return dummyReader.NewDummyReader(), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return dummyProcessor.NewDummyProcessor(), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return dummyWriter.NewDummyWriter(), nil
 	})
-	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
-		// ExecutionContextReader は weatherRepo を直接使用しないが、シグネチャに合わせる
+	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return executionContextReader.NewExecutionContextReader(), nil
 	})
-	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
-		// ExecutionContextWriter は weatherRepo を直接使用しないが、シグネチャに合わせる
+	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return executionContextWriter.NewExecutionContextWriter(), nil
 	})
-	jobFactory.RegisterComponentBuilder("sampleTasklet", func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) {
-		// SampleTasklet は weatherRepo を直接使用しないが、シグネチャに合わせる
+	jobFactory.RegisterComponentBuilder("sampleTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return sampleTasklet.NewSampleTasklet(), nil
 	})
 
@@ -265,12 +284,12 @@ func main() {
 	jobFactory.RegisterJobBuilder("weather", func(
 		jobRepository repository.JobRepository,
 		cfg *config.Config,
-		listeners []jobListener.JobExecutionListener, // jobListener パッケージの JobExecutionListener を使用
+		listeners []jobListener.JobExecutionListener,
 		flow *core.FlowDefinition,
 	) (core.Job, error) {
 		return weather_job.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
 	})
-	// ★ ここまでが新しい登録ロジック ★
+	// ここまでが新しい登録ロジック
 
 
 	// 実行するジョブ名を指定 (JSLファイルで定義されたID)
@@ -330,7 +349,7 @@ func main() {
 		jobExecution.JobName, jobExecution.ID, jobExecution.Status)
 
 	// JobExecution の状態に基づいてアプリケーションの終了コードを制御
-	if jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned { // ★ 修正: core.BatchStatusFailed と core.BatchStatusAbandoned に変更
+	if jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned {
 		logger.Errorf(
 			"Job '%s' は失敗しました。詳細は JobExecution (ID: %s) およびログを確認してください。",
 			jobExecution.JobName,

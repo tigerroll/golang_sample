@@ -1,25 +1,24 @@
-// src/main/go/batch/job/factory/jobfactory.go
 package factory
 
 import (
+	"database/sql" // Add sql import for *sql.DB
 	"fmt"
-	"reflect" // reflect パッケージをインポート
+	"reflect"
 
 	config "sample/src/main/go/batch/config"
 	core "sample/src/main/go/batch/job/core"
-	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
-	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
-	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
-	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	weather_repo "sample/src/main/go/batch/weather/repository" // weather_repo パッケージをインポート
-	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
-	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
+	jsl "sample/src/main/go/batch/job/jsl"
+	jobListener "sample/src/main/go/batch/job/listener"
+	stepListener "sample/src/main/go/batch/step/listener" // Keep stepListener for step-level listeners
+	repository "sample/src/main/go/batch/repository"
+	logger "sample/src/main/go/batch/util/logger"
+	exception "sample/src/main/go/batch/util/exception"
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
-// 依存関係 (config, repo など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
+// 依存関係 (config, db など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
 // ジェネリックインターフェースを返すため、any を使用します。
-type ComponentBuilder func(cfg *config.Config, weatherRepo weather_repo.WeatherRepository) (any, error) // weatherRepo を受け取るように修正
+type ComponentBuilder func(cfg *config.Config, db *sql.DB) (any, error) // Changed to *sql.DB
 
 // JobBuilder は、特定の Job を生成するための関数型です。
 // 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
@@ -33,9 +32,9 @@ type JobBuilder func(
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
 	config            *config.Config
-	jobRepository     repository.JobRepository // JobRepository を依存として追加
-	componentBuilders map[string]ComponentBuilder // コンポーネント生成関数を保持するマップ
-	jobBuilders       map[string]JobBuilder       // ★ 追加: ジョブ生成関数を保持するマップ
+	jobRepository     repository.JobRepository
+	componentBuilders map[string]ComponentBuilder
+	jobBuilders       map[string]JobBuilder
 }
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
@@ -48,9 +47,9 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 
 	jf := &JobFactory{
 		config:        cfg,
-		jobRepository: repo, // JobRepository を初期化
+		jobRepository: repo,
 		componentBuilders: make(map[string]ComponentBuilder),
-		jobBuilders:       make(map[string]JobBuilder), // ★ 初期化
+		jobBuilders:       make(map[string]JobBuilder),
 	}
 	return jf
 }
@@ -93,46 +92,21 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 
 	// 3. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
-	// NOTE: weatherRepo は JobFactory の CreateJob メソッド内で生成されるため、
-	// ComponentBuilder のシグネチャには残しておく必要があります。
-	// ただし、weather_repo パッケージ自体は JobFactory のトップレベルでは不要です。
-	// 必要に応じて、weatherRepo の生成ロジックを ComponentBuilder のクロージャ内に移動することも検討できます。
-	componentInstances := make(map[string]any) // map[string]any に変更
+	// JobRepository から基盤となる *sql.DB 接続を取得し、ComponentBuilder に渡す
+	sqlJobRepo, ok := f.jobRepository.(*repository.SQLJobRepository)
+	if !ok {
+		return nil, exception.NewBatchErrorf("job_factory", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
+	}
+	dbConnection := sqlJobRepo.GetDB()
+	if dbConnection == nil {
+		return nil, exception.NewBatchErrorf("job_factory", "JobRepository からデータベース接続を取得できませんでした。")
+	}
 
-	// WeatherRepository は WeatherWriter が必要とするので、ここで作成する。
-	// config.Database.Type に応じて適切なリポジトリを生成
-	var weatherRepo weather_repo.WeatherRepository // ここで weather_repo を使用
-	var err error
-	switch f.config.Database.Type {
-	case "postgres":
-		db, dbErr := repository.NewPostgresRepositoryFromConfig(f.config.Database)
-		if dbErr != nil {
-			return nil, exception.NewBatchError("job_factory", "PostgresRepository の生成に失敗しました", dbErr, false, false)
-		}
-		weatherRepo = db // weather_repo.WeatherRepository 型
-	case "mysql":
-		db, dbErr := repository.NewMySQLRepositoryFromConfig(f.config.Database)
-		if dbErr != nil {
-			return nil, exception.NewBatchError("job_factory", "MySQLRepository の生成に失敗しました", dbErr, false, false)
-		}
-		weatherRepo = db // weather_repo.WeatherRepository 型
-	case "redshift":
-		db, dbErr := repository.NewRedshiftRepositoryFromConfig(f.config.Database)
-		if dbErr != nil {
-			return nil, exception.NewBatchError("job_factory", "RedshiftRepository の生成に失敗しました", dbErr, false, false)
-		}
-		weatherRepo = db // weather_repo.WeatherRepository 型
-	default:
-		return nil, exception.NewBatchErrorf("job_factory", "未対応のデータベースタイプです: %s", f.config.Database.Type)
-	}
-	if err != nil { // This err check is for the switch block, but it's always nil here. The dbErr is checked inside.
-		return nil, exception.NewBatchError("job_factory", "WeatherRepository の生成に失敗しました", err, false, false)
-	}
-	// Note: リポジトリのリソース解放 (Close メソッドを持つ場合) は Job の Run メソッド内で defer されるため、ここでは不要
+	componentInstances := make(map[string]any) // map[string]any に変更
 
 	// 登録されたビルド関数を使用してコンポーネントを動的にインスタンス化
 	for componentRefName, builder := range f.componentBuilders {
-		instance, err := builder(f.config, weatherRepo) // Config と WeatherRepository を渡す
+		instance, err := builder(f.config, dbConnection) // Pass Config and *sql.DB
 		if err != nil {
 			return nil, exception.NewBatchError("job_factory", fmt.Sprintf("コンポーネント '%s' のビルドに失敗しました", componentRefName), err, false, false)
 		}
@@ -145,17 +119,17 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// StepExecutionListener を生成
 	// アイテムレベルリスナーもここで生成し、JSLAdaptedStep に渡す
 	// 現状は StepExecutionListener のリストにまとめて渡すため、型アサーションで判別する
-	stepListeners := []stepListener.StepExecutionListener{ // stepListener.StepExecutionListener を使用
+	stepListeners := []stepListener.StepExecutionListener{ // Use stepListener.StepExecutionListener
 		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
 		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
 	}
 	itemReadListeners := []core.ItemReadListener{}
 	itemProcessListeners := []core.ItemProcessListener{}
 	itemWriteListeners := []core.ItemWriteListener{}
-	skipListeners := []stepListener.SkipListener{ // stepListener.SkipListener を使用
+	skipListeners := []stepListener.SkipListener{ // Use stepListener.SkipListener
 		stepListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
 	}
-	retryItemListeners := []stepListener.RetryItemListener{ // stepListener.RetryItemListener を使用
+	retryItemListeners := []stepListener.RetryItemListener{ // Use stepListener.RetryItemListener
 		stepListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
 	}
 
@@ -186,5 +160,5 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 
 	logger.Debugf("Job '%s' created and configured successfully from JSL definition.", jobName)
 
-	return jobInstance, nil // Returns core.Job, error
+	return jobInstance, nil
 }
