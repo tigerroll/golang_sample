@@ -27,7 +27,7 @@ tasks:
     sources:
       - "{{.SRC_DIR}}/**/*.go" # Goソースファイル全体を対象に含める
       - "{{.SRC_DIR}}/resources/application.yaml" # 埋め込み対象のapplication.yamlをソースに含める
-      - "{{.SRC_DIR}}/resources/jobs/*.yaml" # JSLファイルもソースに含める (main.go で embed するため)
+      - "{{.SRC_DIR}}/resources/job.yaml" # JSLファイルもソースに含める (main.go で embed するため)
 
   run:
     desc: "Build and run the application."
