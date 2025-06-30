@@ -3,7 +3,7 @@ package main // アプリケーションのエントリポイントなので mai
 import (
 	"context"
 	"database/sql"
-	// "embed" // embed パッケージをインポート - REMOVED: imported and not used
+	"embed" // embed パッケージをインポート
 	"fmt"
 	"os"
 	"os/signal"
