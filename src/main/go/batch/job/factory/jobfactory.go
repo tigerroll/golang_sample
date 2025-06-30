@@ -10,26 +10,9 @@ import (
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
-	// weather 関連のパッケージをインポート
-	weather_config "sample/src/main/go/batch/weather/config"
-	weather_repo "sample/src/main/go/batch/weather/repository"
-	weather_processor "sample/src/main/go/batch/weather/step/processor"
-	weather_reader "sample/src/main/go/batch/weather/step/reader"
-	weather_writer "sample/src/main/go/batch/weather/step/writer"
-	weather_job "sample/src/main/go/batch/weather/job" // weather_job パッケージをインポート
+	weather_repo "sample/src/main/go/batch/weather/repository" // weather_repo パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
 	exception "sample/src/main/go/batch/util/exception" // exception パッケージをインポート
-
-	// ★ ダミーコンポーネントをそれぞれのパッケージからインポート ★
-	dummyProcessor "sample/src/main/go/batch/step/processor" // dummy_processor.go がこのパッケージに属する
-	itemListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemListener パッケージをインポート
-	itemRetryListener "sample/src/main/go/batch/step/listener" // ★ 追加: itemRetryListener パッケージをインポート
-	stepListener "sample/src/main/go/batch/step/listener" // ★ 追加: stepListener パッケージをインポート
-	dummyReader "sample/src/main/go/batch/step/reader"       // dummy_reader.go がこのパッケージに属する
-	dummyWriter "sample/src/main/go/batch/step/writer"       // dummy_writer.go がこのパッケージに属する
-	step "sample/src/main/go/batch/step"           // JSLAdaptedStep が参照されるためインポート
-	stepReader "sample/src/main/go/batch/step/reader" // ★ 追加: stepReader パッケージをインポート
-	stepWriter "sample/src/main/go/batch/step/writer" // ★ 追加: stepWriter パッケージをインポート
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
@@ -109,11 +92,15 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 
 	// 3. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
+	// NOTE: weatherRepo は JobFactory の CreateJob メソッド内で生成されるため、
+	// ComponentBuilder のシグネチャには残しておく必要があります。
+	// ただし、weather_repo パッケージ自体は JobFactory のトップレベルでは不要です。
+	// 必要に応じて、weatherRepo の生成ロジックを ComponentBuilder のクロージャ内に移動することも検討できます。
 	componentInstances := make(map[string]any) // map[string]any に変更
 
 	// WeatherRepository は WeatherWriter が必要とするので、ここで作成する。
 	// config.Database.Type に応じて適切なリポジトリを生成
-	var weatherRepo weather_repo.WeatherRepository
+	var weatherRepo weather_repo.WeatherRepository // ここで weather_repo を使用
 	var err error
 	switch f.config.Database.Type {
 	case "postgres":
@@ -121,19 +108,19 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		if dbErr != nil {
 			return nil, exception.NewBatchError("job_factory", "PostgresRepository の生成に失敗しました", dbErr, false, false)
 		}
-		weatherRepo = db
+		weatherRepo = db // weather_repo.WeatherRepository 型
 	case "mysql":
 		db, dbErr := repository.NewMySQLRepositoryFromConfig(f.config.Database)
 		if dbErr != nil {
 			return nil, exception.NewBatchError("job_factory", "MySQLRepository の生成に失敗しました", dbErr, false, false)
 		}
-		weatherRepo = db
+		weatherRepo = db // weather_repo.WeatherRepository 型
 	case "redshift":
 		db, dbErr := repository.NewRedshiftRepositoryFromConfig(f.config.Database)
 		if dbErr != nil {
 			return nil, exception.NewBatchError("job_factory", "RedshiftRepository の生成に失敗しました", dbErr, false, false)
 		}
-		weatherRepo = db
+		weatherRepo = db // weather_repo.WeatherRepository 型
 	default:
 		return nil, exception.NewBatchErrorf("job_factory", "未対応のデータベースタイプです: %s", f.config.Database.Type)
 	}
@@ -157,18 +144,18 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// StepExecutionListener を生成
 	// アイテムレベルリスナーもここで生成し、JSLAdaptedStep に渡す
 	// 現状は StepExecutionListener のリストにまとめて渡すため、型アサーションで判別する
-	stepListeners := []stepListener.StepExecutionListener{
-		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
-		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
+	stepListeners := []jobListener.StepExecutionListener{ // jobListener.StepExecutionListener を使用
+		jobListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
+		jobListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
 	}
 	itemReadListeners := []core.ItemReadListener{}
 	itemProcessListeners := []core.ItemProcessListener{}
 	itemWriteListeners := []core.ItemWriteListener{}
-	skipListeners := []stepListener.SkipListener{
-		itemListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
+	skipListeners := []jobListener.SkipListener{ // jobListener.SkipListener を使用
+		jobListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
 	}
-	retryItemListeners := []stepListener.RetryItemListener{
-		itemRetryListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
+	retryItemListeners := []jobListener.RetryItemListener{ // jobListener.RetryItemListener を使用
+		jobListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
 	}
 
 	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
