@@ -9,6 +9,7 @@ import (
 	core "sample/src/main/go/batch/job/core"
 	jsl "sample/src/main/go/batch/job/jsl"   // JSL loader をインポート
 	jobListener "sample/src/main/go/batch/job/listener" // jobListener パッケージをインポート
+	stepListener "sample/src/main/go/batch/step/listener" // stepListener パッケージをインポート
 	repository "sample/src/main/go/batch/repository" // repository パッケージをインポート
 	weather_repo "sample/src/main/go/batch/weather/repository" // weather_repo パッケージをインポート
 	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
@@ -144,18 +145,18 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// StepExecutionListener を生成
 	// アイテムレベルリスナーもここで生成し、JSLAdaptedStep に渡す
 	// 現状は StepExecutionListener のリストにまとめて渡すため、型アサーションで判別する
-	stepListeners := []jobListener.StepExecutionListener{ // jobListener.StepExecutionListener を使用
-		jobListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
-		jobListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
+	stepListeners := []stepListener.StepExecutionListener{ // stepListener.StepExecutionListener を使用
+		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
+		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
 	}
 	itemReadListeners := []core.ItemReadListener{}
 	itemProcessListeners := []core.ItemProcessListener{}
 	itemWriteListeners := []core.ItemWriteListener{}
-	skipListeners := []jobListener.SkipListener{ // jobListener.SkipListener を使用
-		jobListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
+	skipListeners := []stepListener.SkipListener{ // stepListener.SkipListener を使用
+		stepListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
 	}
-	retryItemListeners := []jobListener.RetryItemListener{ // jobListener.RetryItemListener を使用
-		jobListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
+	retryItemListeners := []stepListener.RetryItemListener{ // stepListener.RetryItemListener を使用
+		stepListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
 	}
 
 	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
