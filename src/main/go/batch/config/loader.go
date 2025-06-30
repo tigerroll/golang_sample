@@ -8,13 +8,22 @@ import (
   "gopkg.in/yaml.v3"
 )
 
-// LoadConfigFromBytes はバイトスライスから設定をロードします。
-// この関数は main.go から埋め込みファイルの内容を受け取ることを想定しています。
-func LoadConfigFromBytes(data []byte) (*Config, error) {
+// BytesConfigLoader はバイトスライスから設定をロードする ConfigLoader の実装です。
+type BytesConfigLoader struct {
+	data []byte
+}
+
+// NewBytesConfigLoader は新しい BytesConfigLoader のインスタンスを作成します。
+func NewBytesConfigLoader(data []byte) *BytesConfigLoader {
+	return &BytesConfigLoader{data: data}
+}
+
+// Load は埋め込まれたバイトスライスから設定をロードします。
+func (l *BytesConfigLoader) Load() (*Config, error) {
 	// Config, NewConfig は config.go で定義されているものを使用
 	cfg := NewConfig()
 
-	yamlCfg, err := loadYamlConfig(data)
+	yamlCfg, err := loadYamlConfig(l.data)
 	if err != nil {
 		return nil, fmt.Errorf("YAML設定のパースに失敗しました: %w", err)
 	}

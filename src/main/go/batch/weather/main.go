@@ -12,7 +12,7 @@ import (
 	"github.com/joho/godotenv"
 
 	config "sample/src/main/go/batch/config"
-	job "sample/src/main/go/batch/job"
+	batch_job "sample/src/main/go/batch/job" // job パッケージをエイリアス
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory"
 	jobListener "sample/src/main/go/batch/job/listener"
@@ -41,7 +41,7 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
-	weather_config "sample/src/main/go/batch/weather/config"
+	weather_config "sample/src/main/go/batch/weather/config" // weather_config パッケージをインポート
 	weather_repo "sample/src/main/go/batch/weather/repository" // Keep weather_repo import for specific repo creation
 	weather_processor "sample/src/main/go/batch/weather/step/processor"
 	weather_reader "sample/src/main/go/batch/weather/step/reader"
@@ -86,7 +86,9 @@ func main() {
 	}
 
 	// 設定のロード
-	cfg, err := config.LoadConfig()
+	// weather アプリケーション固有の ConfigLoader を使用
+	weatherLoader := weather_config.NewWeatherConfigLoader()
+	cfg, err := weatherLoader.Load()
 	if err != nil {
 		logger.Fatalf("設定のロードに失敗しました: %v", exception.NewBatchError("main", "設定のロードに失敗しました", err, false, false))
 	}
@@ -165,7 +167,7 @@ func main() {
 		migrateDBURL,
 	)
 	if err != nil {
-		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false)
+		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", false, false, err)
 		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
 	}
 	logger.Infof("データベースマイグレーションを開始します...")
@@ -302,7 +304,7 @@ func main() {
 
 
 	// Step 4: JobOperator を作成し、Job Repository と JobFactory を引き渡す
-	jobOperator := job.NewDefaultJobOperator(jobRepository, *jobFactory)
+	jobOperator := batch_job.NewDefaultJobOperator(jobRepository, *jobFactory) // エイリアスを使用
 	logger.Debugf("DefaultJobOperator を Job Repository および JobFactory と共に作成しました。")
 
 

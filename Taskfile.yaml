@@ -22,15 +22,13 @@ tasks:
     ensures:
       - dir: [".{{.BUILD_OUTPUT_DIR}}"]
     cmds:
-      - cp src/main/resources/application.yaml src/main/go/batch/config
       - go build -v -gcflags="all=-N -l" -o {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}} {{.MODULE_NAME}}/{{.SRC_DIR}} # モジュールパスで指定
-      - rm src/main/go/batch/config/application.yaml
       - echo "Build executable to {{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     generates:
       - "{{.BUILD_OUTPUT_DIR}}/{{.BINARY_NAME}}"
     sources:
       - "{{.SRC_DIR}}/**/*.go" # Goソースファイル全体を対象に含める
-      - src/main/resources/application.yaml
+      - "{{.SRC_DIR}}/resources/application.yaml" # 埋め込み対象のapplication.yamlをソースに含める
       - src/main/resources/jobs/*.yaml # JSLファイルもソースに含める
 
   copy-jsl:
