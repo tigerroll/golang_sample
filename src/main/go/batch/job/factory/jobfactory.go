@@ -40,10 +40,10 @@ type JobFactory struct {
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
 // JobRepository を引数に追加
 func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactory {
-	// アプリケーション起動時にJSL定義を一度ロード
-	if err := jsl.LoadJSLDefinitions(); err != nil {
-		logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
-	}
+	// JSL 定義のロードは main.go で行われるため、ここでは不要
+	// if err := jsl.LoadJSLDefinitions(); err != nil {
+	// 	logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
+	// }
 
 	jf := &JobFactory{
 		config:        cfg,

@@ -17,6 +17,7 @@ import (
 	batch_job "sample/src/main/go/batch/job" // job パッケージをエイリアス
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory"
+	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
 	exception "sample/src/main/go/batch/util/exception"
@@ -56,6 +57,9 @@ import (
 
 //go:embed resources/application.yaml
 var embeddedConfig []byte // application.yaml の内容をバイトスライスとして埋め込む (main.go と resources は同じディレクトリ階層にあるため、相対パスで指定)
+
+//go:embed resources/jobs/*.yaml
+var embeddedJSLs embed.FS // JSL YAML ファイルを埋め込む (resources/jobs ディレクトリ内の全yamlファイルを対象)
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
 func connectWithRetry(ctx context.Context, driverName, dataSourceName string, maxRetries int, delay time.Duration) (*sql.DB, error) {
@@ -232,6 +236,12 @@ func main() {
 	if dbConnectionForComponents == nil {
 		logger.Fatalf("JobRepository からデータベース接続を取得できませんでした。")
 	}
+
+	// JSL 定義のロード (JobFactory から移動)
+	if err := jsl.LoadJSLDefinitions(embeddedJSLs, "resources/jobs"); err != nil { // ★ 修正: 埋め込みJSLファイルとサブパスをロード
+		logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
+	}
+	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
 
 
 	// Step 3: JobFactory の生成

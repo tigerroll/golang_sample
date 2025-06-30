@@ -20,16 +20,13 @@ import (
 	logger "sample/src/main/go/batch/util/logger"
 )
 
-//go:embed *.yaml
-var jslFS embed.FS
-
 // LoadedJobDefinitions holds all loaded JSL job definitions.
 var LoadedJobDefinitions = make(map[string]Job)
 
 // LoadJSLDefinitions loads all JSL YAML files embedded in the binary.
-func LoadJSLDefinitions() error {
+func LoadJSLDefinitions(jslFiles embed.FS, subPath string) error { // ★ 修正: subPath を追加
 	logger.Infof("JSL 定義のロードを開始します。")
-	files, err := jslFS.ReadDir(".")
+	files, err := jslFiles.ReadDir(subPath) // ★ 修正: subPath を使用
 	if err != nil {
 		return exception.NewBatchError("jsl_loader", "JSL ディレクトリの読み込みに失敗しました", err, false, false)
 	}
@@ -39,9 +36,9 @@ func LoadJSLDefinitions() error {
 			continue
 		}
 
-		filePath := file.Name()
+		filePath := filepath.Join(subPath, file.Name()) // ★ 修正: subPath とファイル名を結合
 		logger.Debugf("JSL ファイルを読み込み中: %s", filePath)
-		data, err := jslFS.ReadFile(filePath)
+		data, err := jslFiles.ReadFile(filePath) // ★ 修正: 結合したパスを使用
 		if err != nil {
 			return exception.NewBatchError("jsl_loader", fmt.Sprintf("JSL ファイル '%s' の読み込みに失敗しました", filePath), err, false, false)
 		}
@@ -82,6 +79,11 @@ func LoadJSLDefinitions() error {
 func GetJobDefinition(jobID string) (Job, bool) {
 	job, ok := LoadedJobDefinitions[jobID]
 	return job, ok
+}
+
+// GetLoadedJobCount returns the number of loaded JSL job definitions.
+func GetLoadedJobCount() int {
+	return len(LoadedJobDefinitions)
 }
 
 // ConvertJSLToCoreFlow converts a JSL Flow definition into a core.FlowDefinition.

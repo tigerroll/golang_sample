@@ -17,8 +17,6 @@ tasks:
 
   build:
     desc: "Build the fetcher executable to {{.BUILD_OUTPUT_DIR}}/"
-    deps:
-      - copy-jsl # JSLファイルをコピーするタスクを依存関係に追加
     ensures:
       - dir: [".{{.BUILD_OUTPUT_DIR}}"]
     cmds:
@@ -29,17 +27,7 @@ tasks:
     sources:
       - "{{.SRC_DIR}}/**/*.go" # Goソースファイル全体を対象に含める
       - "{{.SRC_DIR}}/resources/application.yaml" # 埋め込み対象のapplication.yamlをソースに含める
-      - src/main/resources/jobs/*.yaml # JSLファイルもソースに含める
-
-  copy-jsl:
-    desc: "JSL YAML ファイルを Go の embed ディレクトリにコピーします"
-    cmds:
-      - mkdir -p src/main/go/batch/job/jsl # ターゲットディレクトリが存在することを確認
-      - cp src/main/resources/jobs/*.yaml src/main/go/batch/job/jsl/
-    sources:
-      - src/main/resources/jobs/*.yaml
-    generates:
-      - src/main/go/batch/job/jsl/*.yaml
+      - "{{.SRC_DIR}}/resources/jobs/*.yaml" # JSLファイルもソースに含める (main.go で embed するため)
 
   run:
     desc: "Build and run the application."
@@ -51,7 +39,6 @@ tasks:
     desc: "Remove build artifacts."
     cmds:
       - rm -rf ./{{.BUILD_OUTPUT_DIR}}
-      - rm -f src/main/go/batch/job/jsl/*.yaml # コピーしたJSLファイルを削除
       - rm -f src/main/go/batch/job/weather_job.go # 不要になったファイルを削除
 
   mod-tidy:
