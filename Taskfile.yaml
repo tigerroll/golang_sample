@@ -4,7 +4,7 @@ version: '3'
 
 vars:
   MODULE_NAME: sample
-  SRC_DIR: ./src/main/go/batch/weather # main.go の新しい場所
+  SRC_DIR: src/main/go/batch/weather # ★ 修正: ./ を削除
   TEST_DIR: ./src/test/go/batch
   BINARY_NAME: batch
   BUILD_OUTPUT_DIR: dist

@@ -3,7 +3,7 @@ package main // アプリケーションのエントリポイントなので mai
 import (
 	"context"
 	"database/sql"
-	"embed" // embed パッケージをインポート
+	// "embed" // embed パッケージをインポート - REMOVED: imported and not used
 	"fmt"
 	"os"
 	"os/signal"
@@ -171,7 +171,7 @@ func main() {
 		migrateDBURL,
 	)
 	if err != nil {
-		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", false, false, err)
+		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false) // ★ 修正: 引数の順序と型を修正
 		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
 	}
 	logger.Infof("データベースマイグレーションを開始します...")
