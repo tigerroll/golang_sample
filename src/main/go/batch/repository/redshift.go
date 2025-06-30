@@ -2,9 +2,7 @@
 package repository
 
 import (
-	"context" // context パッケージをインポート
 	"database/sql"
-	"fmt"
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (Redshift も互換性があるため使用)
 	"sample/src/main/go/batch/config"

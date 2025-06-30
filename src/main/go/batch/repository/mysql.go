@@ -2,9 +2,7 @@
 package repository
 
 import (
-	"context" // context パッケージをインポート
 	"database/sql"
-	"fmt"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ (適切なドライバ)
 	"sample/src/main/go/batch/config"
