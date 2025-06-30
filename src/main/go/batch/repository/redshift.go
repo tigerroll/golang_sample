@@ -38,17 +38,5 @@ func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftReposi
 	return &RedshiftRepository{db: db}, nil
 }
 
-// Close メソッドを定義
-func (r *RedshiftRepository) Close() error {
-	if r.db != nil {
-		err := r.db.Close()
-		if err != nil {
-			return exception.NewBatchError("repository", "Redshift の接続を閉じるのに失敗しました", err, false, false)
-		}
-		logger.Debugf("Redshift の接続を閉じました。")
-	}
-	return nil
-}
-
 // RedshiftRepository が WeatherRepository インターフェースを満たすことを確認
 /* var _ weather_repo.WeatherRepository = (*RedshiftRepository)(nil) */

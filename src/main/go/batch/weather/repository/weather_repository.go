@@ -84,7 +84,8 @@ func (w *PostgresRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, t
 }
 
 func (w *PostgresRepositoryWrapper) Close() error {
-	return w.PostgresRepository.Close()
+	// 基盤の *sql.DB は JobRepository が管理するため、ここでは閉じない
+	return nil
 }
 
 // MySQLRepositoryWrapper は repository.MySQLRepository を WeatherRepository として適応させます。
@@ -132,7 +133,8 @@ func (w *MySQLRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, tx *
 }
 
 func (w *MySQLRepositoryWrapper) Close() error {
-	return w.MySQLRepository.Close()
+	// 基盤の *sql.DB は JobRepository が管理するため、ここでは閉じない
+	return nil
 }
 
 // NewPostgresWeatherRepository は既存の repository.PostgresRepository をラップして WeatherRepository を返します。

@@ -35,17 +35,6 @@ func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresReposi
 	return &PostgresRepository{db: db}, nil
 }
 
-func (r *PostgresRepository) Close() error {
-	if r.db != nil {
-		err := r.db.Close()
-		if err != nil {
-			return exception.NewBatchError("repository", "PostgreSQL の接続を閉じるのに失敗しました", err, false, false)
-		}
-		logger.Debugf("PostgreSQL の接続を閉じました。")
-	}
-	return nil
-}
-
 // WeatherRepository インターフェースが実装されていることを確認
 // この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
 // またはインポート可能なパッケージで定義されていることを前提としています。
