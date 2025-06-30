@@ -58,8 +58,8 @@ import (
 //go:embed resources/application.yaml
 var embeddedConfig []byte // application.yaml の内容をバイトスライスとして埋め込む (main.go と resources は同じディレクトリ階層にあるため、相対パスで指定)
 
-//go:embed resources/jobs/*.yaml
-var embeddedJSLs embed.FS // JSL YAML ファイルを埋め込む (resources/jobs ディレクトリ内の全yamlファイルを対象)
+//go:embed resources/job.yaml
+var embeddedJSL []byte // JSL YAML ファイルを埋め込む (resources/jobs ディレクトリ内の全yamlファイルを対象)
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
 func connectWithRetry(ctx context.Context, driverName, dataSourceName string, maxRetries int, delay time.Duration) (*sql.DB, error) {
@@ -238,7 +238,7 @@ func main() {
 	}
 
 	// JSL 定義のロード (JobFactory から移動)
-	if err := jsl.LoadJSLDefinitions(embeddedJSLs, "resources/jobs"); err != nil { // ★ 修正: 埋め込みJSLファイルとサブパスをロード
+	if err := jsl.LoadJSLDefinitions(embeddedJSL, "resources/jobs"); err != nil { // ★ 修正: 埋め込みJSLファイルとサブパスをロード
 		logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
 	}
 	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
