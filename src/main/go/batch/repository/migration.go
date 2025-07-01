@@ -9,8 +9,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres" // PostgreSQL および Redshift ドライバを登録
 	_ "github.com/golang-migrate/migrate/v4/source/file"       // ファイルソースドライバを登録
 
-	"batch/util/exception" // モジュール名からの相対パスに修正
-	"batch/util/logger"    // モジュール名からの相対パスに修正
+	"sample/src/main/go/batch/util/exception" // モジュール名からの完全な相対パスに修正
+	"sample/src/main/go/batch/util/logger"    // モジュール名からの完全な相対パスに修正
 )
 
 // RunMigrations は指定されたデータベースにマイグレーションを実行します。
