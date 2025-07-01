@@ -55,10 +55,10 @@ import (
 	sampleTasklet "sample/src/main/go/batch/step"
 )
 
-//go:embed resources/application.yaml
-var embeddedConfig []byte // application.yaml の内容をバイトスライスとして埋め込む (main.go と resources は同じディレクトリ階層にあるため、相対パスで指定)
+//go:embed _resources/application.yaml
+var embeddedConfig []byte // application.yaml の内容をバイトスライスとして埋め込む (main.go と _resources は同じディレクトリ階層にあるため、相対パスで指定)
 
-//go:embed resources/job.yaml
+//go:embed _resources/job.yaml
 var embeddedJSL []byte // JSL YAML ファイルを埋め込む (単一の job.yaml ファイルを対象)
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
@@ -167,7 +167,7 @@ func main() {
 
 	// マイグレーションソースのパス
 	// プロジェクトのルートからの相対パスを想定
-	migrationsPath := "file://src/main/go/batch/weather/resources/migrations"
+	migrationsPath := "file://src/main/go/batch/weather/_resources/migrations"
 	logger.Debugf("マイグレーションパス: %s", migrationsPath)
 	logger.Debugf("マイグレーション用DB接続文字列 (migrate tool): %s", migrateDBURL)
 
