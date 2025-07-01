@@ -9,8 +9,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres" // PostgreSQL および Redshift ドライバを登録
 	_ "github.com/golang-migrate/migrate/v4/source/file"       // ファイルソースドライバを登録
 
-	"src/main/go/batch/util/exception"
-	"src/main/go/batch/util/logger"
+	"batch/util/exception" // モジュール名からの相対パスに修正
+	"batch/util/logger"    // モジュール名からの相対パスに修正
 )
 
 // RunMigrations は指定されたデータベースにマイグレーションを実行します。
@@ -22,7 +22,7 @@ func RunMigrations(dbType, connectionString, migrationsPath string) error {
 	logger.Infof("データベースマイグレーションを開始します。DBタイプ: %s, マイグレーションパス: %s", dbType, migrationsPath)
 
 	// golang-migrate/migrate が期待するデータベースURL形式に調整
-	// config.ConnectionString() が返す形式は、PostgreSQL/Redshift の場合は "postgres://..." で適切ですが、
+	// config.ConnectionString() が返す形式は、PostgreSQL/Redshift の場合は "postgres://" で適切ですが、
 	// MySQL の場合は "user:pass@tcp(host:port)/db" 形式なので、"mysql://" プレフィックスを追加する必要があります。
 	databaseURL := connectionString
 	switch strings.ToLower(dbType) {
