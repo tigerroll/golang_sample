@@ -81,13 +81,6 @@ type Config struct {
   System   SystemConfig   `yaml:"system"`
 }
 
-// WeatherProcessor に必要な設定のみを持つ構造体 (現時点ではなし、必要に応じて追加)
-// type WeatherProcessorConfig struct {}
-
-// WeatherWriter に必要な設定のみを持つ構造体 (現時点ではなし、Repository に依存)
-// type WeatherWriterConfig struct {}
-
-
 // NewConfig は Config の新しいインスタンスを返します。
 func NewConfig() *Config {
   return &Config{
@@ -96,7 +89,7 @@ func NewConfig() *Config {
       Logging:  LoggingConfig{Level: "INFO"},
     },
     Batch: BatchConfig{
-      JobName: "weather", // デフォルトの Job 名を設定
+      JobName: "", // デフォルトの Job 名を空文字列に設定。アプリケーション側で設定するか、JSLからロードされることを期待。
       ChunkSize: 10, // ★ デフォルトのチャンクサイズ
       ItemRetry: ItemRetryConfig{ // デフォルトのアイテムリトライ設定
         MaxAttempts: 3,
