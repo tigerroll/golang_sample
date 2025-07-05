@@ -52,7 +52,7 @@ import (
 	weather_job "sample/src/main/go/batch/weather/job"
 	executionContextReader "sample/src/main/go/batch/step/reader"
 	executionContextWriter "sample/src/main/go/batch/step/writer"
-	sampleTasklet "sample/src/main/go/batch/step"
+	dummyTasklet "sample/src/main/go/batch/step" // sampleTasklet から dummyTasklet に変更
 )
 
 //go:embed resources/application.yaml
@@ -290,8 +290,8 @@ func main() {
 	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return executionContextWriter.NewExecutionContextWriter(), nil
 	})
-	jobFactory.RegisterComponentBuilder("sampleTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return sampleTasklet.NewSampleTasklet(), nil
+	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
+		return dummyTasklet.NewDummyTasklet(), nil // NewSampleTasklet を NewDummyTasklet に変更
 	})
 
 	// ジョブビルダーの登録

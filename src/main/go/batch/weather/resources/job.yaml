@@ -33,6 +33,15 @@ flow:
         commit-interval: 10 # ★ 追加: コミット間隔を設定
       transitions:
         - on: COMPLETED
-          end: true # ジョブ全体を正常完了として終了
+          to: dummyTaskletStep # 新しい Tasklet ステップへ遷移
         - on: FAILED
           fail: true # ジョブ全体を失敗として終了
+    dummyTaskletStep: # 例として Tasklet ステップを追加
+      id: dummyTaskletStep
+      tasklet:
+        ref: dummyTasklet # JobFactory で登録されているダミーコンポーネント名
+      transitions:
+        - on: COMPLETED
+          end: true
+        - on: FAILED
+          fail: true
