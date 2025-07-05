@@ -14,7 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	config "sample/src/main/go/batch/config"
-	batch_job_operator "sample/src/main/go/batch/job/joboperator" // ★ ここを修正しました
+	batch_joboperator "sample/src/main/go/batch/job/joboperator" // ★ ここを修正しました
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory"
 	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート
@@ -319,7 +319,7 @@ func main() {
 
 
 	// Step 4: JobOperator を作成し、Job Repository と JobFactory を引き渡す
-	jobOperator := batch_job_operator.NewDefaultJobOperator(jobRepository, *jobFactory) // ★ ここを修正しました
+	jobOperator := batch_joboperator.NewDefaultJobOperator(jobRepository, *jobFactory) // ★ ここを修正しました
 	logger.Debugf("DefaultJobOperator を Job Repository および JobFactory と共に作成しました。")
 
 
