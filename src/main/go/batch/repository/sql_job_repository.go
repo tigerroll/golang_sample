@@ -81,7 +81,7 @@ func (r *SQLJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Con
     FROM job_instances
     WHERE job_name = $1 AND job_parameters @> $2; -- PostgreSQL の JSONB 演算子 @> を使用する例
     -- MySQL の場合: WHERE job_name = ? AND JSON_CONTAINS(job_parameters, ?)
-  `
+    `
 	row := r.db.QueryRowContext(ctx, query, jobName, paramsJSON)
 
 	jobInstance := &core.JobInstance{}
@@ -691,8 +691,8 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 	contextJSON := string(contextJSONBytes)
 
 	query := `
-    INSERT INTO step_executions (id, job_execution_id, step_name, start_time, end_time, status, exit_status, read_count, write_count, commit_count, rollback_count, failure_exceptions, execution_context)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+    INSERT INTO step_executions (id, job_execution_id, step_name, start_time, end_time, status, exit_status, read_count, write_count, commit_count, rollback_count, failure_exceptions, execution_context, last_updated)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
   `
 	// StepExecution に JobExecution への参照がある前提で job_execution_id を取得
 	jobExecutionID := ""
@@ -719,6 +719,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 		stepExecution.RollbackCount,
 		failuresJSON, // シリアライズした failure_exceptions
 		contextJSON,  // シリアライズした execution_context カラムにバインド
+		stepExecution.LastUpdated, // ★ ここを追加 ($14)
 	)
 	if err != nil {
 		return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err, false, false)
@@ -746,8 +747,8 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
 
 	query := `
     UPDATE step_executions
-    SET end_time = $1, status = $2, exit_status = $3, read_count = $4, write_count = $5, commit_count = $6, rollback_count = $7, failure_exceptions = $8, execution_context = $9
-    WHERE id = $10;
+    SET end_time = $1, status = $2, exit_status = $3, read_count = $4, write_count = $5, commit_count = $6, rollback_count = $7, failure_exceptions = $8, execution_context = $9, last_updated = $10
+    WHERE id = $11;
   `
 	res, err := r.db.ExecContext(
 		ctx,
@@ -761,7 +762,8 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
 		stepExecution.RollbackCount,
 		failuresJSON, // シリアライズした failure_exceptions
 		contextJSON,  // シリアライズした execution_context カラムにバインド
-		stepExecution.ID,
+		time.Now(),   // ★ ここを追加 ($10)
+		stepExecution.ID, // ★ ここが $11 になる
 	)
 	if err != nil {
 		return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新に失敗しました", stepExecution.ID), err, false, false)
