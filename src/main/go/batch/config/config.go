@@ -113,7 +113,8 @@ func NewConfig() *Config {
 }
 
 // NewJobParameters は JobParameters の新しいインスタンスを作成します。
-func NewJobParameters() *core.JobParameters {
+// Return type changed from *core.JobParameters to core.JobParameters
+func NewJobParameters() core.JobParameters {
 	return core.NewJobParameters()
 }
 
