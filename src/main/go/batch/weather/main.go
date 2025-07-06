@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings" // strings パッケージを追加
 	"syscall"
 	"time"
 
