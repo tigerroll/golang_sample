@@ -40,11 +40,6 @@ type JobFactory struct {
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
 // JobRepository を引数に追加
 func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactory {
-	// JSL 定義のロードは main.go で行われるため、ここでは不要
-	// if err := jsl.LoadJSLDefinitions(); err != nil {
-	// 	logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
-	// }
-
 	jf := &JobFactory{
 		config:        cfg,
 		jobRepository: repo,
@@ -67,12 +62,6 @@ func (f *JobFactory) RegisterJobBuilder(name string, builder JobBuilder) {
 	f.jobBuilders[name] = builder
 	logger.Debugf("JobFactory: ジョブビルダー '%s' を登録しました。", name)
 }
-
-// registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を登録します。
-func (f *JobFactory) registerComponentBuilders() { /* このメソッドは削除または空にする */ }
-
-// registerJobBuilders は、利用可能な全てのジョブのビルド関数を登録します。
-func (f *JobFactory) registerJobBuilders() { /* このメソッドは削除または空にする */ }
 
 // CreateJob は指定されたジョブ名の core.Job オブジェクトを作成します。
 // JSL 定義からジョブを構築するロジックをここに集約します。
