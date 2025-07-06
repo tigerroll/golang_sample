@@ -88,6 +88,56 @@ func connectWithRetry(ctx context.Context, driverName, dataSourceName string, ma
 	return nil, fmt.Errorf("データベースへの接続に最大試行回数 (%d) 失敗しました", maxRetries)
 }
 
+// ★ 追加: マイグレーションを実行するヘルパー関数
+func applyMigrations(databaseURL string, migrationPath string, dbDriverName string) error {
+	if migrationPath == "" {
+		logger.Infof("マイグレーションパスが指定されていません。スキップします。")
+		return nil
+	}
+
+	// migrate.New に渡す URL は、ドライバに応じたスキーマを含む必要があります。
+	// connectWithRetry で使用する DSN とは異なる場合があります。
+	var migrateURL string
+	switch dbDriverName {
+	case "postgres":
+		migrateURL = databaseURL // postgres://... の形式を想定
+	case "mysql":
+		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定
+	default:
+		return fmt.Errorf("未対応のデータベースドライバです: %s", dbDriverName)
+	}
+
+	logger.Infof("マイグレーションを実行中: パス '%s'", migrationPath)
+	m, err := migrate.New(
+		fmt.Sprintf("file://%s", migrationPath),
+		migrateURL,
+	)
+	if err != nil {
+		return exception.NewBatchError("migration", fmt.Sprintf("マイグレーションインスタンスの作成に失敗しました: %s", migrationPath), err, false, false)
+	}
+
+	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
+	// 本番環境ではこのロジックは使用しないでください。
+	if os.Getenv("APP_ENV") == "development" { // 環境変数で制御
+		if err := m.Down(); err != nil && err != migrate.NoChange {
+			logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
+		} else if err == nil {
+			logger.Debugf("既存のマイグレーションをダウンしました: %s", migrationPath)
+		}
+	}
+
+	if err = m.Up(); err != nil && err != migrate.NoChange {
+		return exception.NewBatchError("migration", fmt.Sprintf("マイグレーションの適用に失敗しました: %s", migrationPath), err, false, false)
+	}
+
+	if err == migrate.NoChange {
+		logger.Infof("マイグレーションは不要です: %s", migrationPath)
+	} else {
+		logger.Infof("マイグレーションが正常に完了しました: %s", migrationPath)
+	}
+	return nil
+}
+
 func main() {
 	// .env ファイルの読み込み (開発環境用)
 	if err := godotenv.Load(); err != nil {
@@ -135,14 +185,11 @@ func main() {
 
 	// データベースドライバ名の決定と migrate 用 URL の構築
 	dbDriverName := ""
-	migrateDBURL := "" // golang-migrate 用の URL (スキーム付き)
 	switch cfg.Database.Type {
 	case "postgres", "redshift":
 		dbDriverName = "postgres"
-		migrateDBURL = dbDSN // config.ConnectionString() が既に "postgres://" を含んでいるため、そのまま使用
 	case "mysql":
 		dbDriverName = "mysql"
-		migrateDBURL = fmt.Sprintf("mysql://%s", dbDSN) // mysql://user:pass@tcp(host:port)/db
 	default:
 		logger.Fatalf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 	}
@@ -165,33 +212,20 @@ func main() {
 		}
 	}()
 
-	// マイグレーションソースのパス
-	// プロジェクトのルートからの相対パスを想定
-	migrationsPath := "file://src/main/go/batch/weather/resources/migrations"
-	logger.Debugf("マイグレーションパス: %s", migrationsPath)
-	logger.Debugf("マイグレーション用DB接続文字列 (migrate tool): %s", migrateDBURL)
+	// ★ 変更: 既存のマイグレーションロジックを削除し、applyMigrations を使用
+	// ライブラリ側のマイグレーションを実行
+	// 例: バッチフレームワークのコアスキーマ用マイグレーションパス
+	batchMigrationPath := "src/main/go/batch/resources/migrations" // ★ 適切なパスに修正してください
+	if err := applyMigrations(dbDSN, batchMigrationPath, dbDriverName); err != nil {
+		logger.Fatalf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
+	}
 
-	m, err := migrate.New(
-		migrationsPath,
-		migrateDBURL,
-	)
-	if err != nil {
-		batchErr := exception.NewBatchError("main", "マイグレーションインスタンスの作成に失敗しました", err, false, false) // ★ 修正: 引数の順序と型を修正
-		logger.Fatalf("マイグレーションインスタンスの作成に失敗しました: %v (Original Error: %v)", batchErr, batchErr.OriginalErr)
+	// アプリケーション側のマイグレーションを実行 (設定されていれば)
+	if cfg.Database.AppMigrationPath != "" {
+		if err := applyMigrations(dbDSN, cfg.Database.AppMigrationPath, dbDriverName); err != nil {
+			logger.Fatalf("アプリケーションのマイグレーションに失敗しました: %v", err)
+		}
 	}
-	logger.Infof("データベースマイグレーションを開始します...")
-
-	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
-	// 本番環境ではこのロジックは使用しないでください。
-	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
-		logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
-	} else if err == nil {
-		logger.Debugf("既存のマイグレーションをダウンしました。")
-	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		logger.Fatalf("データベースマイグレーションの実行に失敗しました: %v", exception.NewBatchError("main", "データベースマイグレーションの実行に失敗しました", err, false, false))
-	}
-	logger.Infof("データベースマイグレーションが完了しました。")
 
 	// マイグレーション後のテーブル存在チェック
 	logger.Infof("マイグレーション後の 'job_instances' テーブルの存在を確認します...")
@@ -208,8 +242,7 @@ func main() {
 	}
 
 	// Step 1: Job Repository の生成
-	// マイグレーション後にデータベース接続を確立
-	// NewJobRepository は独自の接続を開きます。
+	// JobRepository は独自の接続を開きます。
 	logger.Debugf("Job Repository 用DB接続文字列: %s", cfg.Database.ConnectionString())
 	jobRepository, err := repository.NewJobRepository(ctx, *cfg)
 	if err != nil {
@@ -265,9 +298,9 @@ func main() {
 		var weatherSpecificRepo weather_repo.WeatherRepository
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
-			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(db)
+			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(dbConnectionForComponents) // ★ dbConnectionForComponents を使用
 		case "mysql":
-			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(db)
+			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(dbConnectionForComponents) // ★ dbConnectionForComponents を使用
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}

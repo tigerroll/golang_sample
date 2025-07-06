@@ -16,6 +16,8 @@ type DatabaseConfig struct {
   ProjectID string `yaml:"project_id"`
   DatasetID string `yaml:"dataset_id"`
   TableID   string `yaml:"table_id"`
+  // ★ 追加: アプリケーション固有のマイグレーションファイルのパス
+  AppMigrationPath string `yaml:"app_migration_path"`
 }
 
 func (c DatabaseConfig) ConnectionString() string {

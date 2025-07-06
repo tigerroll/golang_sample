@@ -6,6 +6,9 @@ database:
   user: "weather"
   password: "wather"
   sslmode: "disable"
+  # ★ 追加: アプリケーション固有のマイグレーションパス
+  # 例: weather アプリケーションのマイグレーションファイルが 'src/main/go/batch/weather/resources/migrations' にある場合
+  app_migration_path: "src/main/go/batch/weather/resources/migrations"
 
 batch:
   polling_interval_seconds: 3600
