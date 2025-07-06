@@ -1,4 +1,4 @@
-package main // アプリケーションのエントリポイントなので main パッケージのまま
+package main
 
 import (
 	"context"
@@ -9,13 +9,15 @@ import (
 
 	_ "embed"
 
-	"github.com/joho/godotenv"
+	// godotenv is now imported in initializer, so it's not needed here.
+	// If you need it for other purposes in main, keep it.
+	// "github.com/joho/godotenv"
 
 	config "sample/src/main/go/batch/config"
 	initializer "sample/src/main/go/batch/initializer"
 	exception "sample/src/main/go/batch/util/exception"
 	logger "sample/src/main/go/batch/util/logger"
-	core "sample/src/main/go/batch/job/core" // <-- Add this import
+	core "sample/src/main/go/batch/job/core"
 )
 
 //go:embed resources/application.yaml
@@ -25,10 +27,9 @@ var embeddedConfig []byte // application.yaml の内容をバイトスライス�
 var embeddedJSL []byte // JSL YAML ファイルを埋め込む
 
 func main() {
-	// .env ファイルの読み込み (開発環境用)
-	if err := godotenv.Load(); err != nil {
-		logger.Warnf(".env ファイルのロードに失敗しました (本番環境では環境変数を使用): %v", err)
-	}
+	// .env ファイルのロード処理は initializer.Initialize に移動されました。
+	// ここでは、環境変数 ENV_FILE_PATH から .env ファイルのパスを取得し、
+	// initializer に渡します。パスが指定されていない場合はデフォルトの ".env" を使用します。
 
 	// 設定の初期ロード (embeddedConfig を渡すため)
 	initialCfg := &config.Config{
@@ -49,12 +50,20 @@ func main() {
 		cancel() // Context をキャンセルしてジョブ実行を中断
 	}()
 
-	// BatchInitializer の生成と初期化処理の実行
+	// BatchInitializer の生成
 	batchInitializer := initializer.NewBatchInitializer(initialCfg)
 	// JSL定義のバイトスライスを BatchInitializer に設定
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
-	jobOperator, initErr := batchInitializer.Initialize(ctx)
+	// Initialize メソッドに .env ファイルのパスを渡す
+	// 環境変数 ".ENV_FILE_PATH" またはデフォルトの ".env" を使用
+	envFilePath := os.Getenv("ENV_FILE_PATH")
+	if envFilePath == "" {
+		envFilePath = ".env" // デフォルトのパス
+	}
+
+	// バッチアプリケーションの初期化処理を実行
+	jobOperator, initErr := batchInitializer.Initialize(ctx, envFilePath)
 	if initErr != nil {
 		logger.Fatalf("バッチアプリケーションの初期化に失敗しました: %v", exception.NewBatchError("main", "バッチアプリケーションの初期化に失敗しました", initErr, false, false))
 	}
