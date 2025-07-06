@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"sample/src/main/go/batch/config"
-	"sample/src/main/go/batch/util/exception" // exception パッケージをインポート
-	logger "sample/src/main/go/batch/util/logger" // logger パッケージをインポート
+	"sample/src/main/go/batch/util/exception"
+	logger "sample/src/main/go/batch/util/logger"
 
 	_ "github.com/lib/pq"              // PostgreSQL/Redshift ドライバ
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ
@@ -17,7 +17,7 @@ import (
 // NewJobRepository は JobRepository のインスタンスを作成します。
 // アプリケーションの設定を基にデータベース接続を確立します。
 func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, error) {
-	module := "repository_factory" // このモジュールの名前を定義
+	module := "repository_factory"
 	logger.Debugf("JobRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 
 	// ここでデータベース接続を確立します。
@@ -35,11 +35,16 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
 
-	// SQLJobRepository の新しいインスタンスを作成し、確立した接続を渡します。
-	// TODO: 他のデータベースタイプ (MySQL, BigQueryなど) に対応するための分岐を追加する必要があります。
-	//       現時点では PostgreSQL/Redshift 互換を想定した SQLJobRepository を返します。
-	//       厳密にはデータベースタイプに応じた JobRepository 実装を選択するロジックが必要です。
-	//       例: switch cfg.Database.Type { ... case "postgres": return NewSQLJobRepository(db), nil ... }
+	// バッチフレームワークのマイグレーションを実行
+	// このパスは、create_batch_tables.sql が golang-migrate 形式で配置されているディレクトリを指します。
+	// 例: src/main/go/batch/resources/migrations/batch_framework
+	batchFrameworkMigrationPath := "src/main/go/batch/resources/migrations" // 適切なパスに修正してください
+	if err := RunMigrations(cfg.Database.Type, cfg.Database.ConnectionString(), batchFrameworkMigrationPath); err != nil {
+		db.Close() // マイグレーション失敗時はDB接続を閉じる
+		logger.Errorf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
+		return nil, exception.NewBatchError(module, "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
+	}
+	logger.Infof("バッチフレームワークのマイグレーションが正常に完了しました。")
 
 	// Simplification: 一旦 SQLJobRepository を返す前提で進めます。
 	// 実際のプロダクションコードでは、データベースタイプごとに異なる JobRepository 実装を用意し、

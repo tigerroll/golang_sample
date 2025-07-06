@@ -14,10 +14,10 @@ import (
 	"github.com/joho/godotenv"
 
 	config "sample/src/main/go/batch/config"
-	batch_joboperator "sample/src/main/go/batch/job/joboperator" // ★ ここを修正しました
+	batch_joboperator "sample/src/main/go/batch/job/joboperator"
 	core "sample/src/main/go/batch/job/core"
 	factory "sample/src/main/go/batch/job/factory"
-	jsl "sample/src/main/go/batch/job/jsl" // jsl パッケージをインポート
+	jsl "sample/src/main/go/batch/job/jsl"
 	jobListener "sample/src/main/go/batch/job/listener"
 	repository "sample/src/main/go/batch/repository"
 	exception "sample/src/main/go/batch/util/exception"
@@ -44,15 +44,15 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
-	weather_config "sample/src/main/go/batch/weather/config" // weather_config パッケージをインポート
-	weather_repo "sample/src/main/go/batch/weather/repository" // Keep weather_repo import for specific repo creation
+	weather_config "sample/src/main/go/batch/weather/config"
+	weather_repo "sample/src/main/go/batch/weather/repository"
 	weather_processor "sample/src/main/go/batch/weather/step/processor"
 	weather_reader "sample/src/main/go/batch/weather/step/reader"
 	weather_writer "sample/src/main/go/batch/weather/step/writer"
 	weather_job "sample/src/main/go/batch/weather/job"
 	executionContextReader "sample/src/main/go/batch/step/reader"
 	executionContextWriter "sample/src/main/go/batch/step/writer"
-	dummyTasklet "sample/src/main/go/batch/step" // sampleTasklet から dummyTasklet に変更
+	dummyTasklet "sample/src/main/go/batch/step"
 )
 
 //go:embed resources/application.yaml
@@ -118,19 +118,19 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 
 	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
 	// 本番環境ではこのロジックは使用しないでください。
-	if os.Getenv("APP_ENV") == "development" { // 環境変数で制御
-		if err := m.Down(); err != nil && err != migrate.ErrNoChange { // ★ 122行目: ここを修正
+	if os.Getenv("APP_ENV") == "development" {
+		if err := m.Down(); err != nil && err != migrate.ErrNoChange {
 			logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
 		} else if err == nil {
 			logger.Debugf("既存のマイグレーションをダウンしました: %s", migrationPath)
 		}
 	}
 
-	if err = m.Up(); err != nil && err != migrate.ErrNoChange { // ★ 129行目: ここを修正
+	if err = m.Up(); err != nil && err != migrate.ErrNoChange {
 		return exception.NewBatchError("migration", fmt.Sprintf("マイグレーションの適用に失敗しました: %s", migrationPath), err, false, false)
 	}
 
-	if err == migrate.ErrNoChange { // ★ 133行目: ここを修正
+	if err == migrate.ErrNoChange {
 		logger.Infof("マイグレーションは不要です: %s", migrationPath)
 	} else {
 		logger.Infof("マイグレーションが正常に完了しました: %s", migrationPath)
@@ -212,14 +212,6 @@ func main() {
 		}
 	}()
 
-	// ★ 変更: 既存のマイグレーションロジックを削除し、applyMigrations を使用
-	// ライブラリ側のマイグレーションを実行
-	// 例: バッチフレームワークのコアスキーマ用マイグレーションパス
-	batchMigrationPath := "src/main/go/batch/resources/migrations" // ★ 適切なパスに修正してください
-	if err := applyMigrations(dbDSN, batchMigrationPath, dbDriverName); err != nil {
-		logger.Fatalf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
-	}
-
 	// アプリケーション側のマイグレーションを実行 (設定されていれば)
 	if cfg.Database.AppMigrationPath != "" {
 		if err := applyMigrations(dbDSN, cfg.Database.AppMigrationPath, dbDriverName); err != nil {
@@ -271,7 +263,7 @@ func main() {
 	}
 
 	// JSL 定義のロード (JobFactory から移動)
-	if err := jsl.LoadJSLDefinitionFromBytes(embeddedJSL); err != nil { // ★ 修正: 単一の埋め込みJSLファイルをロード
+	if err := jsl.LoadJSLDefinitionFromBytes(embeddedJSL); err != nil {
 		logger.Fatalf("JSL 定義のロードに失敗しました: %v", err)
 	}
 	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
@@ -298,9 +290,9 @@ func main() {
 		var weatherSpecificRepo weather_repo.WeatherRepository
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
-			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(dbConnectionForComponents) // ★ dbConnectionForComponents を使用
+			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(dbConnectionForComponents)
 		case "mysql":
-			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(dbConnectionForComponents) // ★ dbConnectionForComponents を使用
+			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(dbConnectionForComponents)
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}
@@ -324,7 +316,7 @@ func main() {
 		return executionContextWriter.NewExecutionContextWriter(), nil
 	})
 	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return dummyTasklet.NewDummyTasklet(), nil // NewSampleTasklet を NewDummyTasklet に変更
+		return dummyTasklet.NewDummyTasklet(), nil
 	})
 
 	// ジョブビルダーの登録
@@ -352,7 +344,7 @@ func main() {
 
 
 	// Step 4: JobOperator を作成し、Job Repository と JobFactory を引き渡す
-	jobOperator := batch_joboperator.NewDefaultJobOperator(jobRepository, *jobFactory) // ★ ここを修正しました
+	jobOperator := batch_joboperator.NewDefaultJobOperator(jobRepository, *jobFactory)
 	logger.Debugf("DefaultJobOperator を Job Repository および JobFactory と共に作成しました。")
 
 
