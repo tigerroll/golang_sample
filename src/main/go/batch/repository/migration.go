@@ -35,7 +35,7 @@ func RunMigrations(dbType, connectionString, migrationsPath string) error {
 	}
 
 	m, err := migrate.New(
-		migrationsPath,
+		fmt.Sprintf("file://%s", migrationsPath), // ★ ここを修正: file:// プレフィックスを追加
 		databaseURL,
 	)
 	if err != nil {
