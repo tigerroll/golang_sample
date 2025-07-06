@@ -219,22 +219,8 @@ func main() {
 		}
 	}
 
-	// マイグレーション後のテーブル存在チェック
-	logger.Infof("マイグレーション後の 'job_instances' テーブルの存在を確認します...")
-	var exists int
-	err = dbForMigrate.QueryRowContext(ctx, "SELECT 1 FROM job_instances LIMIT 1;").Scan(&exists)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			logger.Warnf("'job_instances' テーブルは存在しますが、データがありません。")
-		} else {
-			logger.Fatalf("'job_instances' テーブルの存在確認に失敗しました: %v", exception.NewBatchError("main", "'job_instances' テーブルの存在確認に失敗しました", err, false, false))
-		}
-	} else {
-		logger.Infof("'job_instances' テーブルが正常に存在することを確認しました。")
-	}
-
 	// Step 1: Job Repository の生成
-	// JobRepository は独自の接続を開きます。
+	// JobRepository は独自の接続を開き、その中でバッチフレームワークのマイグレーションが実行されます。
 	logger.Debugf("Job Repository 用DB接続文字列: %s", cfg.Database.ConnectionString())
 	jobRepository, err := repository.NewJobRepository(ctx, *cfg)
 	if err != nil {
@@ -260,6 +246,21 @@ func main() {
 	dbConnectionForComponents := sqlJobRepo.GetDB()
 	if dbConnectionForComponents == nil {
 		logger.Fatalf("JobRepository からデータベース接続を取得できませんでした。")
+	}
+
+	// Job Repository 生成後の 'job_instances' テーブルの存在確認
+	logger.Infof("マイグレーション後の 'job_instances' テーブルの存在を確認します...")
+	var exists int
+	// JobRepository が持つDB接続を使用して確認
+	err = dbConnectionForComponents.QueryRowContext(ctx, "SELECT 1 FROM job_instances LIMIT 1;").Scan(&exists)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logger.Warnf("'job_instances' テーブルは存在しますが、データがありません。")
+		} else {
+			logger.Fatalf("'job_instances' テーブルの存在確認に失敗しました: %v", exception.NewBatchError("main", "'job_instances' テーブルの存在確認に失敗しました", err, false, false))
+		}
+	} else {
+		logger.Infof("'job_instances' テーブルが正常に存在することを確認しました。")
 	}
 
 	// JSL 定義のロード (JobFactory から移動)
