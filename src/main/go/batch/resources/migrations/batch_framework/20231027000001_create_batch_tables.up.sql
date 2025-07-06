@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS step_executions (
     failure_exceptions JSONB, -- PostgreSQL/Redshift specific, use JSON for MySQL
     execution_context JSONB, -- PostgreSQL/Redshift specific, use JSON for MySQL
     last_updated TIMESTAMP NOT NULL,
-    version INTEGER NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (job_execution_id) REFERENCES job_executions(id)
 );
 
