@@ -119,18 +119,18 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
 	// 本番環境ではこのロジックは使用しないでください。
 	if os.Getenv("APP_ENV") == "development" { // 環境変数で制御
-		if err := m.Down(); err != nil && err != migrate.NoChange {
+		if err := m.Down(); err != nil && err != migrate.ErrNoChange { // ★ 122行目: ここを修正
 			logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
 		} else if err == nil {
 			logger.Debugf("既存のマイグレーションをダウンしました: %s", migrationPath)
 		}
 	}
 
-	if err = m.Up(); err != nil && err != migrate.NoChange {
+	if err = m.Up(); err != nil && err != migrate.ErrNoChange { // ★ 129行目: ここを修正
 		return exception.NewBatchError("migration", fmt.Sprintf("マイグレーションの適用に失敗しました: %s", migrationPath), err, false, false)
 	}
 
-	if err == migrate.NoChange {
+	if err == migrate.ErrNoChange { // ★ 133行目: ここを修正
 		logger.Infof("マイグレーションは不要です: %s", migrationPath)
 	} else {
 		logger.Infof("マイグレーションが正常に完了しました: %s", migrationPath)
