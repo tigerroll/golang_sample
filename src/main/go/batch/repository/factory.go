@@ -38,7 +38,7 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 	// バッチフレームワークのマイグレーションを実行
 	// このパスは、create_batch_tables.sql が golang-migrate 形式で配置されているディレクトリを指します。
 	// 例: src/main/go/batch/resources/migrations/batch_framework
-	batchFrameworkMigrationPath := "src/main/go/batch/resources/migrations" // ★ ここを修正
+	batchFrameworkMigrationPath := "src/main/go/batch/resources/migrations/batch_framework" // ★ ここを修正
 	if err := RunMigrations(cfg.Database.Type, cfg.Database.ConnectionString(), batchFrameworkMigrationPath); err != nil {
 		db.Close() // マイグレーション失敗時はDB接続を閉じる
 		logger.Errorf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
