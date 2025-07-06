@@ -4,8 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"os/signal"
+	"os" // Keep os import for os.Getenv
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
