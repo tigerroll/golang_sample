@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -33,6 +34,14 @@ import (
 	_ "sample/src/main/go/batch/step/writer"
 	_ "sample/src/main/go/batch/step"
 
+	// dummy imports for resolving build errors
+	dummyProcessor "sample/src/main/go/batch/step/processor"
+	dummyReader "sample/src/main/go/batch/step/reader"
+	dummyWriter "sample/src/main/go/batch/step/writer"
+	dummyTasklet "sample/src/main/go/batch/step"
+	executionContextReader "sample/src/main/go/batch/step/reader"
+	executionContextWriter "sample/src/main/go/batch/step/writer"
+
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
 	weather_config "sample/src/main/go/batch/weather/config"
 	weather_repo "sample/src/main/go/batch/weather/repository"
@@ -40,9 +49,6 @@ import (
 	weather_reader "sample/src/main/go/batch/weather/step/reader"
 	weather_writer "sample/src/main/go/batch/weather/step/writer"
 	weather_job "sample/src/main/go/batch/weather/job"
-	executionContextReader "sample/src/main/go/batch/step/reader"
-	executionContextWriter "sample/src/main/go/batch/step/writer"
-	dummyTasklet "sample/src/main/go/batch/step"
 )
 
 // BatchInitializer はバッチアプリケーションの初期化処理を担当します。
