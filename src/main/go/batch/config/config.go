@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	core "sample/src/main/go/batch/job/core"
 )
 
 // EmbeddedConfig は、設定ファイルの内容を保持するためのフィールドです。
