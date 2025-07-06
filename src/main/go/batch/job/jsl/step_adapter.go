@@ -12,7 +12,6 @@ import (
 	stepReader "sample/src/main/go/batch/step/reader"
 	stepWriter "sample/src/main/go/batch/step/writer"
 	"sample/src/main/go/batch/util/exception"
-	"sample/src/main/go/batch/util/logger"
 )
 
 // NewCoreStep は JSL Step 定義を core.Step 実装に変換します。
