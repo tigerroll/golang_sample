@@ -387,7 +387,7 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
 		if err != nil {
 			// TODO: エラーハンドリング - パースに失敗した場合でもジョブ実行は継続できるか？ログ出力して進む？
 			logger.Errorf("JobExecution (ID: %s) の JobParameters のデコードに失敗しました: %v", executionID, err)
-			// return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の JobParameters のデコードに失敗しました", executionID), err)
+			// return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) の JobParameters のデコードに失敗しました", executionID), err) // ここを修正: executionID -> jobExecution.ID
 		}
 	} else {
 		jobExecution.Parameters = core.NewJobParameters() // NULL の場合は空の JobParameters を設定
@@ -691,8 +691,8 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 	contextJSON := string(contextJSONBytes)
 
 	query := `
-    INSERT INTO step_executions (id, job_execution_id, step_name, start_time, end_time, status, exit_status, read_count, write_count, commit_count, rollback_count, failure_exceptions, execution_context, last_updated)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
+    INSERT INTO step_executions (id, job_execution_id, step_name, start_time, end_time, status, exit_status, read_count, write_count, commit_count, rollback_count, failure_exceptions, execution_context, last_updated, version)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
   `
 	// StepExecution に JobExecution への参照がある前提で job_execution_id を取得
 	jobExecutionID := ""
@@ -720,6 +720,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 		failuresJSON, // シリアライズした failure_exceptions
 		contextJSON,  // シリアライズした execution_context カラムにバインド
 		stepExecution.LastUpdated, // ★ ここを追加 ($14)
+		stepExecution.Version, // ★ ここを追加 ($15)
 	)
 	if err != nil {
 		return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err, false, false)
@@ -774,7 +775,7 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
 		return exception.NewBatchError("job_repository", fmt.Sprintf("StepExecution (ID: %s) の更新結果取得に失敗しました", stepExecution.ID), err, false, false)
 	}
 	if rowsAffected == 0 {
-		return exception.NewBatchErrorf("job_repository", "StepExecution (ID: %s) の更新対象が見つかりませんでした", stepExecution.ID)
+		return exception.NewBatchErrorf("job_repository", "StepExecution (ID: %s) の更新対象が見つかりませんでした (またはバージョン不一致)", stepExecution.ID)
 	}
 
 	logger.Debugf("StepExecution (ID: %s) を更新しました。", stepExecution.ID)
