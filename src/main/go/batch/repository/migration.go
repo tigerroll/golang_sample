@@ -22,21 +22,32 @@ func RunMigrations(dbType, connectionString, migrationsPath string) error {
 	logger.Infof("データベースマイグレーションを開始します。DBタイプ: %s, マイグレーションパス: %s", dbType, migrationsPath)
 
 	// golang-migrate/migrate が期待するデータベースURL形式に調整
-	// config.ConnectionString() が返す形式は、PostgreSQL/Redshift の場合は "postgres://" で適切ですが、
-	// MySQL の場合は "user:pass@tcp(host:port)/db" 形式なので、"mysql://" プレフィックスを追加する必要があります。
+	// バッチフレームワークのマイグレーションは 'batch_schema_migrations' テーブルを使用
 	databaseURL := connectionString
 	switch strings.ToLower(dbType) {
 	case "postgres", "redshift":
-		// config.ConnectionString() が既に "postgres://" プレフィックスを含むため、そのまま使用
+		// postgres://... の形式に x-migrations-table を追加
+		if !strings.Contains(databaseURL, "?") {
+			databaseURL += "?"
+		} else {
+			databaseURL += "&"
+		}
+		databaseURL += "x-migrations-table=batch_schema_migrations"
 	case "mysql":
-		// config.ConnectionString() は "user:pass@tcp(host:port)/db" 形式なので、"mysql://" プレフィックスを追加
+		// mysql://user:pass@tcp(host:port)/db の形式に x-migrations-table を追加
 		databaseURL = "mysql://" + connectionString
+		if !strings.Contains(databaseURL, "?") {
+			databaseURL += "?"
+		} else {
+			databaseURL += "&"
+		}
+		databaseURL += "x-migrations-table=batch_schema_migrations"
 	default:
 		return exception.NewBatchErrorf("migration", "サポートされていないデータベースタイプ: %s", dbType)
 	}
 
 	m, err := migrate.New(
-		fmt.Sprintf("file://%s", migrationsPath), // ★ ここを修正: file:// プレフィックスを追加
+		fmt.Sprintf("file://%s", migrationsPath),
 		databaseURL,
 	)
 	if err != nil {

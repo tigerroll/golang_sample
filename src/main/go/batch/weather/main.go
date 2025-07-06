@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings" // strings パッケージを追加
 	"syscall"
 	"time"
 
@@ -88,21 +89,21 @@ func connectWithRetry(ctx context.Context, driverName, dataSourceName string, ma
 	return nil, fmt.Errorf("データベースへの接続に最大試行回数 (%d) 失敗しました", maxRetries)
 }
 
-// ★ 追加: マイグレーションを実行するヘルパー関数
+// applyMigrations はマイグレーションを実行するヘルパー関数
 func applyMigrations(databaseURL string, migrationPath string, dbDriverName string) error {
 	if migrationPath == "" {
 		logger.Infof("マイグレーションパスが指定されていません。スキップします。")
 		return nil
 	}
 
-	// migrate.New に渡す URL は、ドライバに応じたスキーマを含む必要があります。
-	// connectWithRetry で使用する DSN とは異なる場合があります。
+	// アプリケーション側のマイグレーションはデフォルトの履歴テーブル (schema_migrations) を使用するため、
+	// x-migrations-table パラメータは追加しません。
 	var migrateURL string
 	switch dbDriverName {
 	case "postgres":
-		migrateURL = databaseURL // postgres://... の形式を想定
+		migrateURL = databaseURL // postgres://... の形式を想定。デフォルトの schema_migrations を使用。
 	case "mysql":
-		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定
+		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定。デフォルトの schema_migrations を使用。
 	default:
 		return fmt.Errorf("未対応のデータベースドライバです: %s", dbDriverName)
 	}
@@ -110,7 +111,7 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 	logger.Infof("マイグレーションを実行中: パス '%s'", migrationPath)
 	m, err := migrate.New(
 		fmt.Sprintf("file://%s", migrationPath),
-		migrateURL,
+		migrateURL, // x-migrations-table を含まない URL を使用
 	)
 	if err != nil {
 		return exception.NewBatchError("migration", fmt.Sprintf("マイグレーションインスタンスの作成に失敗しました: %s", migrationPath), err, false, false)
