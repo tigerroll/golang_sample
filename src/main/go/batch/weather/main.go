@@ -2,7 +2,6 @@ package main // アプリケーションのエントリポイントなので mai
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +15,7 @@ import (
 	initializer "sample/src/main/go/batch/initializer"
 	exception "sample/src/main/go/batch/util/exception"
 	logger "sample/src/main/go/batch/util/logger"
+	core "sample/src/main/go/batch/job/core" // <-- Add this import
 )
 
 //go:embed resources/application.yaml
