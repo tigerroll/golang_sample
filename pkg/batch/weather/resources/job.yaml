@@ -1,0 +1,47 @@
+id: weather # config.Batch.JobName と一致させる
+name: Weather Data Processing Job
+description: This job fetches weather data, processes it, and stores it.
+flow:
+  start-element: fetchWeatherDataStep # フローの開始要素
+  elements:
+    fetchWeatherDataStep:
+      id: fetchWeatherDataStep
+      reader:
+        ref: weatherReader # JobFactory で登録されているコンポーネント名
+      processor:
+        ref: weatherProcessor # JobFactory で登録されているコンポーネント名
+      writer:
+        ref: weatherWriter # JobFactory で登録されているコンポーネント名
+      chunk:
+        item-count: 50 # config.Batch.ChunkSize を利用
+        commit-interval: 50 # ★ 追加: コミット間隔を設定
+      transitions:
+        - on: COMPLETED # ステップが正常完了した場合
+          to: processDummyDataStep # 次のステップへ遷移
+        - on: FAILED # ステップが失敗した場合
+          fail: true # ジョブ全体を失敗として終了
+    processDummyDataStep:
+      id: processDummyDataStep
+      reader:
+        ref: dummyReader # JobFactory で登録されているダミーコンポーネント名
+      processor:
+        ref: dummyProcessor # JobFactory で登録されているダミーコンポーネント名
+      writer:
+        ref: dummyWriter # JobFactory で登録されているダミーコンポーネント名
+      chunk:
+        item-count: 10 # このステップのチャンクサイズ
+        commit-interval: 10 # ★ 追加: コミット間隔を設定
+      transitions:
+        - on: COMPLETED
+          to: dummyTaskletStep # 新しい Tasklet ステップへ遷移
+        - on: FAILED
+          fail: true # ジョブ全体を失敗として終了
+    dummyTaskletStep: # 例として Tasklet ステップを追加
+      id: dummyTaskletStep
+      tasklet:
+        ref: dummyTasklet # JobFactory で登録されているダミーコンポーネント名
+      transitions:
+        - on: COMPLETED
+          end: true
+        - on: FAILED
+          fail: true
