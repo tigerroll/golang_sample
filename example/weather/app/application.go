@@ -4,9 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	config "sample/pkg/batch/config"
