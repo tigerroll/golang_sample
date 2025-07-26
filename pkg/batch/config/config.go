@@ -53,6 +53,7 @@ type RetryConfig struct {
 // ItemRetryConfig はアイテムレベルのリトライ設定です。
 type ItemRetryConfig struct {
 	MaxAttempts        int      `yaml:"max_attempts"`
+	InitialInterval    int      `yaml:"initial_interval"` // 追加
 	RetryableExceptions []string `yaml:"retryable_exceptions"` // リトライ可能な例外のリスト (文字列)
 }
 
@@ -102,6 +103,7 @@ func NewConfig() *Config {
 			ChunkSize: 10, // ★ デフォルトのチャンクサイズ
 			ItemRetry: ItemRetryConfig{ // デフォルトのアイテムリトライ設定
 				MaxAttempts: 3,
+				InitialInterval: 1000, // デフォルト値を設定 (例: 1000ms)
 				RetryableExceptions: []string{}, // デフォルトは空
 			},
 			ItemSkip: ItemSkipConfig{ // デフォルトのアイテムスキップ設定

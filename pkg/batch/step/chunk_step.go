@@ -127,7 +127,6 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 		return exception.NewBatchError("chunk_step", fmt.Sprintf("StepExecution (ID: %s) の状態更新に失敗しました", stepExecution.ID), err, false, false)
 	}
 
-	var processedItems []O
 	var readError error
 	var processError error
 	var writeError error
