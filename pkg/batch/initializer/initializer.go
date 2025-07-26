@@ -21,7 +21,7 @@ import (
 	jsl "sample/pkg/batch/job/jsl"
 	batch_joboperator "sample/pkg/batch/job/joboperator"
 	repository "sample/pkg/batch/repository"
-	"sample/pkg/batch/repository/sql_job_repository" // sql_job_repository をインポート
+	// "sample/pkg/batch/repository/sql_job_repository" // sql_job_repository をインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -200,7 +200,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 	logger.Infof("Job Repository を生成しました。")
 
 	// JobRepository から基盤となる *sql.DB 接続を取得
-	sqlJobRepo, ok := jobRepository.(*sql_job_repository.SQLJobRepository) // sql_job_repository を使用
+	sqlJobRepo, ok := jobRepository.(*repository.SQLJobRepository) // 型アサーションを修正
 	if !ok {
 		return nil, nil, exception.NewBatchErrorf("initializer", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
 	}
