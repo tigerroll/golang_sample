@@ -26,9 +26,9 @@ import (
 	logger "sample/pkg/batch/util/logger"
 
 	// JSLでコンポーネントを動的に解決するため、Reader/Processor/Writerのパッケージをインポート
-	_ "sample/pkg/batch/weather/step/processor"
-	_ "sample/pkg/batch/weather/step/reader"
-	_ "sample/pkg/batch/weather/step/writer"
+	_ "sample/example/weather/step/processor"
+	_ "sample/example/weather/step/reader"
+	_ "sample/example/weather/step/writer"
 	_ "sample/pkg/batch/step/processor"
 	_ "sample/pkg/batch/step/reader"
 	_ "sample/pkg/batch/step/writer"
@@ -43,12 +43,12 @@ import (
 	executionContextWriter "sample/pkg/batch/step/writer"
 
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
-	weather_config "sample/pkg/batch/weather/config"
-	weather_repo "sample/pkg/batch/weather/repository"
-	weather_processor "sample/pkg/batch/weather/step/processor"
-	weather_reader "sample/pkg/batch/weather/step/reader"
-	weather_writer "sample/pkg/batch/weather/step/writer"
-	weather_job "sample/pkg/batch/weather/job"
+	weather_config "sample/example/weather/config"
+	weather_repo "sample/example/weather/repository"
+	weather_processor "sample/example/weather/step/processor"
+	weather_reader "sample/example/weather/step/reader"
+	weather_writer "sample/example/weather/step/writer"
+	weather_job "sample/example/weather/job"
 )
 
 // BatchInitializer はバッチアプリケーションの初期化処理を担当します。

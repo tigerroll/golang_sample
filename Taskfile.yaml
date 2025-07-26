@@ -4,7 +4,7 @@ version: '3'
 
 vars:
   MODULE_NAME: sample
-  SRC_DIR: pkg/batch/weather # ★ 修正: ./ を削除
+  SRC_DIR: example/weather # ★ 修正: ./ を削除
   TEST_DIR: test/batch
   BINARY_NAME: batch
   BUILD_OUTPUT_DIR: dist
