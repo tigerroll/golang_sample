@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/config"
+	"github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 
 	_ "github.com/lib/pq"              // PostgreSQL/Redshift ドライバ
 	_ "github.com/go-sql-driver/mysql" // MySQL ドライバ
@@ -28,9 +28,17 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベース接続確立に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
 
+	// 新しい SQLClient を作成し、コネクションプール設定を適用
+	sqlClient, err := NewSQLClient(db, cfg.Database.ConnectionPool) // ★ 変更: SQLClient を作成
+	if err != nil {
+		db.Close() // SQLClient 作成失敗時は元のDB接続を閉じる
+		logger.Errorf("SQLClient の作成に失敗しました: %v", err)
+		return nil, exception.NewBatchError(module, "SQLClient の作成に失敗しました", err, false, false)
+	}
+
 	// データベースへの疎通確認 (Ping)
-	if err = db.PingContext(ctx); err != nil {
-		db.Close() // Ping に失敗したら接続を閉じる
+	if err = sqlClient.PingContext(ctx); err != nil { // ★ 変更: db.PingContext から sqlClient.PingContext に変更
+		sqlClient.Close() // Ping に失敗したら接続を閉じる
 		logger.Errorf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s): %v", cfg.Database.Type, err)
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
@@ -39,8 +47,9 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 	// このパスは、create_batch_tables.sql が golang-migrate 形式で配置されているディレクトリを指します。
 	// 例: pkg/batch/resources/migrations/batch_framework
 	batchFrameworkMigrationPath := "pkg/batch/resources/migrations/batch_framework" // ★ この行が正しいことを確認
+	// RunMigrations は raw *sql.DB ではなく connectionString を受け取るため、変更なし
 	if err := RunMigrations(cfg.Database.Type, cfg.Database.ConnectionString(), batchFrameworkMigrationPath); err != nil {
-		db.Close() // マイグレーション失敗時はDB接続を閉じる
+		sqlClient.Close() // マイグレーション失敗時はDB接続を閉じる
 		logger.Errorf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
 		return nil, exception.NewBatchError(module, "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
@@ -50,7 +59,7 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 	// 実際のプロダクションコードでは、データベースタイプごとに異なる JobRepository 実装を用意し、
 	// ここで適切な実装を選択する必要があります。
 	logger.Debugf("SQLJobRepository を生成しました。")
-	return NewSQLJobRepository(db), nil
+	return NewSQLJobRepository(sqlClient), nil // ★ 変更: SQLClient を渡す
 }
 
 // TODO: Job Repository が使用するデータベース接続を閉じるための関数や、

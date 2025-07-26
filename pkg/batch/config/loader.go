@@ -76,6 +76,29 @@ func loadEnvVars(cfg *Config) {
     // フィールド名を Sslmode に修正
     cfg.Database.Sslmode = dbSSLMode
   }
+  // ★ 追加: コネクションプール設定
+  if maxOpenConnsStr := os.Getenv("DATABASE_MAX_OPEN_CONNS"); maxOpenConnsStr != "" {
+    if maxOpenConns, err := strconv.Atoi(maxOpenConnsStr); err == nil {
+      cfg.Database.ConnectionPool.MaxOpenConns = maxOpenConns
+    } else {
+      fmt.Printf("警告: DATABASE_MAX_OPEN_CONNS の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。", maxOpenConnsStr)
+    }
+  }
+  if maxIdleConnsStr := os.Getenv("DATABASE_MAX_IDLE_CONNS"); maxIdleConnsStr != "" {
+    if maxIdleConns, err := strconv.Atoi(maxIdleConnsStr); err == nil {
+      cfg.Database.ConnectionPool.MaxIdleConns = maxIdleConns
+    } else {
+      fmt.Printf("警告: DATABASE_MAX_IDLE_CONNS の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。", maxIdleConnsStr)
+    }
+  }
+  if connMaxLifetimeStr := os.Getenv("DATABASE_CONN_MAX_LIFETIME_SECONDS"); connMaxLifetimeStr != "" {
+    if connMaxLifetime, err := strconv.Atoi(connMaxLifetimeStr); err == nil {
+      cfg.Database.ConnectionPool.ConnMaxLifetimeSeconds = connMaxLifetime
+    } else {
+      fmt.Printf("警告: DATABASE_CONN_MAX_LIFETIME_SECONDS の値 '%s' が無効です。デフォルト値または設定ファイルの値を使用します。", connMaxLifetimeStr)
+    }
+  }
+
 
   // Batch 設定
   if pollingIntervalStr := os.Getenv("BATCH_POLLING_INTERVAL_SECONDS"); pollingIntervalStr != "" {

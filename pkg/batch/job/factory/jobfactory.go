@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"reflect"
 
-	config "sample/pkg/batch/config"
-	core "sample/pkg/batch/job/core"
-	jsl "sample/pkg/batch/job/jsl"
-	jobListener "sample/pkg/batch/job/listener"
-	stepListener "sample/pkg/batch/step/listener" // Keep stepListener for step-level listeners
-	repository "sample/pkg/batch/repository"
-	logger "sample/pkg/batch/util/logger"
-	exception "sample/pkg/batch/util/exception"
+	config "github.com/tigerroll/go_sample/pkg/batch/config"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	jsl "github.com/tigerroll/go_sample/pkg/batch/job/jsl"
+	jobListener "github.com/tigerroll/go_sample/pkg/batch/job/listener"
+	stepListener "github.com/tigerroll/go_sample/pkg/batch/step/listener" // Keep stepListener for step-level listeners
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
 )
 
 // ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
 // 依存関係 (config, db など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
 // ジェネリックインターフェースを返すため、any を使用します。
-type ComponentBuilder func(cfg *config.Config, db *sql.DB) (any, error) // Changed to *sql.DB
+type ComponentBuilder func(cfg *config.Config, client repository.SQLClient) (any, error) // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 
 // JobBuilder は、特定の Job を生成するための関数型です。
 // 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
@@ -81,21 +81,17 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 
 	// 3. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
-	// JobRepository から基盤となる *sql.DB 接続を取得し、ComponentBuilder に渡す
-	sqlJobRepo, ok := f.jobRepository.(*repository.SQLJobRepository)
-	if !ok {
-		return nil, exception.NewBatchErrorf("job_factory", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-	}
-	dbConnection := sqlJobRepo.GetDB()
-	if dbConnection == nil {
-		return nil, exception.NewBatchErrorf("job_factory", "JobRepository からデータベース接続を取得できませんでした。")
+	// JobRepository から基盤となる SQLClient 接続を取得し、ComponentBuilder に渡す
+	sqlClient := f.jobRepository.GetClient() // ★ 変更: GetDB() から GetClient() に変更
+	if sqlClient == nil {
+		return nil, exception.NewBatchErrorf("job_factory", "JobRepository からデータベースクライアントを取得できませんでした。")
 	}
 
 	componentInstances := make(map[string]any) // map[string]any に変更
 
 	// 登録されたビルド関数を使用してコンポーネントを動的にインスタンス化
 	for componentRefName, builder := range f.componentBuilders {
-		instance, err := builder(f.config, dbConnection) // Pass Config and *sql.DB
+		instance, err := builder(f.config, sqlClient) // ★ 変更: dbConnection から sqlClient に変更
 		if err != nil {
 			return nil, exception.NewBatchError("job_factory", fmt.Sprintf("コンポーネント '%s' のビルドに失敗しました", componentRefName), err, false, false)
 		}

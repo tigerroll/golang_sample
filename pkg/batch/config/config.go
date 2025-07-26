@@ -4,12 +4,19 @@ import (
 	"fmt"
 	"strings"
 
-	core "sample/pkg/batch/job/core"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
 )
 
 // EmbeddedConfig は、設定ファイルの内容を保持するためのフィールドです。
 // main.go から渡される埋め込み設定を格納します。
 type EmbeddedConfig []byte
+
+// ConnectionPoolConfig はデータベースコネクションプールの設定を保持します。
+type ConnectionPoolConfig struct {
+	MaxOpenConns         int `yaml:"max_open_conns"`
+	MaxIdleConns         int `yaml:"max_idle_conns"`
+	ConnMaxLifetimeSeconds int `yaml:"conn_max_lifetime_seconds"`
+}
 
 type DatabaseConfig struct {
 	Type      string `yaml:"type"`
@@ -24,6 +31,8 @@ type DatabaseConfig struct {
 	TableID   string `yaml:"table_id"`
 	// ★ 追加: アプリケーション固有のマイグレーションファイルのパス
 	AppMigrationPath string `yaml:"app_migration_path"`
+	// ★ 追加: コネクションプール設定
+	ConnectionPool ConnectionPoolConfig `yaml:"connection_pool"`
 }
 
 func (c DatabaseConfig) ConnectionString() string {
@@ -107,6 +116,13 @@ func NewConfig() *Config {
 			ItemSkip: ItemSkipConfig{ // デフォルトのアイテムスキップ設定
 				SkipLimit: 0, // デフォルトはスキップなし
 				SkippableExceptions: []string{}, // デフォルトは空
+			},
+		},
+		Database: DatabaseConfig{ // デフォルトのコネクションプール設定
+			ConnectionPool: ConnectionPoolConfig{
+				MaxOpenConns:         0, // デフォルトは無制限 (Goのデフォルト)
+				MaxIdleConns:         0, // デフォルトは2 (Goのデフォルト)
+				ConnMaxLifetimeSeconds: 0, // デフォルトは無制限 (Goのデフォルト)
 			},
 		},
 	}

@@ -4,7 +4,7 @@ import (
   "context"
   "database/sql" // sql パッケージをインポート
 
-  core "sample/pkg/batch/job/core" // core パッケージをインポート
+  core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
 )
 
 // JobRepository はバッチ実行に関するメタデータを永続化・管理するためのインターフェースです。
@@ -66,8 +66,8 @@ type JobRepository interface {
 
   // TODO: CheckpointData の永続化・復元に関するメソッドもここに追加
 
-  // GetDB はデータベース接続を返します。トランザクション管理のために使用されます。
-  GetDB() *sql.DB // ★ 追加
+  // GetClient はデータベースクライアントを返します。トランザクション管理のために使用されます。
+  GetClient() SQLClient // ★ 変更: *sql.DB から SQLClient に変更
 
   // Close はリポジトリが使用するリソース (データベース接続など) を解放します。
   Close() error

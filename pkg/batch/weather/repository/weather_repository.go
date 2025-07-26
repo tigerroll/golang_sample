@@ -5,11 +5,11 @@ import (
 	"database/sql" // sql パッケージをインポート
 	"fmt"
 
-	"sample/pkg/batch/config"
-	weather_entity "sample/pkg/batch/weather/domain/entity"
-	"sample/pkg/batch/util/exception"
-	"sample/pkg/batch/util/logger"
-	"sample/pkg/batch/repository" // 汎用リポジトリをインポート
+	"github.com/tigerroll/go_sample/pkg/batch/config"
+	weather_entity "github.com/tigerroll/go_sample/pkg/batch/weather/domain/entity"
+	"github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	"github.com/tigerroll/go_sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/repository" // 汎用リポジトリをインポート
 )
 
 type WeatherRepository interface {
@@ -23,15 +23,15 @@ type WeatherRepository interface {
 // NewWeatherRepository は WeatherRepository を生成する関数です。
 // この関数は weather アプリケーション固有のリポジトリファクトリとして機能します。
 // main.go から呼ばれることを想定。
-func NewWeatherRepository(ctx context.Context, cfg config.Config, db *sql.DB) (WeatherRepository, error) {
+func NewWeatherRepository(ctx context.Context, cfg config.Config, client repository.SQLClient) (WeatherRepository, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 	module := "weather_repository_factory"
 	logger.Debugf("WeatherRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 
 	switch cfg.Database.Type {
 	case "postgres", "redshift":
-		return NewPostgresWeatherRepository(db), nil
+		return NewPostgresWeatherRepository(client), nil // ★ 変更: db から client に変更
 	case "mysql":
-		return NewMySQLWeatherRepository(db), nil
+		return NewMySQLWeatherRepository(client), nil // ★ 変更: db から client に変更
 	default:
 		errMsg := fmt.Sprintf("サポートされていないデータベースタイプです: %s", cfg.Database.Type)
 		logger.Errorf("%s", errMsg)
@@ -41,7 +41,7 @@ func NewWeatherRepository(ctx context.Context, cfg config.Config, db *sql.DB) (W
 
 // PostgresRepositoryWrapper は repository.PostgresRepository を WeatherRepository として適応させます。
 type PostgresRepositoryWrapper struct {
-	*repository.PostgresRepository
+	client repository.SQLClient // ★ 変更: *repository.PostgresRepository から repository.SQLClient に変更
 }
 
 func (w *PostgresRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []weather_entity.WeatherDataToStore) error {
@@ -49,6 +49,7 @@ func (w *PostgresRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, t
 		return nil
 	}
 
+	// tx.PrepareContext を使用するため、直接 *sql.DB は不要
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
 		VALUES ($1, $2, $3, $4, $5, $6);
@@ -84,13 +85,13 @@ func (w *PostgresRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, t
 }
 
 func (w *PostgresRepositoryWrapper) Close() error {
-	// 基盤の *sql.DB は JobRepository が管理するため、ここでは閉じない
+	// 基盤の SQLClient は JobRepository が管理するため、ここでは閉じない
 	return nil
 }
 
 // MySQLRepositoryWrapper は repository.MySQLRepository を WeatherRepository として適応させます。
 type MySQLRepositoryWrapper struct {
-	*repository.MySQLRepository
+	client repository.SQLClient // ★ 変更: *repository.MySQLRepository から repository.SQLClient に変更
 }
 
 func (w *MySQLRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, tx *sql.Tx, items []weather_entity.WeatherDataToStore) error {
@@ -98,6 +99,7 @@ func (w *MySQLRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, tx *
 		return nil
 	}
 
+	// tx.PrepareContext を使用するため、直接 *sql.DB は不要
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO hourly_forecast (time, weather_code, temperature_2m, latitude, longitude, collected_at)
 		VALUES (?, ?, ?, ?, ?, ?);
@@ -133,16 +135,16 @@ func (w *MySQLRepositoryWrapper) BulkInsertWeatherData(ctx context.Context, tx *
 }
 
 func (w *MySQLRepositoryWrapper) Close() error {
-	// 基盤の *sql.DB は JobRepository が管理するため、ここでは閉じない
+	// 基盤の SQLClient は JobRepository が管理するため、ここでは閉じない
 	return nil
 }
 
 // NewPostgresWeatherRepository は既存の repository.PostgresRepository をラップして WeatherRepository を返します。
-func NewPostgresWeatherRepository(db *sql.DB) WeatherRepository {
-	return &PostgresRepositoryWrapper{repository.NewPostgresRepository(db)}
+func NewPostgresWeatherRepository(client repository.SQLClient) WeatherRepository { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
+	return &PostgresRepositoryWrapper{client: client} // ★ 変更: repository.NewPostgresRepository(db) から client に変更
 }
 
 // NewMySQLWeatherRepository は既存の repository.MySQLRepository をラップして WeatherRepository を返します。
-func NewMySQLWeatherRepository(db *sql.DB) WeatherRepository {
-	return &MySQLRepositoryWrapper{repository.NewMySQLRepository(db)}
+func NewMySQLWeatherRepository(client repository.SQLClient) WeatherRepository { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
+	return &MySQLRepositoryWrapper{client: client} // ★ 変更: repository.NewMySQLRepository(db) から client に変更
 }

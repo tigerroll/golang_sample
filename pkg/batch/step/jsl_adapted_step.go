@@ -9,15 +9,15 @@ import (
 	"reflect"
 	"time"
 
-	"sample/pkg/batch/config"
-	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository"
-	stepListener "sample/pkg/batch/step/listener"
-	stepProcessor "sample/pkg/batch/step/processor"
-	stepReader "sample/pkg/batch/step/reader"
-	stepWriter "sample/pkg/batch/step/writer"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/config"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	stepListener "github.com/tigerroll/go_sample/pkg/batch/step/listener"
+	stepProcessor "github.com/tigerroll/go_sample/pkg/batch/step/processor"
+	stepReader "github.com/tigerroll/go_sample/pkg/batch/step/reader"
+	stepWriter "github.com/tigerroll/go_sample/pkg/batch/step/writer"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // JSLAdaptedStep は ItemReader, ItemProcessor, ItemWriter を使用するステップの実装です。
@@ -277,7 +277,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		eofReached := false
 
 		// トランザクションを開始
-		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
+		tx, err := s.jobRepository.GetClient().BeginTx(ctx, nil) // ★ 変更: GetDB() から GetClient() に変更
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
 			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))

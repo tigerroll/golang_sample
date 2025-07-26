@@ -1,4 +1,4 @@
-module sample
+module github.com/tigerroll/go_sample
 
 go 1.24.2
 
@@ -64,3 +64,5 @@ require (
 	golang.org/x/tools v0.14.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 )
+
+replace sample => github.com/tigerroll/go_sample

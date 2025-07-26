@@ -15,40 +15,40 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/joho/godotenv" // Import godotenv here
 
-	config "sample/pkg/batch/config"
-	core "sample/pkg/batch/job/core"
-	factory "sample/pkg/batch/job/factory"
-	jsl "sample/pkg/batch/job/jsl"
-	jobListener "sample/pkg/batch/job/listener"
-	batch_joboperator "sample/pkg/batch/job/joboperator"
-	repository "sample/pkg/batch/repository"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	config "github.com/tigerroll/go_sample/pkg/batch/config"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	factory "github.com/tigerroll/go_sample/pkg/batch/job/factory"
+	jsl "github.com/tigerroll/go_sample/pkg/batch/job/jsl"
+	jobListener "github.com/tigerroll/go_sample/pkg/batch/job/listener"
+	batch_joboperator "github.com/tigerroll/go_sample/pkg/batch/job/joboperator"
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 
 	// JSLでコンポーネントを動的に解決するため、Reader/Processor/Writerのパッケージをインポート
-	_ "sample/pkg/batch/weather/step/processor"
-	_ "sample/pkg/batch/weather/step/reader"
-	_ "sample/pkg/batch/weather/step/writer"
-	_ "sample/pkg/batch/step/processor"
-	_ "sample/pkg/batch/step/reader"
-	_ "sample/pkg/batch/step/writer"
-	_ "sample/pkg/batch/step"
+	_ "github.com/tigerroll/go_sample/pkg/batch/weather/step/processor"
+	_ "github.com/tigerroll/go_sample/pkg/batch/weather/step/reader"
+	_ "github.com/tigerroll/go_sample/pkg/batch/weather/step/writer"
+	_ "github.com/tigerroll/go_sample/pkg/batch/step/processor"
+	_ "github.com/tigerroll/go_sample/pkg/batch/step/reader"
+	_ "github.com/tigerroll/go_sample/pkg/batch/step/writer"
+	_ "github.com/tigerroll/go_sample/pkg/batch/step"
 
 	// dummy imports for resolving build errors
-	dummyProcessor "sample/pkg/batch/step/processor"
-	dummyReader "sample/pkg/batch/step/reader"
-	dummyWriter "sample/pkg/batch/step/writer"
-	dummyTasklet "sample/pkg/batch/step"
-	executionContextReader "sample/pkg/batch/step/reader"
-	executionContextWriter "sample/pkg/batch/step/writer"
+	dummyProcessor "github.com/tigerroll/go_sample/pkg/batch/step/processor"
+	dummyReader "github.com/tigerroll/go_sample/pkg/batch/step/reader"
+	dummyWriter "github.com/tigerroll/go_sample/pkg/batch/step/writer"
+	dummyTasklet "github.com/tigerroll/go_sample/pkg/batch/step"
+	executionContextReader "github.com/tigerroll/go_sample/pkg/batch/step/reader"
+	executionContextWriter "github.com/tigerroll/go_sample/pkg/batch/step/writer"
 
 	// weather 関連のパッケージをインポート (JobFactory への登録用)
-	weather_config "sample/pkg/batch/weather/config"
-	weather_repo "sample/pkg/batch/weather/repository"
-	weather_processor "sample/pkg/batch/weather/step/processor"
-	weather_reader "sample/pkg/batch/weather/step/reader"
-	weather_writer "sample/pkg/batch/weather/step/writer"
-	weather_job "sample/pkg/batch/weather/job"
+	weather_config "github.com/tigerroll/go_sample/pkg/batch/weather/config"
+	weather_repo "github.com/tigerroll/go_sample/pkg/batch/weather/repository"
+	weather_processor "github.com/tigerroll/go_sample/pkg/batch/weather/step/processor"
+	weather_reader "github.com/tigerroll/go_sample/pkg/batch/weather/step/reader"
+	weather_writer "github.com/tigerroll/go_sample/pkg/batch/weather/step/writer"
+	weather_job "github.com/tigerroll/go_sample/pkg/batch/weather/job"
 )
 
 // BatchInitializer はバッチアプリケーションの初期化処理を担当します。
@@ -68,6 +68,7 @@ func NewBatchInitializer(cfg *config.Config) *BatchInitializer {
 }
 
 // connectWithRetry は指定されたデータベースにリトライ付きで接続を試みます。
+// この関数はマイグレーションのために raw *sql.DB を返します。
 func connectWithRetry(ctx context.Context, driverName, dataSourceName string, maxRetries int, delay time.Duration) (*sql.DB, error) {
 	var db *sql.DB
 	var err error
@@ -103,7 +104,7 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 
 	var migrateURL string
 	switch dbDriverName {
-	case "postgres":
+	case "postgres", "redshift":
 		migrateURL = databaseURL // postgres://... の形式を想定。デフォルトの schema_migrations を使用。
 	case "mysql":
 		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定。デフォルトの schema_migrations を使用。
@@ -189,16 +190,23 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 	}
 
 	// マイグレーション用のDB接続を確立 (リトライ付き)
+	// applyMigrations は raw *sql.DB ではなく connection string を受け取るため、
+	// ここで dbForMigrate を直接使う必要はないが、Pingのために接続は必要。
 	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbDSN, 10, 5*time.Second)
 	if err != nil {
 		return nil, exception.NewBatchError("initializer", "データベースへの接続に失敗しました", err, false, false)
 	}
-	// マイグレーション用DB接続を main 関数終了時にクローズするように defer を設定
-	// ただし、この Initialize 関数内でクローズするのは適切ではないため、main 関数側で管理する
-	// defer func() { ... }() はここでは使用しない
+	// マイグレーション完了後、マイグレーション用DB接続をクローズ
+	defer func() { // defer でクローズするように変更
+		if closeErr := dbForMigrate.Close(); closeErr != nil {
+			logger.Errorf("マイグレーション用データベース接続のクローズに失敗しました: %v", closeErr)
+		} else {
+			logger.Debugf("マイグレーション用データベース接続を閉じました。")
+		}
+	}()
 
 	// バッチフレームワークのマイグレーションを実行
-	if err := applyMigrations(dbDSN, "", dbDriverName); err != nil { // デフォルトのマイグレーションパスは空文字列で指定
+	if err := applyMigrations(dbDSN, "pkg/batch/resources/migrations/batch_framework", dbDriverName); err != nil { // ★ 変更: マイグレーションパスを明示的に指定
 		return nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
 
@@ -209,14 +217,8 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 		}
 	}
 
-	// マイグレーション完了後、マイグレーション用DB接続をクローズ
-	if err := dbForMigrate.Close(); err != nil {
-		logger.Errorf("マイグレーション用データベース接続のクローズに失敗しました: %v", err)
-	} else {
-		logger.Debugf("マイグレーション用データベース接続を閉じました。")
-	}
-
 	// Step 4: Job Repository の生成
+	// NewJobRepository は内部で SQLClient を作成し、コネクションプール設定を適用する
 	jobRepository, err := repository.NewJobRepository(ctx, *bi.Config)
 	if err != nil {
 		return nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
@@ -224,14 +226,10 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 	bi.JobRepository = jobRepository
 	logger.Infof("Job Repository を生成しました。")
 
-	// JobRepository から基盤となる *sql.DB 接続を取得
-	sqlJobRepo, ok := jobRepository.(*repository.SQLJobRepository)
-	if !ok {
-		return nil, exception.NewBatchErrorf("initializer", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-	}
-	dbConnectionForComponents := sqlJobRepo.GetDB()
-	if dbConnectionForComponents == nil {
-		return nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベース接続を取得できませんでした。")
+	// JobRepository から基盤となる SQLClient 接続を取得
+	sqlClientForComponents := jobRepository.GetClient() // ★ 変更: GetDB() から GetClient() に変更
+	if sqlClientForComponents == nil {
+		return nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベースクライアントを取得できませんでした。")
 	}
 
 	// Step 5: JSL 定義のロード
@@ -242,7 +240,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 
 	// Step 6: JobFactory の生成とコンポーネント/ジョブビルダーの登録
 	jobFactory := factory.NewJobFactory(bi.Config, bi.JobRepository)
-	bi.registerComponentBuilders(jobFactory, dbConnectionForComponents) // ComponentBuilder の登録
+	bi.registerComponentBuilders(jobFactory, sqlClientForComponents) // ★ 変更: dbConnectionForComponents から sqlClientForComponents に変更
 	bi.registerJobBuilders(jobFactory)                                 // JobBuilder の登録
 	bi.JobFactory = jobFactory
 	logger.Debugf("JobFactory を Job Repository と共に作成し、ビルダーを登録しました。")
@@ -256,25 +254,25 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 }
 
 // registerComponentBuilders は、利用可能な全てのコンポーネントのビルド関数を JobFactory に登録します。
-func (bi *BatchInitializer) registerComponentBuilders(jobFactory *factory.JobFactory, db *sql.DB) {
+func (bi *BatchInitializer) registerComponentBuilders(jobFactory *factory.JobFactory, client repository.SQLClient) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 	// Weather 関連コンポーネントの登録
-	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		weatherReaderCfg := &weather_config.WeatherReaderConfig{
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
 		return weather_reader.NewWeatherReader(weatherReaderCfg), nil
 	})
-	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return weather_processor.NewWeatherProcessor(), nil
 	})
-	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		var weatherSpecificRepo weather_repo.WeatherRepository
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
-			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(db)
+			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(client) // ★ 変更: db から client に変更
 		case "mysql":
-			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(db)
+			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(client) // ★ 変更: db から client に変更
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}
@@ -282,22 +280,22 @@ func (bi *BatchInitializer) registerComponentBuilders(jobFactory *factory.JobFac
 	})
 
 	// ダミーコンポーネントの登録
-	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return dummyReader.NewDummyReader(), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return dummyProcessor.NewDummyProcessor(), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return dummyWriter.NewDummyWriter(), nil
 	})
-	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return executionContextReader.NewExecutionContextReader(), nil
 	})
-	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return executionContextWriter.NewExecutionContextWriter(), nil
 	})
-	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, client repository.SQLClient) (any, error) { // ★ 変更: db *sql.DB から client repository.SQLClient に変更
 		return dummyTasklet.NewDummyTasklet(), nil
 	})
 
