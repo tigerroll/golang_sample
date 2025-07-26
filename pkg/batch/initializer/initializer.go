@@ -16,7 +16,6 @@ import (
 	"github.com/joho/godotenv" // Import godotenv here
 
 	config "sample/pkg/batch/config"
-	core "sample/pkg/batch/job/core"
 	factory "sample/pkg/batch/job/factory"
 	jsl "sample/pkg/batch/job/jsl"
 	batch_joboperator "sample/pkg/batch/job/joboperator"
