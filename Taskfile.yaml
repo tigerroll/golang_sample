@@ -3,8 +3,8 @@
 version: '3'
 
 vars:
-  MODULE_NAME: sample
-  SRC_DIR: pkg/batch/weather # ★ 修正: ./ を削除
+  MODULE_NAME: github.com/tigerroll/go_sample # ★ 変更: モジュール名を更新
+  SRC_DIR: example/weather # ★ 変更: アプリケーションの新しいパス
   TEST_DIR: test/batch
   BINARY_NAME: batch
   BUILD_OUTPUT_DIR: dist
@@ -39,7 +39,7 @@ tasks:
     desc: "Remove build artifacts."
     cmds:
       - rm -rf ./{{.BUILD_OUTPUT_DIR}}
-      - rm -f pkg/batch/job/weather_job.go # 不要になったファイルを削除
+      - rm -f example/weather/weather_job.go # ★ 変更: 削除対象のパスを更新 (もし存在すれば)
 
   mod-tidy:
     desc: "Add missing and remove unused go-modules."
