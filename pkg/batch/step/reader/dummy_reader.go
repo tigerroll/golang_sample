@@ -4,8 +4,8 @@ import (
   "context"
   "io" // io パッケージをインポート
 
-  core "sample/pkg/batch/job/core" // core パッケージをインポート
-  logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
+  core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
+  logger "github.com/tigerroll/go_sample/pkg/batch/util/logger" // logger パッケージをインポート
 )
 
 // DummyReader は常に io.EOF を返すダミーの Reader です。

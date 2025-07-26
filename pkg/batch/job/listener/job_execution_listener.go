@@ -1,7 +1,7 @@
 package listener
 
 import "context"
-import core "sample/pkg/batch/job/core" // core パッケージをインポート
+import core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
 
 // JobExecutionListener はジョブの実行ライフサイクルイベントを処理するためのインターフェースです。
 // メソッドシグネチャを変更し、JobExecution を受け取るようにします。

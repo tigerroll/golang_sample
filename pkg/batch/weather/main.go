@@ -13,11 +13,11 @@ import (
 	// If you need it for other purposes in main, keep it.
 	// "github.com/joho/godotenv"
 
-	config "sample/pkg/batch/config"
-	initializer "sample/pkg/batch/initializer"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
-	core "sample/pkg/batch/job/core"
+	config "github.com/tigerroll/go_sample/pkg/batch/config"
+	initializer "github.com/tigerroll/go_sample/pkg/batch/initializer"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
 )
 
 //go:embed resources/application.yaml

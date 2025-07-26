@@ -5,11 +5,11 @@ import (
 	"context"
 	"database/sql" // sql パッケージをインポート
 	"fmt"
-	weather_entity "sample/pkg/batch/weather/domain/entity"
-	core "sample/pkg/batch/job/core"
-	weather_repo "sample/pkg/batch/weather/repository" // repository パッケージをインポート
-	writer "sample/pkg/batch/step/writer" // Writer インターフェースをインポート
-	"sample/pkg/batch/util/logger"
+	weather_entity "github.com/tigerroll/go_sample/pkg/batch/weather/domain/entity"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	weather_repo "github.com/tigerroll/go_sample/pkg/batch/weather/repository" // repository パッケージをインポート
+	writer "github.com/tigerroll/go_sample/pkg/batch/step/writer" // Writer インターフェースをインポート
+	"github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // WeatherItemWriter は天気データをデータベースに書き込むためのItemWriter実装です。

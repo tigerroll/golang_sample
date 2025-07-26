@@ -4,7 +4,7 @@ package joboperator
 import (
   "context"
 
-  core "sample/pkg/batch/job/core"
+  core "github.com/tigerroll/go_sample/pkg/batch/job/core"
 )
 
 // JobOperator はバッチ実行の管理操作を行うためのインターフェースです。

@@ -1,7 +1,7 @@
 package listener
 
 import "context"
-import core "sample/pkg/batch/job/core" // core パッケージをインポート
+import core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
 
 type StepExecutionListener interface {
   // BeforeStep メソッドシグネチャを変更し、StepExecution を追加

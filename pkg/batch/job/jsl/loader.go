@@ -6,12 +6,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository"
-	stepListener "sample/pkg/batch/step/listener"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/config"
+	"github.com/tigerroll/go_sample/pkg/batch/job/core"
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	stepListener "github.com/tigerroll/go_sample/pkg/batch/step/listener"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // LoadedJobDefinitions holds all loaded JSL job definitions.

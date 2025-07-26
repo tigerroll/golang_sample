@@ -7,8 +7,8 @@ import (
 	"io" // io.EOF のためにインポート
 	"reflect"
 
-	core "sample/pkg/batch/job/core"
-	logger "sample/pkg/batch/util/logger"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // ExecutionContextReader は JobExecution.ExecutionContext からデータを読み込む Reader です。

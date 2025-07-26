@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository"
-	stepListener "sample/pkg/batch/step/listener"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	stepListener "github.com/tigerroll/go_sample/pkg/batch/step/listener"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // TaskletStep は Tasklet インターフェースをラップし、core.Step インターフェースを実装します。

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 
 	_ "github.com/lib/pq" // PostgreSQL ドライバ (Redshift も互換性があるため使用)
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/util/exception" // exception を直接インポート
-	"sample/pkg/batch/util/logger"    // logger を直接インポート
+	"github.com/tigerroll/go_sample/pkg/batch/config"
+	"github.com/tigerroll/go_sample/pkg/batch/util/exception" // exception を直接インポート
+	"github.com/tigerroll/go_sample/pkg/batch/util/logger"    // logger を直接インポート
 )
 
 // RedshiftRepository 型を定義

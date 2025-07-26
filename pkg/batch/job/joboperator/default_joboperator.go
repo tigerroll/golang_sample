@@ -5,11 +5,11 @@ import (
 	"fmt"
 	// "time" // time パッケージは現在使用されていないため削除
 
-	core "sample/pkg/batch/job/core"
-	factory "sample/pkg/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
-	"sample/pkg/batch/repository"
-	exception "sample/pkg/batch/util/exception" // exception パッケージをインポート
-	logger "sample/pkg/batch/util/logger"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	factory "github.com/tigerroll/go_sample/pkg/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
+	"github.com/tigerroll/go_sample/pkg/batch/repository"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception" // exception パッケージをインポート
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // DefaultJobOperator は JobOperator インターフェースのデフォルト実装です。

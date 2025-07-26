@@ -4,9 +4,9 @@ import (
   "context"
   //"time"
 
-  config "sample/pkg/batch/config"
-  core "sample/pkg/batch/job/core" // core パッケージをインポート
-  "sample/pkg/batch/util/logger"
+  config "github.com/tigerroll/go_sample/pkg/batch/config"
+  core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
+  "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 type LoggingListener struct{

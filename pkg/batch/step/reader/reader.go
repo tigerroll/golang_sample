@@ -1,7 +1,7 @@
 package reader
 
 import "context"
-import core "sample/pkg/batch/job/core" // core パッケージをインポート
+import core "github.com/tigerroll/go_sample/pkg/batch/job/core" // core パッケージをインポート
 
 // Reader はデータを読み込むステップのインターフェースです。
 // O は読み込まれるアイテムの型です。

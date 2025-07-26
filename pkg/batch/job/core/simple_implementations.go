@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // SimpleDecision は Decision インターフェースのシンプルな実装です。

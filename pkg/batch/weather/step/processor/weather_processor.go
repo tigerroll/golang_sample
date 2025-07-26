@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	weather_entity "sample/pkg/batch/weather/domain/entity" // weather_entity パッケージをインポート
-	processor "sample/pkg/batch/step/processor" // Processor インターフェースをインポート
+	weather_entity "github.com/tigerroll/go_sample/pkg/batch/weather/domain/entity" // weather_entity パッケージをインポート
+	processor "github.com/tigerroll/go_sample/pkg/batch/step/processor" // Processor インターフェースをインポート
 )
 
 type WeatherProcessor struct {

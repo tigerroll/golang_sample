@@ -2,7 +2,7 @@ package listener
 
 import (
 	"context"
-	"sample/pkg/batch/util/logger"
+	"github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // RetryItemListener はアイテムレベルのリトライイベントを処理するためのインターフェースです。

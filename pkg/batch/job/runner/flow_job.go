@@ -7,11 +7,11 @@ import (
 
 	"github.com/google/uuid"
 
-	core "sample/pkg/batch/job/core"
-	jobListener "sample/pkg/batch/job/listener"
-	repository "sample/pkg/batch/repository"
-	exception "sample/pkg/batch/util/exception"
-	logger "sample/pkg/batch/util/logger"
+	core "github.com/tigerroll/go_sample/pkg/batch/job/core"
+	jobListener "github.com/tigerroll/go_sample/pkg/batch/job/listener"
+	repository "github.com/tigerroll/go_sample/pkg/batch/repository"
+	exception "github.com/tigerroll/go_sample/pkg/batch/util/exception"
+	logger "github.com/tigerroll/go_sample/pkg/batch/util/logger"
 )
 
 // FlowJob は JSL で定義されたフローに基づいてジョブを実行する core.Job の実装です。
