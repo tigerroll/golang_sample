@@ -7,8 +7,8 @@ database:
   password: "wather"
   sslmode: "disable"
   # ★ 追加: アプリケーション固有のマイグレーションパス
-  # 例: weather アプリケーションのマイグレーションファイルが 'pkg/batch/weather/resources/migrations' にある場合
-  app_migration_path: "pkg/batch/weather/resources/migrations"
+  # 例: weather アプリケーションのマイグレーションファイルが 'example/weather/resources/migrations' にある場合
+  app_migration_path: "example/weather/resources/migrations"
 
 batch:
   polling_interval_seconds: 3600

@@ -6,10 +6,11 @@ import (
 	"fmt"
 
 	"sample/pkg/batch/config"
-	weather_entity "sample/pkg/batch/weather/domain/entity"
 	"sample/pkg/batch/util/exception"
 	"sample/pkg/batch/util/logger"
 	"sample/pkg/batch/repository" // 汎用リポジトリをインポート
+
+	weather_entity "sample/example/weather/domain/entity"
 )
 
 type WeatherRepository interface {

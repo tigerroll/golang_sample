@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"time" // time パッケージをインポート
 
-	weather_config "sample/pkg/batch/weather/config" // weather_config パッケージをインポート
-	weather_entity "sample/pkg/batch/weather/domain/entity" // weather_entity パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	reader "sample/pkg/batch/step/reader" // Reader インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
+
+	weather_config "sample/example/weather/config" // weather_config パッケージをインポート
+	weather_entity "sample/example/weather/domain/entity" // weather_entity パッケージをインポート
 )
 
 // WeatherReader は天気予報データを外部APIから読み込む Reader です。

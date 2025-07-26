@@ -1,15 +1,15 @@
-// pkg/batch/weather/step/writer/weather_writer.go
 package weather_writer
 
 import (
 	"context"
 	"database/sql" // sql パッケージをインポート
 	"fmt"
-	weather_entity "sample/pkg/batch/weather/domain/entity"
 	core "sample/pkg/batch/job/core"
-	weather_repo "sample/pkg/batch/weather/repository" // repository パッケージをインポート
 	writer "sample/pkg/batch/step/writer" // Writer インターフェースをインポート
-	"sample/pkg/batch/util/logger"
+	logger "sample/pkg/batch/util/logger"
+
+	weather_entity "sample/example/weather/domain/entity"
+	weather_repo "sample/example/weather/repository" // repository パッケージをインポート
 )
 
 // WeatherItemWriter は天気データをデータベースに書き込むためのItemWriter実装です。

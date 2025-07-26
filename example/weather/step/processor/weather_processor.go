@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	weather_entity "sample/pkg/batch/weather/domain/entity" // weather_entity パッケージをインポート
-	processor "sample/pkg/batch/step/processor" // Processor インターフェースをインポート
+	processor "sample/pkg/batch/step/processor"
+
+	weather_entity "sample/example/weather/domain/entity"
 )
 
 type WeatherProcessor struct {

@@ -1,4 +1,3 @@
-// pkg/batch/weather/config/config.go
 package weather_config
 
 type WeatherReaderConfig struct {
