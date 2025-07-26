@@ -2,7 +2,6 @@ package step
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 	"reflect" // reflect パッケージを追加
