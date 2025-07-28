@@ -9,18 +9,18 @@ import (
 	logger "sample/pkg/batch/util/logger"
 
 	weather_entity "sample/example/weather/domain/entity"
-	weather_repo "sample/example/weather/repository" // repository パッケージをインポート
+	appRepo "sample/example/weather/repository" // repository パッケージをインポート (エイリアスを appRepo に変更)
 )
 
 // WeatherItemWriter は天気データをデータベースに書き込むためのItemWriter実装です。
 type WeatherItemWriter struct {
-	repo weather_repo.WeatherRepository // repository.WeatherRepository を使用
+	repo appRepo.WeatherRepository // repository.WeatherRepository を使用
 	// ExecutionContext はWriterの状態を保持するために使用できます
 	executionContext core.ExecutionContext
 }
 
 // NewWeatherItemWriter は新しいWeatherItemWriterのインスタンスを作成します。
-func NewWeatherWriter(repo weather_repo.WeatherRepository) *WeatherItemWriter { // weather_repo.WeatherRepository を使用
+func NewWeatherWriter(repo appRepo.WeatherRepository) *WeatherItemWriter { // appRepo.WeatherRepository を使用
 	return &WeatherItemWriter{
 		repo:             repo,
 		executionContext: core.NewExecutionContext(), // 初期化

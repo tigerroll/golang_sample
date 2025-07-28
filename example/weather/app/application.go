@@ -7,10 +7,10 @@ import (
 	"time"
 
 	config "sample/pkg/batch/config"
-	batch_factory "sample/pkg/batch/job/factory"
-	batch_joblistener "sample/pkg/batch/job/listener"
+	factory "sample/pkg/batch/job/factory"
+	joblistener "sample/pkg/batch/job/listener" // エイリアスを joblistener に変更
 	initializer "sample/pkg/batch/initializer"
-	batch_repository "sample/pkg/batch/repository"
+	repository "sample/pkg/batch/repository" // エイリアスを削除し、デフォルトの repository を使用
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 	core "sample/pkg/batch/job/core"
@@ -30,7 +30,7 @@ import (
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
-func registerApplicationComponents(jobFactory *batch_factory.JobFactory, cfg *config.Config, db *sql.DB) {
+func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.Config, db *sql.DB) {
 	// Weather 関連コンポーネントの登録
 	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		weatherReaderCfg := &appConfig.WeatherReaderConfig{
@@ -79,9 +79,9 @@ func registerApplicationComponents(jobFactory *batch_factory.JobFactory, cfg *co
 
 	// Weather Job のビルダー登録
 	jobFactory.RegisterJobBuilder("weather", func(
-		jobRepository batch_repository.JobRepository,
+		jobRepository repository.JobRepository, // エイリアスを削除し、デフォルトの repository を使用
 		cfg *config.Config,
-		listeners []batch_joblistener.JobExecutionListener,
+		listeners []joblistener.JobExecutionListener, // エイリアスを joblistener に変更
 		flow *core.FlowDefinition,
 	) (core.Job, error) {
 		return appJob.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
@@ -110,7 +110,7 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 	logger.Infof("バッチアプリケーションの初期化が完了しました。")
 
 	// JobFactory からデータベース接続を取得し、アプリケーションコンポーネントの登録に渡す
-	sqlJobRepo, ok := batchInitializer.JobRepository.(*batch_repository.SQLJobRepository)
+	sqlJobRepo, ok := batchInitializer.JobRepository.(*repository.SQLJobRepository) // エイリアスを削除し、デフォルトの repository を使用
 	if !ok {
 		logger.Errorf("JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
 		return 1

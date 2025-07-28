@@ -1,4 +1,4 @@
-package weather_job
+package job
 
 import (
 	"context"
