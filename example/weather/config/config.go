@@ -1,4 +1,4 @@
-package weather_config
+package config
 
 type WeatherReaderConfig struct {
 	APIEndpoint string

@@ -1,4 +1,4 @@
-package weather_repository
+package repository
 
 import (
 	"context" // context パッケージをインポート

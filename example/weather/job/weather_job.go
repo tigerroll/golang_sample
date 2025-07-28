@@ -1,4 +1,4 @@
-package weather_job
+package job
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	jobListener "sample/pkg/batch/job/listener"
-	batch_repository "sample/pkg/batch/repository" // エイリアスを追加
+	repository "sample/pkg/batch/repository" // エイリアスを削除
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -18,7 +18,7 @@ import (
 // WeatherJob は天気予報データを取得・処理・保存するバッチジョブです。
 // core.Job インターフェースを実装します。
 type WeatherJob struct {
-	jobRepository batch_repository.JobRepository
+	jobRepository repository.JobRepository
 	config        *config.Config
 	jobListeners  []jobListener.JobExecutionListener
 	flow          *core.FlowDefinition // ★ フロー定義を追加
@@ -30,7 +30,7 @@ var _ core.Job = (*WeatherJob)(nil)
 // NewWeatherJob は新しい WeatherJob のインスタンスを作成します。
 // flow パラメータは JSL からロードされたフロー定義を受け取ります。
 func NewWeatherJob(
-	jobRepository batch_repository.JobRepository,
+	jobRepository repository.JobRepository,
 	cfg *config.Config,
 	listeners []jobListener.JobExecutionListener, // リスナーリストを受け取るように変更
 	flow *core.FlowDefinition, // ★ FlowDefinition を追加
