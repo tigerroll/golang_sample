@@ -9,9 +9,11 @@ import (
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
 	joblistener "sample/pkg/batch/job/listener" // エイリアスを joblistener に変更
+	joboperator "sample/pkg/batch/job/joboperator" // joboperator パッケージをインポート
 	initializer "sample/pkg/batch/initializer"
 	repository "sample/pkg/batch/repository" // エイリアスを削除し、デフォルトの repository を使用
 	exception "sample/pkg/batch/util/exception"
+	godotenv "github.com/joho/godotenv" // godotenv をインポート
 	logger "sample/pkg/batch/util/logger"
 	core "sample/pkg/batch/job/core"
 
@@ -90,44 +92,51 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	logger.Debugf("全てのアプリケーションジョブビルダーを登録しました。")
 }
 
-// RunApplication はアプリケーションのメインロジックを実行します。
-func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) int {
-	// 設定の初期ロード (embeddedConfig を渡すため)
+// setupApplication はアプリケーションの初期化処理を実行し、必要なコンポーネントを返します。
+func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, *factory.JobFactory, joboperator.JobOperator, error) {
+	// .env ファイルのロード
+	if envFilePath != "" {
+		if err := godotenv.Load(envFilePath); err != nil {
+			logger.Warnf(".env ファイル '%s' のロードに失敗しました (本番環境では環境変数を使用): %v", envFilePath, err)
+		} else {
+			logger.Infof(".env ファイル '%s' をロードしました。", envFilePath)
+		}
+	} else {
+		logger.Debugf(".env ファイルのパスが指定されていないため、ロードをスキップします。")
+	}
+
 	initialCfg := &config.Config{
 		EmbeddedConfig: embeddedConfig,
 	}
 
-	// BatchInitializer の生成
 	batchInitializer := initializer.NewBatchInitializer(initialCfg)
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	jobOperator, jobFactory, initErr := batchInitializer.Initialize(ctx, envFilePath)
+	jobOperator, jobFactory, initErr := batchInitializer.Initialize(ctx) // envFilePath を削除
 	if initErr != nil {
-		logger.Errorf("バッチアプリケーションの初期化に失敗しました: %v", exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false))
-		return 1
+		return nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
 	}
 	logger.Infof("バッチアプリケーションの初期化が完了しました。")
 
 	// JobFactory からデータベース接続を取得し、アプリケーションコンポーネントの登録に渡す
-	sqlJobRepo, ok := batchInitializer.JobRepository.(*repository.SQLJobRepository) // エイリアスを削除し、デフォルトの repository を使用
+	sqlJobRepo, ok := batchInitializer.JobRepository.(*repository.SQLJobRepository)
 	if !ok {
-		logger.Errorf("JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-		return 1
+		return nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
 	}
-	registerApplicationComponents(jobFactory, batchInitializer.Config, sqlJobRepo.GetDB())
+	dbConnection := sqlJobRepo.GetDB()
+	if dbConnection == nil {
+		return nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository からデータベース接続を取得できませんでした。")
+	}
 
-	// 初期化完了後、リソースのクローズ処理を defer で登録
-	defer func() {
-		if closeErr := batchInitializer.Close(); closeErr != nil {
-			logger.Errorf("バッチアプリケーションのリソースクローズ中にエラーが発生しました: %v", closeErr)
-		} else {
-			logger.Infof("バッチアプリケーションのリソースを正常にクローズしました。")
-		}
-	}()
+	registerApplicationComponents(jobFactory, batchInitializer.Config, dbConnection)
 
-	// 実行するジョブ名を設定ファイルから取得
-	jobName := batchInitializer.Config.Batch.JobName
+	return batchInitializer, jobFactory, jobOperator, nil
+}
+
+// executeJob は指定されたジョブを実行し、その結果に基づいて終了コードを返します。
+func executeJob(ctx context.Context, jobOperator joboperator.JobOperator, appConfig *config.Config) int {
+	jobName := appConfig.Batch.JobName
 	if jobName == "" {
 		logger.Errorf("設定ファイルにジョブ名が指定されていません。")
 		return 1
@@ -143,31 +152,8 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 	// JobOperator を使用してジョブを起動
 	jobExecution, startErr := jobOperator.Start(ctx, jobName, jobParams)
 
-	// Start メソッドがエラーを返した場合のハンドリング
 	if startErr != nil {
-		if jobExecution != nil {
-			logger.Errorf("Job '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
-				jobName, jobExecution.ID, startErr)
-
-			logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s, ExitStatus: %s",
-				jobExecution.JobName, jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
-
-			if len(jobExecution.Failures) > 0 {
-				for i, f := range jobExecution.Failures {
-					logger.Errorf("  - 失敗 %d: %v", i+1, f)
-				}
-			}
-		} else {
-			logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, startErr)
-		}
-
-		if be, ok := startErr.(*exception.BatchError); ok {
-			logger.Errorf("BatchError 詳細: Module=%s, Message=%s, OriginalErr=%v", be.Module, be.Message, be.OriginalErr)
-			if be.StackTrace != "" {
-				logger.Debugf("BatchError StackTrace:\n%s", be.StackTrace)
-			}
-		}
-		return 1
+		return handleApplicationError(startErr, jobExecution, jobName)
 	}
 
 	if jobExecution == nil {
@@ -175,26 +161,83 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 		return 1
 	}
 
-	logger.Infof("Job '%s' (Execution ID: %s) の最終状態: %s",
-		jobExecution.JobName, jobExecution.ID, jobExecution.Status)
+	// ジョブの最終状態に基づいて終了コードを決定
+	return handleApplicationError(nil, jobExecution, jobName)
+}
 
-	// JobExecution の状態に基づいてアプリケーションの終了コードを制御
-	if jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned {
+// RunApplication はアプリケーションのメインロジックを実行します。
+func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) int {
+	// 設定の初期ロード (embeddedConfig を渡すため)
+	initialCfg := &config.Config{
+		EmbeddedConfig: embeddedConfig,
+	}
+
+	// BatchInitializer の生成
+	batchInitializer := initializer.NewBatchInitializer(initialCfg)
+	batchInitializer.JSLDefinitionBytes = embeddedJSL
+
+	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
+	batchInitializer, _, jobOperator, initErr := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL)
+	if initErr != nil {
+		return 1
+	}
+
+	// 初期化完了後、リソースのクローズ処理を defer で登録
+	defer func() {
+		if closeErr := batchInitializer.Close(); closeErr != nil {
+			logger.Errorf("バッチアプリケーションのリソースクローズ中にエラーが発生しました: %v", closeErr)
+		} else {
+			logger.Infof("バッチアプリケーションのリソースを正常にクローズしました。")
+		}
+	}()
+
+	return executeJob(ctx, jobOperator, batchInitializer.Config)
+}
+
+// handleApplicationError はアプリケーションのエラーを処理し、適切な終了コードを返します。
+func handleApplicationError(err error, jobExecution *core.JobExecution, jobName string) int {
+	if err != nil {
+		// ジョブ起動処理自体でエラーが発生した場合 (jobExecution が nil の可能性あり)
+		if jobExecution != nil {
+			logger.Errorf("Job '%s' (Execution ID: %s) の実行中にエラーが発生しました: %v",
+				jobName, jobExecution.ID, err)
+			logger.Errorf("Job '%s' (Execution ID: %s) の最終状態: %s, ExitStatus: %s",
+				jobName, jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
+		} else {
+			logger.Errorf("Job '%s' の起動処理中にエラーが発生しました: %v", jobName, err)
+		}
+
+		// BatchError の詳細をログ出力
+		if be, ok := err.(*exception.BatchError); ok {
+			logger.Errorf("BatchError 詳細: Module=%s, Message=%s, OriginalErr=%v", be.Module, be.Message, be.OriginalErr)
+			if be.StackTrace != "" {
+				logger.Debugf("BatchError StackTrace:\n%s", be.StackTrace)
+			}
+		}
+	}
+
+	// err が nil でも jobExecution のステータスが失敗の場合
+	if jobExecution != nil && (jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned) {
 		logger.Errorf(
 			"Job '%s' は失敗しました。詳細は JobExecution (ID: %s) およびログを確認してください。",
 			jobExecution.JobName,
 			jobExecution.ID,
 		)
-		if len(jobExecution.Failures) > 0 {
-			for i, f := range jobExecution.Failures {
-				logger.Errorf("  - 失敗 %d: %v", i+1, f)
-			}
+	}
+
+	// JobExecution に記録された全ての失敗をログ出力
+	if jobExecution != nil && len(jobExecution.Failures) > 0 {
+		for i, f := range jobExecution.Failures {
+			logger.Errorf("  - 失敗 %d: %v", i+1, f)
 		}
+	}
+
+	// エラーがあった場合は終了コード 1 を返す
+	if err != nil || (jobExecution != nil && (jobExecution.Status == core.BatchStatusFailed || jobExecution.Status == core.BatchStatusAbandoned)) {
 		return 1
 	}
 
-	logger.Infof("アプリケーションを正常に完了しました。Job '%s' (Execution ID: %s) は %s で終了しました。",
-		jobExecution.JobName, jobExecution.ID, jobExecution.Status)
-
+	// 正常終了
+	logger.Infof("アプリケーションを正常に完了しました。Job '%s' (Execution ID: %s) は %s で終了しました。", jobName, jobExecution.ID, jobExecution.Status)
 	return 0
 }
