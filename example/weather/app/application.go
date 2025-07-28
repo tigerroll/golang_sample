@@ -16,18 +16,15 @@ import (
 	core "sample/pkg/batch/job/core"
 
 	// weather 関連のパッケージをインポート
-	weather_config "sample/example/weather/config"
-	weather_repo "sample/example/weather/repository"
-	weather_processor "sample/example/weather/step/processor"
-	weather_reader "sample/example/weather/step/reader"
-	weather_writer "sample/example/weather/step/writer"
-	weather_job "sample/example/weather/job"
+	appConfig "sample/example/weather/config"
+	appRepo "sample/example/weather/repository"
+	appProcessor "sample/example/weather/step/processor"
+	appReader "sample/example/weather/step/reader"
+	appWriter "sample/example/weather/step/writer"
+	appJob "sample/example/weather/job"
+	appTasklet "sample/example/weather/step/tasklet" // 新しい tasklet パッケージをインポート
 
-	// ダミーコンポーネントのインポート
-	dummyProcessor "sample/pkg/batch/step/processor"
-	dummyReader "sample/pkg/batch/step/reader"
-	dummyWriter "sample/pkg/batch/step/writer"
-	dummyTasklet "sample/pkg/batch/step"
+	// pkg/batch に残る汎用コンポーネントのインポート
 	executionContextReader "sample/pkg/batch/step/reader"
 	executionContextWriter "sample/pkg/batch/step/writer"
 )
@@ -36,37 +33,37 @@ import (
 func registerApplicationComponents(jobFactory *batch_factory.JobFactory, cfg *config.Config, db *sql.DB) {
 	// Weather 関連コンポーネントの登録
 	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, db *sql.DB) (any, error) {
-		weatherReaderCfg := &weather_config.WeatherReaderConfig{
+		weatherReaderCfg := &appConfig.WeatherReaderConfig{
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
-		return weather_reader.NewWeatherReader(weatherReaderCfg), nil
+		return appReader.NewWeatherReader(weatherReaderCfg), nil
 	})
 	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return weather_processor.NewWeatherProcessor(), nil
+		return appProcessor.NewWeatherProcessor(), nil
 	})
 	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
-		var weatherSpecificRepo weather_repo.WeatherRepository
+		var weatherSpecificRepo appRepo.WeatherRepository
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
-			weatherSpecificRepo = weather_repo.NewPostgresWeatherRepository(db)
+			weatherSpecificRepo = appRepo.NewPostgresWeatherRepository(db)
 		case "mysql":
-			weatherSpecificRepo = weather_repo.NewMySQLWeatherRepository(db)
+			weatherSpecificRepo = appRepo.NewMySQLWeatherRepository(db)
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}
-		return weather_writer.NewWeatherWriter(weatherSpecificRepo), nil
+		return appWriter.NewWeatherWriter(weatherSpecificRepo), nil
 	})
 
 	// ダミーコンポーネントの登録
 	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return dummyReader.NewDummyReader(), nil
+		return appReader.NewDummyReader(), nil // appReader パッケージから呼び出す
 	})
 	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return dummyProcessor.NewDummyProcessor(), nil
+		return appProcessor.NewDummyProcessor(), nil // appProcessor パッケージから呼び出す
 	})
 	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return dummyWriter.NewDummyWriter(), nil
+		return appWriter.NewDummyWriter(), nil // appWriter パッケージから呼び出す
 	})
 	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return executionContextReader.NewExecutionContextReader(), nil
@@ -75,7 +72,7 @@ func registerApplicationComponents(jobFactory *batch_factory.JobFactory, cfg *co
 		return executionContextWriter.NewExecutionContextWriter(), nil
 	})
 	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return dummyTasklet.NewDummyTasklet(), nil
+		return appTasklet.NewDummyTasklet(), nil // appTasklet パッケージから呼び出す
 	})
 
 	logger.Debugf("全てのアプリケーションコンポーネントビルダーを登録しました。")
@@ -87,7 +84,7 @@ func registerApplicationComponents(jobFactory *batch_factory.JobFactory, cfg *co
 		listeners []batch_joblistener.JobExecutionListener,
 		flow *core.FlowDefinition,
 	) (core.Job, error) {
-		return weather_job.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
+		return appJob.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
 	})
 
 	logger.Debugf("全てのアプリケーションジョブビルダーを登録しました。")

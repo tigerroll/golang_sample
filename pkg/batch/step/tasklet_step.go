@@ -67,9 +67,12 @@ func (s *TaskletStep) notifyAfterStep(ctx context.Context, stepExecution *core.S
 func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
 	logger.Infof("Taskletステップ '%s' (Execution ID: %s) を開始します。", s.name, stepExecution.ID)
 
-	// StepExecution の開始時刻を設定し、状態をマーク
+	// StepExecution は Job.Run メソッドで既に初期化され、JobExecution に追加されていることを想定
+	// ここでは、その StepExecution の状態を更新し、永続化する
 	stepExecution.StartTime = time.Now()
-	stepExecution.MarkAsStarted() // Status = Started
+	stepExecution.Status = core.BatchStatusStarting
+	stepExecution.LastUpdated = time.Now()
+	// ExecutionContext は NewStepExecution で初期化済み、またはリスタート時にロード済み
 
 	// ステップ実行前処理の通知
 	s.notifyBeforeStep(ctx, stepExecution)

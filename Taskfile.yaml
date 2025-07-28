@@ -4,7 +4,7 @@ version: '3'
 
 vars:
   MODULE_NAME: sample
-  SRC_DIR: example/weather
+  SRC_DIR: example/weather # 変更: アプリケーションのルートディレクトリ
   TEST_DIR: test/batch
   BINARY_NAME: batch
   BUILD_OUTPUT_DIR: dist
