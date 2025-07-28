@@ -34,9 +34,3 @@ func NewPostgresRepositoryFromConfig(cfg config.DatabaseConfig) (*PostgresReposi
 	logger.Debugf("PostgreSQL に正常に接続しました。")
 	return &PostgresRepository{db: db}, nil
 }
-
-// WeatherRepository インターフェースが実装されていることを確認
-// この行は、WeatherRepositoryインターフェースがこのファイルと同じパッケージ、
-// またはインポート可能なパッケージで定義されていることを前提としています。
-// もしWeatherRepositoryが未定義であれば、別途定義が必要です。
-/* var _ weather_repo.WeatherRepository = (*PostgresRepository)(nil) */

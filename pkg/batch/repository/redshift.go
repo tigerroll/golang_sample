@@ -37,6 +37,3 @@ func NewRedshiftRepositoryFromConfig(cfg config.DatabaseConfig) (*RedshiftReposi
 	logger.Infof("Redshift に正常に接続しました。")
 	return &RedshiftRepository{db: db}, nil
 }
-
-// RedshiftRepository が WeatherRepository インターフェースを満たすことを確認
-/* var _ weather_repo.WeatherRepository = (*RedshiftRepository)(nil) */
