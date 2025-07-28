@@ -13,7 +13,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/snowflakedb/gosnowflake"
-	"github.com/joho/godotenv" // Import godotenv here
+	// godotenv は application.go でロードするため削除
 
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
@@ -117,22 +117,11 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 }
 
 // Initialize はバッチアプリケーションの初期化処理を実行します。
-// .env ファイルのロード、設定の読み込み、データベースマイグレーション、
-// リポジトリ、ファクトリ、オペレータの生成を行います。
-// envFilePath: .env ファイルのパスを指定します。空の場合はロードしません。
-func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) (batch_joboperator.JobOperator, *factory.JobFactory, error) {
-	// Step 1: .env ファイルのロード
-	if envFilePath != "" {
-		if err := godotenv.Load(envFilePath); err != nil {
-			logger.Warnf(".env ファイル '%s' のロードに失敗しました (本番環境では環境変数を使用): %v", envFilePath, err)
-		} else {
-			logger.Infof(".env ファイル '%s' をロードしました。", envFilePath)
-		}
-	} else {
-		logger.Debugf(".env ファイルのパスが指定されていないため、ロードをスキップします。")
-	}
+// .env ファイルのロードは呼び出し元 (application.go) で行われるため、ここでは削除
+func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.JobOperator, *factory.JobFactory, error) {
+	logger.Debugf("BatchInitializer.Initialize が呼び出されました。")
 
-	// Step 2: 設定のロード (main.go から移動)
+	// Step 1: 設定のロード (main.go から移動)
 	// BytesConfigLoader を使用して埋め込み設定をロード
 	bytesLoader := config.NewBytesConfigLoader(bi.Config.EmbeddedConfig) // Config に EmbeddedConfig フィールドを追加
 	cfg, err := bytesLoader.Load() // cfg はここで初期化される
@@ -146,7 +135,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 	logger.SetLogLevel(bi.Config.System.Logging.Level)
 	logger.Infof("ロギングレベルを '%s' に設定しました。", bi.Config.System.Logging.Level)
 
-	// Step 3: データベース接続とマイグレーション
+	// Step 2: データベース接続とマイグレーション
 	dbDSN := bi.Config.Database.ConnectionString()
 	if dbDSN == "" {
 		return nil, nil, exception.NewBatchErrorf("initializer", "データベース接続文字列の構築に失敗しました。")
@@ -190,7 +179,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 		logger.Debugf("マイグレーション用データベース接続を閉じました。")
 	}
 
-	// Step 4: Job Repository の生成
+	// Step 3: Job Repository の生成
 	jobRepository, err := repository.NewJobRepository(ctx, *bi.Config)
 	if err != nil {
 		return nil, nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
@@ -208,18 +197,18 @@ func (bi *BatchInitializer) Initialize(ctx context.Context, envFilePath string) 
 		return nil, nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベース接続を取得できませんでした。")
 	}
 
-	// Step 5: JSL 定義のロード
+	// Step 4: JSL 定義のロード
 	if err := jsl.LoadJSLDefinitionFromBytes(bi.JSLDefinitionBytes); err != nil {
 		return nil, nil, exception.NewBatchError("initializer", "JSL 定義のロードに失敗しました", err, false, false)
 	}
 	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
 
-	// Step 6: JobFactory の生成とコンポーネント/ジョブビルダーの登録
+	// Step 5: JobFactory の生成とコンポーネント/ジョブビルダーの登録
 	jobFactory := factory.NewJobFactory(bi.Config, bi.JobRepository) // JobFactory を生成
 	bi.JobFactory = jobFactory // BatchInitializer の JobFactory フィールドに設定
 	logger.Debugf("JobFactory を Job Repository と共に作成しました。")
 
-	// Step 7: JobOperator の生成
+	// Step 6: JobOperator の生成
 	jobOperator := batch_joboperator.NewDefaultJobOperator(bi.JobRepository, *bi.JobFactory) // JobFactory を渡す
 	bi.JobOperator = jobOperator // BatchInitializer の JobOperator フィールドに設定
 	logger.Infof("DefaultJobOperator を生成しました。")
