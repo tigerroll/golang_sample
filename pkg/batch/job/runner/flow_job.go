@@ -225,7 +225,7 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 				jobExecution.MarkAsCompleted()
 			} else {
 				// エラー発生で次の遷移がない場合はジョブ失敗
-				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生しましたが、適切な遷移ルールが見つかりません。ジョブを失敗として終了します。", j.name, element.ID())
+				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生しましたが、適切な遷移ルールが見つかりません。ジョブを失敗として終了します。", j.JobName(), element.ID())
 				jobExecution.MarkAsFailed(elementErr)
 			}
 			break
@@ -233,17 +233,17 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 
 		// 遷移ルールが End, Fail, Stop を指示した場合の処理
 		if transitionRule.End {
-			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.name, element.ID())
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.JobName(), element.ID())
 			jobExecution.MarkAsCompleted()
 			break
 		}
 		if transitionRule.Fail {
-			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.name, element.ID())
+			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.JobName(), element.ID())
 			jobExecution.MarkAsFailed(fmt.Errorf("explicit fail transition from %s", element.ID()))
 			break
 		}
 		if transitionRule.Stop {
-			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.name, element.ID())
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.JobName(), element.ID())
 			jobExecution.MarkAsStopped()
 			break
 		}
@@ -252,9 +252,6 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 		currentElementID = transitionRule.To
 	}
 
-	// ジョブの最終的な ExitStatus を設定 (defer で設定されるため、ここでは不要だが念のため)
-	// defer で設定される MarkAsCompleted/Failed/Stopped メソッド内で ExitStatus も設定されるため、
-	// ここでの重複設定は不要。
-	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了しました。", j.name, jobExecution.ID)
+	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了しました。", j.JobName(), jobExecution.ID)
 	return nil
 }

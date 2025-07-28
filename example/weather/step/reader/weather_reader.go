@@ -1,4 +1,4 @@
-package weather_reader
+package reader
 
 import (
 	"context"

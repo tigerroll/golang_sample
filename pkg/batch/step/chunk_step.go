@@ -6,7 +6,7 @@ import (
 	"time"
 	"reflect" // reflect パッケージを追加
 
-	"github.com/google/uuid" // UUID生成のためにインポート
+	// "github.com/google/uuid" // UUID生成のためにインポート (NewStepExecutionで生成されるため不要)
 
 	"sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
@@ -91,19 +91,12 @@ func (cs *ChunkStep[I, O]) StepName() string {
 func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
 	logger.Infof("ステップ '%s' の実行を開始します。", cs.name)
 
-	// StepExecution の初期化と永続化
-	if stepExecution.ID == "" {
-		stepExecution.ID = uuid.New().String()
-		stepExecution.StepName = cs.name
-		stepExecution.JobExecution = jobExecution // 参照を設定
-		stepExecution.StartTime = time.Now()
-		stepExecution.Status = core.BatchStatusStarting
-		stepExecution.LastUpdated = time.Now()
-		stepExecution.ExecutionContext = core.NewExecutionContext() // 新しいExecutionContextを初期化
-		if err := cs.jobRepository.SaveStepExecution(ctx, stepExecution); err != nil {
-			return exception.NewBatchError("chunk_step", fmt.Sprintf("StepExecution (ID: %s) の保存に失敗しました", stepExecution.ID), err, false, false)
-		}
-	}
+	// StepExecution は Job.Run メソッドで既に初期化され、JobExecution に追加されていることを想定
+	// ここでは、その StepExecution の状態を更新し、永続化する
+	stepExecution.StartTime = time.Now()
+	stepExecution.Status = core.BatchStatusStarting
+	stepExecution.LastUpdated = time.Now()
+	// ExecutionContext は NewStepExecution で初期化済み、またはリスタート時にロード済み
 
 	// Reader, Writer の ExecutionContext をステップの ExecutionContext から復元
 	// Reader, Writer, Processor は ExecutionContext を持つインターフェースを実装していると仮定

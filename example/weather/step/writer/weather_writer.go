@@ -1,4 +1,4 @@
-package weather_writer
+package writer
 
 import (
 	"context"

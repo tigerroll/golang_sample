@@ -1,4 +1,4 @@
-package weather_processor
+package processor
 
 import (
 	"context"
