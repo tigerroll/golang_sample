@@ -1,4 +1,3 @@
-// (修正)
 package joboperator
 
 import (
@@ -10,11 +9,6 @@ import (
 // JobOperator はバッチ実行の管理操作を行うためのインターフェースです。
 // JSR352 の JobOperator に相当します。
 type JobOperator interface {
-  // Start は指定されたジョブを JobParameters とともに起動します。
-  // 起動された JobExecution インスタンスを返します。
-  // ここで返されるエラーは、ジョブ自体の実行エラーではなく、起動処理自体のエラーです。
-  Start(ctx context.Context, jobName string, params core.JobParameters) (*core.JobExecution, error)
-
   // Restart は指定された JobExecution を再開します。
   // 再開された JobExecution インスタンスを返します。
   // TODO: 実装 (フェーズ3)

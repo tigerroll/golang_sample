@@ -15,6 +15,7 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 	// godotenv は application.go でロードするため削除
 
+	batch_joblauncher "sample/pkg/batch/job/joblauncher" // joblauncher をインポート
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
 	jsl "sample/pkg/batch/job/jsl"
@@ -30,7 +31,8 @@ type BatchInitializer struct {
 	Config             *config.Config
 	JSLDefinitionBytes []byte // JSL定義のバイトスライス
 	JobRepository      repository.JobRepository
-	JobFactory         *factory.JobFactory
+	JobFactory         *factory.JobFactory // ポインタ型を維持
+	JobLauncher        batch_joblauncher.JobLauncher // JobLauncher を追加
 	JobOperator        batch_joboperator.JobOperator
 }
 
@@ -118,7 +120,7 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 
 // Initialize はバッチアプリケーションの初期化処理を実行します。
 // .env ファイルのロードは呼び出し元 (application.go) で行われるため、ここでは削除
-func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.JobOperator, *factory.JobFactory, error) {
+func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.JobLauncher, batch_joboperator.JobOperator, *factory.JobFactory, error) { // ★ 戻り値の型を変更
 	logger.Debugf("BatchInitializer.Initialize が呼び出されました。")
 
 	// Step 1: 設定のロード (main.go から移動)
@@ -126,7 +128,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	bytesLoader := config.NewBytesConfigLoader(bi.Config.EmbeddedConfig) // Config に EmbeddedConfig フィールドを追加
 	cfg, err := bytesLoader.Load() // cfg はここで初期化される
 	if err != nil {
-		return nil, nil, exception.NewBatchError("initializer", "設定のロードに失敗しました", err, false, false)
+		return nil, nil, nil, exception.NewBatchError("initializer", "設定のロードに失敗しました", err, false, false)
 	}
 	// ロードされた設定を BatchInitializer の Config に反映
 	bi.Config = cfg
@@ -138,7 +140,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	// Step 2: データベース接続とマイグレーション
 	dbDSN := bi.Config.Database.ConnectionString()
 	if dbDSN == "" {
-		return nil, nil, exception.NewBatchErrorf("initializer", "データベース接続文字列の構築に失敗しました。")
+		return nil, nil, nil, exception.NewBatchErrorf("initializer", "データベース接続文字列の構築に失敗しました。")
 	}
 
 	dbDriverName := ""
@@ -148,13 +150,13 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	case "mysql":
 		dbDriverName = "mysql"
 	default:
-		return nil, nil, exception.NewBatchErrorf("initializer", "未対応のデータベースタイプです: %s", bi.Config.Database.Type)
+		return nil, nil, nil, exception.NewBatchErrorf("initializer", "未対応のデータベースタイプです: %s", bi.Config.Database.Type)
 	}
 	
 	// マイグレーション用のDB接続を確立 (リトライ付き)
 	dbForMigrate, err := connectWithRetry(ctx, dbDriverName, dbDSN, 10, 5*time.Second)
 	if err != nil {
-		return nil, nil, exception.NewBatchError("initializer", "データベースへの接続に失敗しました", err, false, false)
+		return nil, nil, nil, exception.NewBatchError("initializer", "データベースへの接続に失敗しました", err, false, false)
 	}
 	// マイグレーション用DB接続を main 関数終了時にクローズするように defer を設定
 	// ただし、この Initialize 関数内でクローズするのは適切ではないため、main 関数側で管理する
@@ -162,13 +164,13 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 
 	// バッチフレームワークのマイグレーションを実行
 	if err := applyMigrations(dbDSN, "", dbDriverName); err != nil { // デフォルトのマイグレーションパスは空文字列で指定
-		return nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
+		return nil, nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
 
 	// アプリケーション固有のマイグレーションを実行 (設定されていれば)
 	if bi.Config.Database.AppMigrationPath != "" {
 		if err := applyMigrations(dbDSN, bi.Config.Database.AppMigrationPath, dbDriverName); err != nil { // bi.Config.Database.AppMigrationPath を使用
-			return nil, nil, exception.NewBatchError("initializer", "アプリケーションのマイグレーションに失敗しました", err, false, false)
+			return nil, nil, nil, exception.NewBatchError("initializer", "アプリケーションのマイグレーションに失敗しました", err, false, false)
 		}
 	}
 
@@ -182,7 +184,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	// Step 3: Job Repository の生成
 	jobRepository, err := repository.NewJobRepository(ctx, *bi.Config)
 	if err != nil {
-		return nil, nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
+		return nil, nil, nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
 	}
 	bi.JobRepository = jobRepository
 	logger.Infof("Job Repository を生成しました。")
@@ -190,16 +192,16 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	// JobRepository から基盤となる *sql.DB 接続を取得
 	sqlJobRepo, ok := jobRepository.(*repository.SQLJobRepository) // 型アサーションを修正
 	if !ok {
-		return nil, nil, exception.NewBatchErrorf("initializer", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
+		return nil, nil, nil, exception.NewBatchErrorf("initializer", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
 	}
 	dbConnectionForComponents := sqlJobRepo.GetDB()
 	if dbConnectionForComponents == nil {
-		return nil, nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベース接続を取得できませんでした。")
+		return nil, nil, nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベース接続を取得できませんでした。")
 	}
 
 	// Step 4: JSL 定義のロード
 	if err := jsl.LoadJSLDefinitionFromBytes(bi.JSLDefinitionBytes); err != nil {
-		return nil, nil, exception.NewBatchError("initializer", "JSL 定義のロードに失敗しました", err, false, false)
+		return nil, nil, nil, exception.NewBatchError("initializer", "JSL 定義のロードに失敗しました", err, false, false)
 	}
 	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
 
@@ -213,7 +215,12 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joboperator.J
 	bi.JobOperator = jobOperator // BatchInitializer の JobOperator フィールドに設定
 	logger.Infof("DefaultJobOperator を生成しました。")
 
-	return bi.JobOperator, bi.JobFactory, nil // JobOperator と JobFactory を両方返す
+	// Step 7: JobLauncher の生成
+	jobLauncher := batch_joblauncher.NewSimpleJobLauncher(bi.JobRepository, *bi.JobFactory) // JobRepository と JobFactory を渡す
+	bi.JobLauncher = jobLauncher // BatchInitializer の JobLauncher フィールドに設定
+	logger.Infof("SimpleJobLauncher を生成しました。")
+
+	return bi.JobLauncher, bi.JobOperator, bi.JobFactory, nil // ★ 戻り値の順序と型を変更
 }
 
 // Close は BatchInitializer が保持するリソースを解放します。
