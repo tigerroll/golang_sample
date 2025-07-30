@@ -203,9 +203,6 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	stepExecution.StartTime = time.Now()
 	stepExecution.MarkAsStarted()
 
-	// ステップ実行前処理の通知
-	s.notifyBeforeStep(ctx, stepExecution)
-
 	// StepExecution の ExecutionContext から Reader/Writer の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元します。", s.name)
@@ -232,6 +229,10 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			}
 		}
 	}
+
+	// ステップ実行前処理の通知 (ExecutionContext 復元後)
+	s.notifyBeforeStep(ctx, stepExecution)
+
 
 	// ステップ実行後処理 (defer で必ず実行)
 	defer func() {
@@ -280,7 +281,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
-			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, false, false))
+			stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
 			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 			return err
 		}
@@ -482,7 +483,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			// この試行がエラーなく完了した場合
 			if err = tx.Commit(); err != nil {
 				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
-				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, false, false))
+				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, true, false))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return err
 			}

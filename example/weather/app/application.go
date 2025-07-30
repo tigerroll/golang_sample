@@ -30,6 +30,7 @@ import (
 	// pkg/batch に残る汎用コンポーネントのインポート
 	executionContextReader "sample/pkg/batch/step/reader"
 	executionContextWriter "sample/pkg/batch/step/writer"
+	steplistener "sample/pkg/batch/step/listener" // stepListener をインポート
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
@@ -76,6 +77,22 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	})
 	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return appTasklet.NewDummyTasklet(), nil // appTasklet パッケージから呼び出す
+	})
+
+	// Step-level listeners の登録
+	jobFactory.RegisterStepExecutionListenerBuilder("loggingStepListener", func(cfg *config.Config) (steplistener.StepExecutionListener, error) {
+		return steplistener.NewLoggingListener(&cfg.System.Logging), nil
+	})
+	jobFactory.RegisterStepExecutionListenerBuilder("retryStepListener", func(cfg *config.Config) (steplistener.StepExecutionListener, error) {
+		return steplistener.NewRetryListener(&cfg.Batch.Retry), nil
+	})
+
+	// Item-level listeners の登録 (既存の実装のみ)
+	jobFactory.RegisterSkipListenerBuilder("loggingSkipListener", func(cfg *config.Config) (steplistener.SkipListener, error) {
+		return steplistener.NewLoggingSkipListener(), nil
+	})
+	jobFactory.RegisterRetryItemListenerBuilder("loggingRetryItemListener", func(cfg *config.Config) (steplistener.RetryItemListener, error) {
+		return steplistener.NewLoggingRetryItemListener(), nil
 	})
 
 	// JobExecutionListener の登録
