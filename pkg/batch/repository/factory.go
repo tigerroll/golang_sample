@@ -35,17 +35,6 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
 
-	// バッチフレームワークのマイグレーションを実行
-	// このパスは、create_batch_tables.sql が golang-migrate 形式で配置されているディレクトリを指します。
-	// 例: pkg/batch/resources/migrations/batch_framework
-	batchFrameworkMigrationPath := "pkg/batch/resources/migrations/batch_framework" // ★ この行が正しいことを確認
-	if err := RunMigrations(cfg.Database.Type, cfg.Database.ConnectionString(), batchFrameworkMigrationPath); err != nil {
-		db.Close() // マイグレーション失敗時はDB接続を閉じる
-		logger.Errorf("バッチフレームワークのマイグレーションに失敗しました: %v", err)
-		return nil, exception.NewBatchError(module, "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
-	}
-	logger.Infof("バッチフレームワークのマイグレーションが正常に完了しました。")
-
 	// Simplification: 一旦 SQLJobRepository を返す前提で進めます。
 	// 実際のプロダクションコードでは、データベースタイプごとに異なる JobRepository 実装を用意し、
 	// ここで適切な実装を選択する必要があります。
