@@ -28,6 +28,13 @@ type Step struct {
 	Chunk       *Chunk       `yaml:"chunk,omitempty"`     // チャンク指向の場合のチャンク設定
 	Tasklet     ComponentRef `yaml:"tasklet,omitempty"`   // Tasklet指向の場合
 	Transitions []Transition `yaml:"transitions,omitempty"`
+	// Step-level listeners
+	Listeners          []ComponentRef `yaml:"listeners,omitempty"`
+	ItemReadListeners  []ComponentRef `yaml:"item-read-listeners,omitempty"`
+	ItemProcessListeners []ComponentRef `yaml:"item-process-listeners,omitempty"`
+	ItemWriteListeners []ComponentRef `yaml:"item-write-listeners,omitempty"`
+	SkipListeners      []ComponentRef `yaml:"skip-listeners,omitempty"`
+	RetryItemListeners []ComponentRef `yaml:"retry-item-listeners,omitempty"`
 	// Other step-level properties like listeners, properties, etc. can be added here.
 }
 

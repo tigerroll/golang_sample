@@ -63,7 +63,18 @@ func GetLoadedJobCount() int {
 }
 
 // ConvertJSLToCoreFlow converts a JSL Flow definition into a core.FlowDefinition.
-func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (*core.FlowDefinition, error) {
+func ConvertJSLToCoreFlow(
+	jslFlow Flow,
+	componentRegistry map[string]any,
+	jobRepository repository.JobRepository,
+	cfg *config.Config, // Config 全体を渡す
+	stepListenerBuilders map[string]any, // 型を any に変更
+	itemReadListenerBuilders map[string]any, // 型を any に変更
+	itemProcessListenerBuilders map[string]any, // 型を any に変更
+	itemWriteListenerBuilders map[string]any, // 型を any に変更
+	skipListenerBuilders map[string]any, // 型を any に変更
+	retryItemListenerBuilders map[string]any, // 型を any に変更
+) (*core.FlowDefinition, error) {
 	coreFlow := &core.FlowDefinition{
 		StartElement:    jslFlow.StartElement,
 		Elements:        make(map[string]core.FlowElement),
@@ -89,8 +100,121 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ステップ '%s' のIDがマップのキー '%s' と一致しません", jslStep.ID, id), nil, false, false)
 			}
 
+			// ステップレベルリスナーのインスタンス化
+			var stepLs []stepListener.StepExecutionListener
+			for _, listenerRef := range jslStep.Listeners {
+				builderAny, found := stepListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "StepExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (stepListener.StepExecutionListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "StepExecutionListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("StepExecutionListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				stepLs = append(stepLs, listenerInstance)
+			}
+
+			// アイテムレベルリスナーのインスタンス化 (チャンクステップのみに適用されるが、ここでは全てインスタンス化)
+			var itemReadLs []core.ItemReadListener
+			for _, listenerRef := range jslStep.ItemReadListeners {
+				builderAny, found := itemReadListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemReadListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (core.ItemReadListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemReadListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ItemReadListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				itemReadLs = append(itemReadLs, listenerInstance)
+			}
+			var itemProcessLs []core.ItemProcessListener
+			for _, listenerRef := range jslStep.ItemProcessListeners {
+				builderAny, found := itemProcessListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemProcessListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (core.ItemProcessListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemProcessListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ItemProcessListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				itemProcessLs = append(itemProcessLs, listenerInstance)
+			}
+			var itemWriteLs []core.ItemWriteListener
+			for _, listenerRef := range jslStep.ItemWriteListeners {
+				builderAny, found := itemWriteListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemWriteListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (core.ItemWriteListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "ItemWriteListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ItemWriteListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				itemWriteLs = append(itemWriteLs, listenerInstance)
+			}
+			var skipLs []stepListener.SkipListener
+			for _, listenerRef := range jslStep.SkipListeners {
+				builderAny, found := skipListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "SkipListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (stepListener.SkipListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "SkipListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("SkipListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				skipLs = append(skipLs, listenerInstance)
+			}
+			var retryItemLs []stepListener.RetryItemListener
+			for _, listenerRef := range jslStep.RetryItemListeners {
+				builderAny, found := retryItemListenerBuilders[listenerRef.Ref]
+				if !found {
+					return nil, exception.NewBatchErrorf("jsl_converter", "RetryItemListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+				}
+				builder, ok := builderAny.(func(*config.Config) (stepListener.RetryItemListener, error)) // 型アサーション
+				if !ok {
+					return nil, exception.NewBatchErrorf("jsl_converter", "RetryItemListener '%s' のビルダーの型が不正です: %T", listenerRef.Ref, builderAny)
+				}
+				listenerInstance, err := builder(cfg)
+				if err != nil {
+					return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("RetryItemListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+				}
+				retryItemLs = append(retryItemLs, listenerInstance)
+			}
+
 			// 新しいアダプター関数を使用してコアステップを作成
-			coreStep, err := NewCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, itemRetryConfig, itemSkipConfig, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
+			coreStep, err := NewCoreStep(
+				jslStep,
+				componentRegistry,
+				jobRepository,
+				&cfg.Batch.Retry, // Step Retry Config
+				cfg.Batch.ItemRetry, // Item Retry Config
+				cfg.Batch.ItemSkip, // Item Skip Config
+				stepLs,
+				itemReadLs,
+				itemProcessLs,
+				itemWriteLs,
+				skipLs,
+				retryItemLs,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -118,7 +242,7 @@ func ConvertJSLToCoreFlow(jslFlow Flow, componentRegistry map[string]any, jobRep
 				return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("デシジョン '%s' に遷移ルールが定義されていません", id), nil, false, false)
 			}
 
-			coreDecision := core.NewSimpleDecision(jslDecision.ID)
+			coreDecision := core.NewSimpleDecision(jslDecision.ID) // Decision doesn't take listeners
 			coreFlow.Elements[id] = coreDecision
 			// このデシジョンの遷移を追加
 			for _, t := range jslDecision.Transitions {

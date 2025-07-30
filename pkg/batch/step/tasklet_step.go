@@ -74,9 +74,6 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 	stepExecution.LastUpdated = time.Now()
 	// ExecutionContext は NewStepExecution で初期化済み、またはリスタート時にロード済み
 
-	// ステップ実行前処理の通知
-	s.notifyBeforeStep(ctx, stepExecution)
-
 	// StepExecution の ExecutionContext から Tasklet の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("Taskletステップ '%s': ExecutionContext から Tasklet の状態を復元します。", s.name)
@@ -92,6 +89,10 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 			}
 		}
 	}
+
+	// ステップ実行前処理の通知 (ExecutionContext 復元後)
+	s.notifyBeforeStep(ctx, stepExecution)
+
 
 	// ステップ実行後処理 (defer で必ず実行)
 	defer func() {

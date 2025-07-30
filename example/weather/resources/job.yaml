@@ -18,6 +18,19 @@ flow:
       chunk:
         item-count: 50 # config.Batch.ChunkSize を利用
         commit-interval: 50 # ★ 追加: コミット間隔を設定
+      listeners: # ステップレベルリスナー
+        - ref: loggingStepListener
+        - ref: retryStepListener
+      item-read-listeners: # アイテム読み込みリスナー
+        # - ref: myItemReadListener # 必要に応じて追加
+      item-process-listeners: # アイテム処理リスナー
+        # - ref: myItemProcessListener # 必要に応じて追加
+      item-write-listeners: # アイテム書き込みリスナー
+        # - ref: myItemWriteListener # 必要に応じて追加
+      skip-listeners: # アイテムスキップリスナー
+        - ref: loggingSkipListener
+      retry-item-listeners: # アイテムリトライリスナー
+        - ref: loggingRetryItemListener
       transitions:
         - on: COMPLETED # ステップが正常完了した場合
           to: processDummyDataStep # 次のステップへ遷移
@@ -34,6 +47,19 @@ flow:
       chunk:
         item-count: 10 # このステップのチャンクサイズ
         commit-interval: 10 # ★ 追加: コミット間隔を設定
+      listeners: # ステップレベルリスナー
+        - ref: loggingStepListener
+        - ref: retryStepListener
+      item-read-listeners: # アイテム読み込みリスナー
+        # - ref: myItemReadListener # 必要に応じて追加
+      item-process-listeners: # アイテム処理リスナー
+        # - ref: myItemProcessListener # 必要に応じて追加
+      item-write-listeners: # アイテム書き込みリスナー
+        # - ref: myItemWriteListener # 必要に応じて追加
+      skip-listeners: # アイテムスキップリスナー
+        - ref: loggingSkipListener
+      retry-item-listeners: # アイテムリトライリスナー
+        - ref: loggingRetryItemListener
       transitions:
         - on: COMPLETED
           to: dummyTaskletStep # 新しい Tasklet ステップへ遷移
@@ -43,6 +69,9 @@ flow:
       id: dummyTaskletStep
       tasklet:
         ref: dummyTasklet # JobFactory で登録されているダミーコンポーネント名
+      listeners: # ステップレベルリスナー (TaskletStep も StepExecutionListener を持つ)
+        - ref: loggingStepListener
+        - ref: retryStepListener
       transitions:
         - on: COMPLETED
           end: true

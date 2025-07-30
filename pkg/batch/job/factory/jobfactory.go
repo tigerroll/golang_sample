@@ -20,6 +20,26 @@ import (
 // ジェネリックインターフェースを返すため、any を使用します。
 type ComponentBuilder func(cfg *config.Config, db *sql.DB) (any, error) // Changed to *sql.DB
 
+// StepExecutionListenerBuilder は StepExecutionListener を生成するための関数型です。
+type StepExecutionListenerBuilder func(cfg *config.Config) (stepListener.StepExecutionListener, error)
+
+// ItemReadListenerBuilder は core.ItemReadListener を生成するための関数型です。
+type ItemReadListenerBuilder func(cfg *config.Config) (core.ItemReadListener, error)
+
+// ItemProcessListenerBuilder は core.ItemProcessListener を生成するための関数型です。
+type ItemProcessListenerBuilder func(cfg *config.Config) (core.ItemProcessListener, error)
+
+// ItemWriteListenerBuilder は core.ItemWriteListener を生成するための関数型です。
+type ItemWriteListenerBuilder func(cfg *config.Config) (core.ItemWriteListener, error)
+
+// SkipListenerBuilder は stepListener.SkipListener を生成するための関数型です。
+type SkipListenerBuilder func(cfg *config.Config) (stepListener.SkipListener, error)
+
+// RetryItemListenerBuilder は stepListener.RetryItemListener を生成するための関数型です。
+type RetryItemListenerBuilder func(cfg *config.Config) (stepListener.RetryItemListener, error)
+
+
+
 // JobListenerBuilder は JobExecutionListener を生成するための関数型です。
 // 依存関係 (config など) を受け取り、生成されたリスナーとエラーを返します。
 type JobListenerBuilder func(cfg *config.Config) (jobListener.JobExecutionListener, error)
@@ -40,6 +60,12 @@ type JobFactory struct {
 	componentBuilders map[string]ComponentBuilder
 	jobBuilders       map[string]JobBuilder
 	jobListenerBuilders map[string]JobListenerBuilder // JobListenerBuilder を追加
+	stepListenerBuilders map[string]StepExecutionListenerBuilder
+	itemReadListenerBuilders map[string]ItemReadListenerBuilder
+	itemProcessListenerBuilders map[string]ItemProcessListenerBuilder
+	itemWriteListenerBuilders map[string]ItemWriteListenerBuilder
+	skipListenerBuilders map[string]SkipListenerBuilder
+	retryItemListenerBuilders map[string]RetryItemListenerBuilder
 }
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
@@ -51,6 +77,12 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 		componentBuilders: make(map[string]ComponentBuilder),
 		jobBuilders:       make(map[string]JobBuilder),
 		jobListenerBuilders: make(map[string]JobListenerBuilder), // 初期化
+		stepListenerBuilders: make(map[string]StepExecutionListenerBuilder),
+		itemReadListenerBuilders: make(map[string]ItemReadListenerBuilder),
+		itemProcessListenerBuilders: make(map[string]ItemProcessListenerBuilder),
+		itemWriteListenerBuilders: make(map[string]ItemWriteListenerBuilder),
+		skipListenerBuilders: make(map[string]SkipListenerBuilder),
+		retryItemListenerBuilders: make(map[string]RetryItemListenerBuilder),
 	}
 	return jf
 }
@@ -73,6 +105,42 @@ func (f *JobFactory) RegisterJobBuilder(name string, builder JobBuilder) {
 func (f *JobFactory) RegisterJobListenerBuilder(name string, builder JobListenerBuilder) {
 	f.jobListenerBuilders[name] = builder
 	logger.Debugf("JobFactory: JobExecutionListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterStepExecutionListenerBuilder は、指定された名前で StepExecutionListener ビルド関数を登録します。
+func (f *JobFactory) RegisterStepExecutionListenerBuilder(name string, builder StepExecutionListenerBuilder) {
+	f.stepListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: StepExecutionListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterItemReadListenerBuilder は、指定された名前で ItemReadListener ビルド関数を登録します。
+func (f *JobFactory) RegisterItemReadListenerBuilder(name string, builder ItemReadListenerBuilder) {
+	f.itemReadListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: ItemReadListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterItemProcessListenerBuilder は、指定された名前で ItemProcessListener ビルド関数を登録します。
+func (f *JobFactory) RegisterItemProcessListenerBuilder(name string, builder ItemProcessListenerBuilder) {
+	f.itemProcessListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: ItemProcessListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterItemWriteListenerBuilder は、指定された名前で ItemWriteListener ビルド関数を登録します。
+func (f *JobFactory) RegisterItemWriteListenerBuilder(name string, builder ItemWriteListenerBuilder) {
+	f.itemWriteListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: ItemWriteListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterSkipListenerBuilder は、指定された名前で SkipListener ビルド関数を登録します。
+func (f *JobFactory) RegisterSkipListenerBuilder(name string, builder SkipListenerBuilder) {
+	f.skipListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: SkipListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterRetryItemListenerBuilder は、指定された名前で RetryItemListener ビルド関数を登録します。
+func (f *JobFactory) RegisterRetryItemListenerBuilder(name string, builder RetryItemListenerBuilder) {
+	f.retryItemListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: RetryItemListener ビルダー '%s' を登録しました。", name)
 }
 
 // CreateJob は指定されたジョブ名の core.Job オブジェクトを作成します。
@@ -117,26 +185,48 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 
 	// 4. JSL Flow を core.FlowDefinition に変換
 	// jobRepository を ConvertJSLToCoreFlow に渡す
-	// StepExecutionListener を生成
-	// アイテムレベルリスナーもここで生成し、JSLAdaptedStep に渡す
-	// 現状は StepExecutionListener のリストにまとめて渡すため、型アサーションで判別する
-	stepListeners := []stepListener.StepExecutionListener{ // Use stepListener.StepExecutionListener
-		stepListener.NewLoggingListener(&f.config.System.Logging), // LoggingListener を追加
-		stepListener.NewRetryListener(&f.config.Batch.Retry),     // RetryListener を追加
+	// Step-level および Item-level リスナーを JSL からインスタンス化
+	// ConvertJSLToCoreFlow に渡すリスナービルダーマップ
+	// 各ビルダーをその基底となる無名関数型にキャストして any に格納
+	stepListenerBuilders := make(map[string]any)
+	for k, v := range f.stepListenerBuilders {
+		stepListenerBuilders[k] = (func(*config.Config) (stepListener.StepExecutionListener, error))(v)
 	}
-	itemReadListeners := []core.ItemReadListener{}
-	itemProcessListeners := []core.ItemProcessListener{}
-	itemWriteListeners := []core.ItemWriteListener{}
-	skipListeners := []stepListener.SkipListener{ // Use stepListener.SkipListener
-		stepListener.NewLoggingSkipListener(), // LoggingSkipListener を追加
+	itemReadListenerBuilders := make(map[string]any)
+	for k, v := range f.itemReadListenerBuilders {
+		itemReadListenerBuilders[k] = (func(*config.Config) (core.ItemReadListener, error))(v)
 	}
-	retryItemListeners := []stepListener.RetryItemListener{ // Use stepListener.RetryItemListener
-		stepListener.NewLoggingRetryItemListener(), // LoggingRetryItemListener を追加
+	itemProcessListenerBuilders := make(map[string]any)
+	for k, v := range f.itemProcessListenerBuilders {
+		itemProcessListenerBuilders[k] = (func(*config.Config) (core.ItemProcessListener, error))(v)
+	}
+	itemWriteListenerBuilders := make(map[string]any)
+	for k, v := range f.itemWriteListenerBuilders {
+		itemWriteListenerBuilders[k] = (func(*config.Config) (core.ItemWriteListener, error))(v)
+	}
+	skipListenerBuilders := make(map[string]any)
+	for k, v := range f.skipListenerBuilders {
+		skipListenerBuilders[k] = (func(*config.Config) (stepListener.SkipListener, error))(v)
+	}
+	retryItemListenerBuilders := make(map[string]any)
+	for k, v := range f.retryItemListenerBuilders {
+		retryItemListenerBuilders[k] = (func(*config.Config) (stepListener.RetryItemListener, error))(v)
 	}
 
 	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
 	// そして、JSLAdaptedStep のコンストラクタに渡す際に、適切な型アサーションを行う
-	coreFlow, err := jsl.ConvertJSLToCoreFlow(jslJob.Flow, componentInstances, f.jobRepository, &f.config.Batch.Retry, f.config.Batch.ItemRetry, f.config.Batch.ItemSkip, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
+	coreFlow, err := jsl.ConvertJSLToCoreFlow(
+		jslJob.Flow,
+		componentInstances,
+		f.jobRepository,
+		f.config, // Config 全体を渡す
+		stepListenerBuilders,
+		itemReadListenerBuilders,
+		itemProcessListenerBuilders,
+		itemWriteListenerBuilders,
+		skipListenerBuilders,
+		retryItemListenerBuilders,
+	)
 	if err != nil {
 		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JSL ジョブ '%s' のフロー変換に失敗しました", jobName), err, false, false)
 	}

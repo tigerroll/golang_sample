@@ -24,12 +24,12 @@ func NewCoreStep(
 	retryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
 	itemSkipConfig config.ItemSkipConfig,
-	stepListeners []stepListener.StepExecutionListener,
-	itemReadListeners []core.ItemReadListener,
-	itemProcessListeners []core.ItemProcessListener,
-	itemWriteListeners []core.ItemWriteListener,
-	skipListeners []stepListener.SkipListener,
-	retryItemListeners []stepListener.RetryItemListener,
+	stepListeners []stepListener.StepExecutionListener, // Instantiated listeners
+	itemReadListeners []core.ItemReadListener,          // Instantiated listeners
+	itemProcessListeners []core.ItemProcessListener,    // Instantiated listeners
+	itemWriteListeners []core.ItemWriteListener,        // Instantiated listeners
+	skipListeners []stepListener.SkipListener,          // Instantiated listeners
+	retryItemListeners []stepListener.RetryItemListener, // Instantiated listeners
 ) (core.Step, error) {
 	isChunk := jslStep.Reader.Ref != "" || jslStep.Processor.Ref != "" || jslStep.Writer.Ref != "" || jslStep.Chunk != nil
 	isTasklet := jslStep.Tasklet.Ref != ""
@@ -64,13 +64,13 @@ func NewCoreStep(
 		if jslStep.Tasklet.Ref == "" {
 			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("Taskletステップ '%s' に 'tasklet' が定義されていません", jslStep.ID), nil, false, false)
 		}
-		return convertJSLTaskletStepToCoreStep(jslStep, componentRegistry, jobRepository, stepListeners)
+		return convertJSLTaskletStepToCoreStep(jslStep, componentRegistry, jobRepository, stepListeners) // Pass stepListeners
 	}
 }
 
 // convertJSLChunkStepToCoreStep は JSL Step 定義をチャンク処理用の core.Step 実装に変換します。
 // この関数は jsl パッケージ内でプライベートです。
-func convertJSLChunkStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) {
+func convertJSLChunkStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) { // Keep all listener slices
 	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[any])
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です (期待: Reader[any])", jslStep.Reader.Ref), nil, false, false)
@@ -101,7 +101,7 @@ func convertJSLChunkStepToCoreStep(jslStep Step, componentRegistry map[string]an
 
 // convertJSLTaskletStepToCoreStep は JSL Step 定義をタスクレット処理用の core.Step 実装に変換します。
 // この関数は jsl パッケージ内でプライベートです。
-func convertJSLTaskletStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, stepListeners []stepListener.StepExecutionListener) (core.Step, error) {
+func convertJSLTaskletStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, stepListeners []stepListener.StepExecutionListener) (core.Step, error) { // Keep stepListeners
 	t, ok := componentRegistry[jslStep.Tasklet.Ref].(step.Tasklet)
 	if !ok {
 		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("タスクレット '%s' が見つからないか、不正な型です (期待: Tasklet)", jslStep.Tasklet.Ref), nil, false, false)
