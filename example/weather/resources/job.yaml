@@ -1,6 +1,9 @@
 id: weather # config.Batch.JobName と一致させる
 name: Weather Data Processing Job
 description: This job fetches weather data, processes it, and stores it.
+listeners: # ★ 追加: ジョブレベルのリスナー定義
+  - ref: loggingJobListener # JobFactory で登録されているリスナー名
+
 flow:
   start-element: fetchWeatherDataStep # フローの開始要素
   elements:

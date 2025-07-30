@@ -78,6 +78,11 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 		return appTasklet.NewDummyTasklet(), nil // appTasklet パッケージから呼び出す
 	})
 
+	// JobExecutionListener の登録
+	jobFactory.RegisterJobListenerBuilder("loggingJobListener", func(cfg *config.Config) (joblistener.JobExecutionListener, error) {
+		return joblistener.NewLoggingJobListener(&cfg.System.Logging), nil
+	})
+
 	logger.Debugf("全てのアプリケーションコンポーネントビルダーを登録しました。")
 
 	// Weather Job のビルダー登録
