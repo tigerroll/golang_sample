@@ -6,6 +6,7 @@ type Job struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description,omitempty"`
 	Flow        Flow        `yaml:"flow"` // A job must have a flow
+	Listeners   []ComponentRef `yaml:"listeners,omitempty"` // Job-level listeners
 	// Other job-level properties like listeners, properties, etc. can be added here.
 }
 

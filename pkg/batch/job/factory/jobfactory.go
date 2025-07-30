@@ -20,6 +20,10 @@ import (
 // ジェネリックインターフェースを返すため、any を使用します。
 type ComponentBuilder func(cfg *config.Config, db *sql.DB) (any, error) // Changed to *sql.DB
 
+// JobListenerBuilder は JobExecutionListener を生成するための関数型です。
+// 依存関係 (config など) を受け取り、生成されたリスナーとエラーを返します。
+type JobListenerBuilder func(cfg *config.Config) (jobListener.JobExecutionListener, error)
+
 // JobBuilder は、特定の Job を生成するための関数型です。
 // 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
 type JobBuilder func(
@@ -35,6 +39,7 @@ type JobFactory struct {
 	jobRepository     repository.JobRepository
 	componentBuilders map[string]ComponentBuilder
 	jobBuilders       map[string]JobBuilder
+	jobListenerBuilders map[string]JobListenerBuilder // JobListenerBuilder を追加
 }
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
@@ -45,6 +50,7 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 		jobRepository: repo,
 		componentBuilders: make(map[string]ComponentBuilder),
 		jobBuilders:       make(map[string]JobBuilder),
+		jobListenerBuilders: make(map[string]JobListenerBuilder), // 初期化
 	}
 	return jf
 }
@@ -61,6 +67,12 @@ func (f *JobFactory) RegisterComponentBuilder(name string, builder ComponentBuil
 func (f *JobFactory) RegisterJobBuilder(name string, builder JobBuilder) {
 	f.jobBuilders[name] = builder
 	logger.Debugf("JobFactory: ジョブビルダー '%s' を登録しました。", name)
+}
+
+// RegisterJobListenerBuilder は、指定された名前で JobExecutionListener ビルド関数を登録します。
+func (f *JobFactory) RegisterJobListenerBuilder(name string, builder JobListenerBuilder) {
+	f.jobListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: JobExecutionListener ビルダー '%s' を登録しました。", name)
 }
 
 // CreateJob は指定されたジョブ名の core.Job オブジェクトを作成します。
@@ -129,11 +141,22 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JSL ジョブ '%s' のフロー変換に失敗しました", jobName), err, false, false)
 	}
 
-	// 5. JobExecutionListener を生成し、ジョブに登録
-	jobListeners := []jobListener.JobExecutionListener{
-		jobListener.NewLoggingJobListener(&f.config.System.Logging), // LoggingConfig を渡す
-		// 他の共通リスナーがあればここに追加
+	// 5. JSL 定義から JobExecutionListener をインスタンス化
+	var jobListeners []jobListener.JobExecutionListener
+	for _, listenerRef := range jslJob.Listeners {
+		builder, found := f.jobListenerBuilders[listenerRef.Ref]
+		if !found {
+			return nil, exception.NewBatchErrorf("job_factory", "JobExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+		}
+		listenerInstance, err := builder(f.config) // Config を渡す
+		if err != nil {
+			return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JobExecutionListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+		}
+		jobListeners = append(jobListeners, listenerInstance)
+		logger.Debugf("JobExecutionListener '%s' を生成しました。", listenerRef.Ref)
 	}
+	// デフォルトのリスナーを JSL で指定されたリスナーに追加することも可能
+	// 例: jobListeners = append(jobListeners, joblistener.NewDefaultJobListener())
 
 	// 6. 登録されたジョブビルダーを使用して Job インスタンスを作成
 	jobInstance, err := jobBuilder(
