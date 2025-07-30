@@ -11,6 +11,7 @@ import (
 	joblistener "sample/pkg/batch/job/listener" // エイリアスを joblistener に変更
 	joboperator "sample/pkg/batch/job/joboperator" // joboperator パッケージをインポート
 	initializer "sample/pkg/batch/initializer"
+	joblauncher "sample/pkg/batch/job/joblauncher" // joblauncher パッケージをインポート
 	repository "sample/pkg/batch/repository" // エイリアスを削除し、デフォルトの repository を使用
 	exception "sample/pkg/batch/util/exception"
 	godotenv "github.com/joho/godotenv" // godotenv をインポート
@@ -93,7 +94,7 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 }
 
 // setupApplication はアプリケーションの初期化処理を実行し、必要なコンポーネントを返します。
-func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, *factory.JobFactory, joboperator.JobOperator, error) {
+func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, joblauncher.JobLauncher, joboperator.JobOperator, *factory.JobFactory, error) { // ★ 戻り値の型と順序を変更
 	// .env ファイルのロード
 	if envFilePath != "" {
 		if err := godotenv.Load(envFilePath); err != nil {
@@ -113,29 +114,29 @@ func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, e
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	jobOperator, jobFactory, initErr := batchInitializer.Initialize(ctx) // envFilePath を削除
+	jobLauncher, jobOperator, jobFactory, initErr := batchInitializer.Initialize(ctx) // ★ 戻り値の順序と型を変更
 	if initErr != nil {
-		return nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
+		return nil, nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
 	}
 	logger.Infof("バッチアプリケーションの初期化が完了しました。")
 
 	// JobFactory からデータベース接続を取得し、アプリケーションコンポーネントの登録に渡す
 	sqlJobRepo, ok := batchInitializer.JobRepository.(*repository.SQLJobRepository)
 	if !ok {
-		return nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
+		return nil, nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
 	}
 	dbConnection := sqlJobRepo.GetDB()
 	if dbConnection == nil {
-		return nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository からデータベース接続を取得できませんでした。")
+		return nil, nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository からデータベース接続を取得できませんでした。")
 	}
 
 	registerApplicationComponents(jobFactory, batchInitializer.Config, dbConnection)
 
-	return batchInitializer, jobFactory, jobOperator, nil
+	return batchInitializer, jobLauncher, jobOperator, jobFactory, nil // ★ 戻り値の順序と型を変更
 }
 
 // executeJob は指定されたジョブを実行し、その結果に基づいて終了コードを返します。
-func executeJob(ctx context.Context, jobOperator joboperator.JobOperator, appConfig *config.Config) int {
+func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appConfig *config.Config) int { // ★ jobOperator を jobLauncher に変更
 	jobName := appConfig.Batch.JobName
 	if jobName == "" {
 		logger.Errorf("設定ファイルにジョブ名が指定されていません。")
@@ -144,13 +145,13 @@ func executeJob(ctx context.Context, jobOperator joboperator.JobOperator, appCon
 	logger.Infof("実行する Job: '%s'", jobName)
 
 	// JobParameters を作成 (必要に応じてパラメータを設定)
-	jobParams := config.NewJobParameters()
-	jobParams.Put("input.file", "/path/to/input.csv")
-	jobParams.Put("output.dir", "/path/to/output")
-	jobParams.Put("process.date", time.Now().Format("2006-01-02"))
+	jobParams := core.NewJobParameters() // config.NewJobParameters() から core.NewJobParameters() に変更
+	jobParams.Put("input.file", "/path/to/input.csv") // 例としてパラメータを設定
+	jobParams.Put("output.dir", "/path/to/output")    // 例としてパラメータを設定
+	jobParams.Put("process.date", time.Now().Format("2006-01-02")) // 例としてパラメータを設定
 
 	// JobOperator を使用してジョブを起動
-	jobExecution, startErr := jobOperator.Start(ctx, jobName, jobParams)
+	jobExecution, startErr := jobLauncher.Launch(ctx, jobName, jobParams) // ★ JobLauncher.Launch を呼び出す
 
 	if startErr != nil {
 		return handleApplicationError(startErr, jobExecution, jobName)
@@ -177,8 +178,8 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	batchInitializer, _, jobOperator, initErr := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL)
-	if initErr != nil {
+	batchInitializer, jobLauncher, _, _, _ := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL) // ★ 戻り値の順序と型を変更
+	if batchInitializer == nil { // setupApplication がエラーを返した場合のチェック
 		return 1
 	}
 
@@ -191,7 +192,7 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 		}
 	}()
 
-	return executeJob(ctx, jobOperator, batchInitializer.Config)
+	return executeJob(ctx, jobLauncher, batchInitializer.Config) // ★ jobOperator を jobLauncher に変更
 }
 
 // handleApplicationError はアプリケーションのエラーを処理し、適切な終了コードを返します。
