@@ -7,6 +7,7 @@ import (
 	core "sample/pkg/batch/job/core"
 	writer "sample/pkg/batch/step/writer" // Writer インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
+	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
 	appRepo "sample/example/weather/repository" // repository パッケージをインポート (エイリアスを appRepo に変更)
@@ -49,7 +50,8 @@ func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) 
 	for _, item := range items {
 		typedItem, ok := item.([]*weather_entity.WeatherDataToStore)
 		if !ok {
-			return fmt.Errorf("WeatherItemWriter: 予期しない入力アイテムの型です: %T, 期待される型: []*weather_entity.WeatherDataToStore", item)
+			// 予期しない入力アイテムの型はスキップ可能、リトライ不可
+			return exception.NewBatchError("weather_writer", fmt.Sprintf("予期しない入力アイテムの型です: %T, 期待される型: []*weather_entity.WeatherDataToStore", item), nil, false, true)
 		}
 		dataToStorePointers = append(dataToStorePointers, typedItem...)
 	}
@@ -70,7 +72,8 @@ func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) 
 	// BulkInsertWeatherData にトランザクションを渡す
 	err := w.repo.BulkInsertWeatherData(ctx, tx, finalDataToStore) // finalDataToStore を渡す
 	if err != nil {
-		return fmt.Errorf("天気データのバルク挿入に失敗しました: %w", err)
+		// バルク挿入失敗はリトライ可能、スキップ不可 (チャンク全体が対象のため)
+		return exception.NewBatchError("weather_writer", "天気データのバルク挿入に失敗しました", err, true, false)
 	}
 
 	logger.Debugf("天気データアイテムのチャンクをデータベースに保存しました。データ数: %d", len(finalDataToStore))
