@@ -21,12 +21,12 @@ flow:
       listeners: # ステップレベルリスナー
         - ref: loggingStepListener
         - ref: retryStepListener
-      # item-read-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: loggingItemReadListener
-      # item-process-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: loggingItemProcessListener
-      # item-write-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: loggingItemWriteListener
+      item-read-listeners: # アイテム読み込みリスナーを有効化
+        - ref: loggingItemReadListener
+      item-process-listeners: # アイテム処理リスナーを有効化
+        - ref: loggingItemProcessListener
+      item-write-listeners: # アイテム書き込みリスナーを有効化
+        - ref: loggingItemWriteListener
       skip-listeners: # アイテムスキップリスナー
         - ref: loggingSkipListener
       retry-item-listeners: # アイテムリトライリスナー
@@ -50,12 +50,12 @@ flow:
       listeners: # ステップレベルリスナー
         - ref: loggingStepListener
         - ref: retryStepListener
-      # item-read-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: myItemReadListener
-      # item-process-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: myItemProcessListener
-      # item-write-listeners: # これらのリスナーはまだ登録されていないため、コメントアウトまたは削除を検討
-      #   - ref: myItemWriteListener
+      item-read-listeners: # アイテム読み込みリスナーを有効化
+        - ref: loggingItemReadListener
+      item-process-listeners: # アイテム処理リスナーを有効化
+        - ref: loggingItemProcessListener
+      item-write-listeners: # アイテム書き込みリスナーを有効化
+        - ref: loggingItemWriteListener
       skip-listeners: # アイテムスキップリスナー
         - ref: loggingSkipListener
       retry-item-listeners: # アイテムリトライリスナー
