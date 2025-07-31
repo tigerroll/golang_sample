@@ -11,6 +11,7 @@ import (
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	reader "sample/pkg/batch/step/reader" // Reader インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
+	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_config "sample/example/weather/config" // weather_config パッケージをインポート
 	weather_entity "sample/example/weather/domain/entity" // weather_entity パッケージをインポート
@@ -56,7 +57,8 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
-			return nil, fmt.Errorf("HTTPリクエストの作成に失敗しました: %w", err)
+			// HTTPリクエストの作成失敗はリトライ不可、スキップ不可
+			return nil, exception.NewBatchError("weather_reader", "HTTPリクエストの作成に失敗しました", err, false, false)
 		}
 		// APIキーが必要な場合、ヘッダーに追加などを検討
 		// req.Header.Set("X-API-Key", r.config.APIKey) // 必要に応じてAPIキーを追加
@@ -65,7 +67,8 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を
 		resp, err := client.Do(req)
 		if err != nil {
 			logger.Errorf("APIへのリクエストに失敗しました: %v", err)
-			return nil, fmt.Errorf("API呼び出しエラー: %w", err)
+			// API呼び出しエラーは一時的なネットワーク問題の可能性があるのでリトライ可能、スキップ不可
+			return nil, exception.NewBatchError("weather_reader", "API呼び出しエラー", err, true, false)
 		}
 		defer resp.Body.Close()
 
@@ -73,14 +76,17 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を
 			// レスポンスボディを読み取り、エラーメッセージに含めることを検討
 			bodyBytes, readErr := io.ReadAll(resp.Body)
 			if readErr != nil {
-				return nil, fmt.Errorf("APIからエラーレスポンスが返されました: ステータスコード %d (ボディ読み込みエラー: %w)", resp.StatusCode, readErr)
+				// ボディ読み込みエラーはリトライ可能、スキップ不可
+				return nil, exception.NewBatchError("weather_reader", fmt.Sprintf("APIからエラーレスポンスが返されました: ステータスコード %d (ボディ読み込みエラー)", resp.StatusCode), readErr, true, false)
 			}
-			return nil, fmt.Errorf("APIからエラーレスポンスが返されました: ステータスコード %d, ボディ: %s", resp.StatusCode, string(bodyBytes))
+			// APIからのエラーレスポンスはリトライ可能、スキップ不可
+			return nil, exception.NewBatchError("weather_reader", fmt.Sprintf("APIからエラーレスポンスが返されました: ステータスコード %d, ボディ: %s", resp.StatusCode, string(bodyBytes)), nil, true, false)
 		}
 
 		var forecastData weather_entity.OpenMeteoForecast
 		if err := json.NewDecoder(resp.Body).Decode(&forecastData); err != nil {
-			return nil, fmt.Errorf("APIレスポンスのデコードに失敗しました: %w", err)
+			// APIレスポンスのデコード失敗はリトライ不可、スキップ不可
+			return nil, exception.NewBatchError("weather_reader", "APIレスポンスのデコードに失敗しました", err, false, false)
 		}
 		r.forecastData = &forecastData // データを保持
 		// currentIndex は SetExecutionContext で復元されるか、0に初期化される
@@ -149,7 +155,8 @@ func (r *WeatherReader) SetExecutionContext(ctx context.Context, ec core.Executi
     var forecast weather_entity.OpenMeteoForecast
     if err := json.Unmarshal([]byte(forecastJSON), &forecast); err != nil {
       logger.Errorf("WeatherReader: ExecutionContext から forecastData のデコードに失敗しました: %v", err)
-      return fmt.Errorf("WeatherReader: forecastData のデコードに失敗しました: %w", err)
+      // forecastData のデコード失敗はリトライ不可、スキップ不可
+      return exception.NewBatchError("weather_reader", "forecastData のデコードに失敗しました", err, false, false)
     }
     r.forecastData = &forecast
     logger.Debugf("WeatherReader: ExecutionContext から forecastData を復元しました。レコード数: %d", len(r.forecastData.Hourly.Time))
@@ -177,7 +184,8 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
     forecastJSON, err := json.Marshal(r.forecastData)
     if err != nil {
       logger.Errorf("WeatherReader: forecastData のエンコードに失敗しました: %v", err)
-      return nil, fmt.Errorf("WeatherReader: forecastData のエンコードに失敗しました: %w", err)
+      // forecastData のエンコード失敗はリトライ不可、スキップ不可
+      return nil, exception.NewBatchError("weather_reader", "forecastData のエンコードに失敗しました", err, false, false)
     }
     newEC.Put("forecastData", string(forecastJSON))
   }

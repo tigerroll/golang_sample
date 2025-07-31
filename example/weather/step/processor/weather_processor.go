@@ -6,6 +6,7 @@ import (
 	"time"
 
 	processor "sample/pkg/batch/step/processor"
+	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
 )
@@ -34,7 +35,8 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 	// item を元の型に型アサーション
 	forecast, ok := item.(*weather_entity.OpenMeteoForecast)
 	if !ok {
-		return nil, fmt.Errorf("WeatherProcessor: 予期しない入力アイテムの型です: %T", item)
+		// 予期しない入力アイテムの型はスキップ可能、リトライ不可
+		return nil, exception.NewBatchError("weather_processor", fmt.Sprintf("予期しない入力アイテムの型です: %T", item), nil, false, true)
 	}
  
 	var dataToStore []*weather_entity.WeatherDataToStore
@@ -52,7 +54,8 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 		if err != nil {
 			parsedTime, err = time.Parse(time.RFC3339, forecast.Hourly.Time[i])
 			if err != nil {
-				return nil, fmt.Errorf("時間のパースに失敗しました: %s, エラー: %w", forecast.Hourly.Time[i], err) // エラーメッセージに元の時刻文字列を追加
+				// 時間のパース失敗はスキップ可能、リトライ不可
+				return nil, exception.NewBatchError("weather_processor", fmt.Sprintf("時間のパースに失敗しました: %s", forecast.Hourly.Time[i]), err, false, true)
 			}
 		}
 		data := &weather_entity.WeatherDataToStore{
