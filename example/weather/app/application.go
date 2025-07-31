@@ -94,6 +94,16 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	jobFactory.RegisterRetryItemListenerBuilder("loggingRetryItemListener", func(cfg *config.Config) (steplistener.RetryItemListener, error) {
 		return steplistener.NewLoggingRetryItemListener(), nil
 	})
+	// 新しいアイテムレベルリスナーの登録
+	jobFactory.RegisterItemReadListenerBuilder("loggingItemReadListener", func(cfg *config.Config) (core.ItemReadListener, error) {
+		return steplistener.NewLoggingItemReadListener(), nil
+	})
+	jobFactory.RegisterItemProcessListenerBuilder("loggingItemProcessListener", func(cfg *config.Config) (core.ItemProcessListener, error) {
+		return steplistener.NewLoggingItemProcessListener(), nil
+	})
+	jobFactory.RegisterItemWriteListenerBuilder("loggingItemWriteListener", func(cfg *config.Config) (core.ItemWriteListener, error) {
+		return steplistener.NewLoggingItemWriteListener(), nil
+	})
 
 	// JobExecutionListener の登録
 	jobFactory.RegisterJobListenerBuilder("loggingJobListener", func(cfg *config.Config) (joblistener.JobExecutionListener, error) {
