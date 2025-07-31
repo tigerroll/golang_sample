@@ -3,11 +3,13 @@ package tasklet
 import (
 	"context"
 	"fmt"
+	"math/rand" // rand パッケージをインポート
 	"time"
 
 	core "sample/pkg/batch/job/core"
 	step "sample/pkg/batch/step" // pkg/batch/step を参照
 	logger "sample/pkg/batch/util/logger"
+	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 )
 
 // DummyTasklet は Tasklet インターフェースのシンプルな実装です。
@@ -38,10 +40,12 @@ func (t *DummyTasklet) Execute(ctx context.Context, stepExecution *core.StepExec
 	t.executionCount++
 	logger.Infof("DummyTasklet '%s' が実行されました。実行回数: %d", stepExecution.StepName, t.executionCount)
 
-	// ダミーのビジネスロジック: 3回実行されたら失敗する
-	if t.executionCount >= 3 {
+	// ダミーのエラー発生ロジック: 3回に1回エラーを発生させる (ランダム)
+	// または、特定の回数で失敗させるロジックを維持
+	if rand.Intn(3) == 0 { // 3分の1の確率でエラーを発生させる例
+	// if t.executionCount == 1 { // 最初の実行でエラーを発生させる例 (テスト用)
 		logger.Errorf("DummyTasklet '%s' が意図的に失敗しました (実行回数: %d)", stepExecution.StepName, t.executionCount)
-		return core.ExitStatusFailed, fmt.Errorf("DummyTasklet '%s' 意図的な失敗", stepExecution.StepName)
+		return core.ExitStatusFailed, exception.NewBatchError("dummy_tasklet", fmt.Sprintf("DummyTasklet '%s' 意図的な失敗", stepExecution.StepName), nil, false, false)
 	}
 
 	// ExecutionContext に状態を保存
