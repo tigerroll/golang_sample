@@ -1,7 +1,9 @@
 package exception
 
 import (
+	"errors"  // errors パッケージをインポート
 	"fmt"
+	"reflect" // reflect パッケージをインポート
 	"runtime" // runtime パッケージをインポート
 	"strings" // strings パッケージをインポート
 )
@@ -123,4 +125,35 @@ func IsFatal(err error) bool {
 	return strings.Contains(errStr, "invalid argument") ||
 		strings.Contains(errStr, "permission denied") ||
 		strings.Contains(errStr, "data corruption")
+}
+
+// IsErrorOfType はエラーが指定された型名（文字列）に一致するかどうかを判定します。
+// err は元のエラー、errorTypeName は比較するエラーの型名（例: "*net.OpError", "io.EOF"）です。
+// または、エラーメッセージの一部を含む文字列（例: "connection refused"）でも判定できます。
+func IsErrorOfType(err error, errorTypeName string) bool {
+	if err == nil {
+		return false
+	}
+
+	// 1. エラーの型名で比較
+	// reflect.TypeOf(err).String() はポインタ型の場合 "*pkg.MyError" のようになる
+	// reflect.TypeOf(err).Elem().String() は非ポインタ型の場合 "pkg.MyError" のようになる
+	// errors.As や errors.Is を使うのがよりGoらしいが、文字列比較も柔軟性がある
+	errType := reflect.TypeOf(err)
+	if errType != nil && (errType.String() == errorTypeName || (errType.Kind() == reflect.Ptr && errType.Elem().String() == errorTypeName)) {
+		return true
+	}
+
+	// 2. エラーメッセージの部分文字列で比較
+	// これは汎用的だが、誤検知の可能性もある
+	if strings.Contains(err.Error(), errorTypeName) {
+		return true
+	}
+
+	// 3. ラップされたエラーを再帰的にチェック
+	if unwrappedErr := errors.Unwrap(err); unwrappedErr != nil { // errors.Unwrap を使用
+		return IsErrorOfType(unwrappedErr, errorTypeName)
+	}
+
+	return false
 }

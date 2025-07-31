@@ -28,7 +28,7 @@ func NewWeatherWriter(repo appRepo.WeatherRepository) *WeatherItemWriter { // ap
 }
 
 // Write は加工済みの天気データアイテムのチャンクをデータベースに保存します。
-// 引数を []any に変更し、トランザクションを受け取るように変更します。
+// 引数を []weather_entity.WeatherDataToStore に変更し、トランザクションを受け取るように変更します。
 func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error {
 	// Context の完了をチェック
 	select {
@@ -36,37 +36,44 @@ func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) 
 		return ctx.Err() // Context が完了していたら即座に中断
 	default:
 	}
-
 	if len(items) == 0 {
 		logger.Debugf("書き込むアイテムがありません。")
 		return nil
 	}
 
-	// []any を []entity.WeatherDataToStore に変換
-	dataToStore := make([]weather_entity.WeatherDataToStore, 0, len(items))
-	for i, item := range items {
-		// ここで型アサーションを行う
-		if singleItem, ok := item.(*weather_entity.WeatherDataToStore); ok {
-			dataToStore = append(dataToStore, *singleItem)
-		} else {
-			// 予期しない型の場合、エラーを返すかログに記録してスキップするか選択
-			logger.Errorf("WeatherWriter: 予期しないアイテムの型です: %T, 期待される型: *weather_entity.WeatherDataToStore (インデックス: %d)", item, i)
-			return fmt.Errorf("WeatherWriter: 予期しないアイテムの型です: %T", item)
+	// items は []any なので、元の型に変換する必要がある
+	// Processor が []*weather_entity.WeatherDataToStore を返しているため、
+	// items の各要素は []*weather_entity.WeatherDataToStore 型のスライスです。
+	// これらを結合し、最終的に []weather_entity.WeatherDataToStore に変換します。
+	var dataToStorePointers []*weather_entity.WeatherDataToStore
+	for _, item := range items {
+		typedItem, ok := item.([]*weather_entity.WeatherDataToStore)
+		if !ok {
+			return fmt.Errorf("WeatherItemWriter: 予期しない入力アイテムの型です: %T, 期待される型: []*weather_entity.WeatherDataToStore", item)
+		}
+		dataToStorePointers = append(dataToStorePointers, typedItem...)
+	}
+
+	// []*weather_entity.WeatherDataToStore を []weather_entity.WeatherDataToStore に変換
+	finalDataToStore := make([]weather_entity.WeatherDataToStore, 0, len(dataToStorePointers))
+	for _, ptrItem := range dataToStorePointers {
+		if ptrItem != nil {
+			finalDataToStore = append(finalDataToStore, *ptrItem) // ポインタをデリファレンスして値を追加
 		}
 	}
 
-	if len(dataToStore) == 0 {
+	if len(finalDataToStore) == 0 {
 		logger.Debugf("型変換後、書き込む有効なアイテムがありません。")
 		return nil
 	}
 
 	// BulkInsertWeatherData にトランザクションを渡す
-	err := w.repo.BulkInsertWeatherData(ctx, tx, dataToStore)
+	err := w.repo.BulkInsertWeatherData(ctx, tx, finalDataToStore) // finalDataToStore を渡す
 	if err != nil {
 		return fmt.Errorf("天気データのバルク挿入に失敗しました: %w", err)
 	}
 
-	logger.Debugf("天気データアイテムのチャンクをデータベースに保存しました。データ数: %d", len(dataToStore))
+	logger.Debugf("天気データアイテムのチャンクをデータベースに保存しました。データ数: %d", len(finalDataToStore))
 	return nil
 }
 
@@ -106,4 +113,4 @@ func (w *WeatherItemWriter) GetExecutionContext(ctx context.Context) (core.Execu
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ writer.Writer[any] = (*WeatherItemWriter)(nil)
+var _ writer.Writer[any] = (*WeatherItemWriter)(nil) // Writer[any] に変更

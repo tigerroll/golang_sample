@@ -39,7 +39,7 @@ func NewWeatherReader(cfg *weather_config.WeatherReaderConfig) *WeatherReader {
 
 // Read メソッドが Reader インターフェースを満たすように修正
 // アイテムを一つずつ返すように変更
-func (r *WeatherReader) Read(ctx context.Context) (any, error) { // O は any
+func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を any に変更
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -49,7 +49,7 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // O は any
 
 	// 初回読み込み時、またはリスタート後にデータがロードされていない場合にデータをフェッチ
 	if r.forecastData == nil {
-		logger.Debugf("Fetching weather data from API...")
+		logger.Debugf("WeatherReader: forecastData is nil, fetching from API. Current index: %d", r.currentIndex) // デバッグログを追加
 		// API呼び出しのURLを構築
 		// 例: 東京の緯度経度を使用
 		apiURL := fmt.Sprintf("%s?latitude=35.6895&longitude=139.6917&hourly=temperature_2m,weather_code", r.config.APIEndpoint)
@@ -91,8 +91,8 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // O は any
 	if r.currentIndex >= len(r.forecastData.Hourly.Time) {
 		// 全てのアイテムを読み込み終えた
 		logger.Debugf("Finished reading all weather items.")
-		r.forecastData = nil // 次回 Read 時に再度フェッチするためにリセット
-		r.currentIndex = 0
+		// r.forecastData = nil // この行は以前削除済み
+		// r.currentIndex = 0 // この行を削除: EOF時にインデックスをリセットしない
 		return nil, io.EOF // アイテムがないことを示す
 	}
 
@@ -110,7 +110,7 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // O は any
 	r.currentIndex++ // インデックスをインクリメント
 
 	//logger.Debugf("Read item at index %d: %+v", r.currentIndex-1, itemToProcess)
-	return itemToProcess, nil // any 型として返す
+	return itemToProcess, nil
 }
 
 // Close は Reader インターフェースの実装です。
@@ -187,4 +187,4 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
 }
 
 // WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
-var _ reader.Reader[any] = (*WeatherReader)(nil)
+var _ reader.Reader[any] = (*WeatherReader)(nil) // Reader[any] に変更

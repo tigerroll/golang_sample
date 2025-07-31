@@ -61,13 +61,13 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 
 	// ダミーコンポーネントの登録
 	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appReader.NewDummyReader(), nil // appReader パッケージから呼び出す
+		return appReader.NewDummyReader(), nil
 	})
 	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appProcessor.NewDummyProcessor(), nil // appProcessor パッケージから呼び出す
+		return appProcessor.NewDummyProcessor(), nil
 	})
 	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appWriter.NewDummyWriter(), nil // appWriter パッケージから呼び出す
+		return appWriter.NewDummyWriter(), nil
 	})
 	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return executionContextReader.NewExecutionContextReader(), nil
