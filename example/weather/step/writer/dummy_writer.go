@@ -1,17 +1,17 @@
-package writer
+package weatherwriter // パッケージ名を 'weatherwriter' に変更
 
 import (
 	"context"
 	"database/sql" // sql パッケージをインポート
+	itemwriter "sample/pkg/batch/step/writer" // Renamed import
+	logger "sample/pkg/batch/util/logger"
 
-	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	writer "sample/pkg/batch/step/writer" // pkg/batch/step/writer を参照
-	"sample/pkg/batch/util/logger"   // logger パッケージをインポート
+	core "sample/pkg/batch/job/core"
 )
 
 // DummyWriter は何も行わないダミーの Writer です。
-// Writer[any] インターフェースを実装します。
-type DummyWriter struct{
+// ItemWriter[any] インターフェースを実装します。
+type DummyWriter struct{ // 構造体名は変更しない
 	// ExecutionContext を保持するためのフィールド
 	executionContext core.ExecutionContext
 }
@@ -23,7 +23,7 @@ func NewDummyWriter() *DummyWriter {
 	}
 }
 
-// Write は Writer インターフェースの実装です。
+// Write は ItemWriter インターフェースの実装です。
 // アイテムのスライスを受け取り、何も行わずに nil を返します。
 func (w *DummyWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // ★ シグネチャを []any に変更し、tx を追加
 	// Context の完了をチェック
@@ -42,7 +42,7 @@ func (w *DummyWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error 
 	return nil // 何も行わない
 }
 
-// Close は Writer インターフェースの実装です。
+// Close は ItemWriter インターフェースの実装です。
 // DummyWriter は閉じるリソースがないため、何もしません。
 func (w *DummyWriter) Close(ctx context.Context) error {
 	// Context の完了をチェック
@@ -55,7 +55,7 @@ func (w *DummyWriter) Close(ctx context.Context) error {
 	return nil
 }
 
-// SetExecutionContext は Writer インターフェースの実装です。
+// SetExecutionContext は ItemWriter インターフェースの実装です。
 // 渡された ExecutionContext を内部に設定します。
 func (w *DummyWriter) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
 	// Context の完了をチェック
@@ -69,7 +69,7 @@ func (w *DummyWriter) SetExecutionContext(ctx context.Context, ec core.Execution
 	return nil
 }
 
-// GetExecutionContext は Writer インターフェースの実装です。
+// GetExecutionContext は ItemWriter インターフェースの実装です。
 // 現在の ExecutionContext を返します。
 func (w *DummyWriter) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
 	// Context の完了をチェック
@@ -82,5 +82,5 @@ func (w *DummyWriter) GetExecutionContext(ctx context.Context) (core.ExecutionCo
 	return w.executionContext, nil
 }
 
-// DummyWriter が Writer[any] インターフェースを満たすことを確認
-var _ writer.Writer[any] = (*DummyWriter)(nil)
+// DummyWriter が ItemWriter[any] インターフェースを満たすことを確認
+var _ itemwriter.ItemWriter[any] = (*DummyWriter)(nil) // ここは itemwriter を参照

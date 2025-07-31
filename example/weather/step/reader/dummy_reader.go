@@ -1,17 +1,17 @@
-package reader
+package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
   "context"
   "io" // io パッケージをインポート
 
   core "sample/pkg/batch/job/core" // core パッケージをインポート
-  reader "sample/pkg/batch/step/reader" // pkg/batch/step/reader を参照
   logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
+  itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
 )
 
 // DummyReader は常に io.EOF を返すダミーの Reader です。
-// Reader[any] インターフェースを実装します。
-type DummyReader struct{
+// ItemReader[any] インターフェースを実装します。
+type DummyReader struct{ // 構造体名は変更しない
   // ExecutionContext を保持するためのフィールド
   executionContext core.ExecutionContext
 }
@@ -23,7 +23,7 @@ func NewDummyReader() *DummyReader {
   }
 }
 
-// Read は Reader インターフェースの実装です。
+// Read は ItemReader インターフェースの実装です。
 // 常に io.EOF を返してデータの終端を示します。
 func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any
   // Context の完了をチェック
@@ -36,7 +36,7 @@ func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any
   return nil, io.EOF // 常に終端を示す
 }
 
-// Close は Reader インターフェースの実装です。
+// Close は ItemReader インターフェースの実装です。
 // DummyReader は閉じるリソースがないため、何もしません。
 func (r *DummyReader) Close(ctx context.Context) error {
   // Context の完了をチェック
@@ -49,7 +49,7 @@ func (r *DummyReader) Close(ctx context.Context) error {
   return nil
 }
 
-// SetExecutionContext は Reader インターフェースの実装です。
+// SetExecutionContext は ItemReader インターフェースの実装です。
 // 渡された ExecutionContext を内部に設定します。
 func (r *DummyReader) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
   // Context の完了をチェック
@@ -63,7 +63,7 @@ func (r *DummyReader) SetExecutionContext(ctx context.Context, ec core.Execution
   return nil
 }
 
-// GetExecutionContext は Reader インターフェースの実装です。
+// GetExecutionContext は ItemReader インターフェースの実装です。
 // 現在の ExecutionContext を返します。
 func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
   // Context の完了をチェック
@@ -76,5 +76,5 @@ func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionCo
   return r.executionContext, nil
 }
 
-// DummyReader が Reader[any] インターフェースを満たすことを確認
-var _ reader.Reader[any] = (*DummyReader)(nil)
+// DummyReader が ItemReader[any] インターフェースを満たすことを確認
+var _ itemreader.ItemReader[any] = (*DummyReader)(nil) // ここは itemreader を参照

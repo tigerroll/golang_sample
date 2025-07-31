@@ -1,4 +1,4 @@
-package reader
+package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"time" // time パッケージをインポート
 
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	reader "sample/pkg/batch/step/reader" // Reader インターフェースをインポート
+	itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
@@ -195,4 +195,4 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
 }
 
 // WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
-var _ reader.Reader[any] = (*WeatherReader)(nil) // Reader[any] に変更
+var _ itemreader.ItemReader[any] = (*WeatherReader)(nil) // ItemReader[any] に変更

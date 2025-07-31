@@ -1,11 +1,11 @@
-package processor
+package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	processor "sample/pkg/batch/step/processor"
+	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
@@ -74,4 +74,4 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認
-var _ processor.Processor[any, any] = (*WeatherProcessor)(nil) // Processor[any, any] に変更
+var _ itemprocessor.ItemProcessor[any, any] = (*WeatherProcessor)(nil) // ItemProcessor[any, any] に変更

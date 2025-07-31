@@ -1,12 +1,12 @@
-package writer
+package weatherwriter // パッケージ名を 'weatherwriter' に変更
 
 import (
 	"context"
 	"database/sql" // sql パッケージをインポート
 	"fmt"
 	core "sample/pkg/batch/job/core"
-	writer "sample/pkg/batch/step/writer" // Writer インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
+	itemwriter "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
@@ -48,12 +48,12 @@ func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) 
 	// これらを結合し、最終的に []weather_entity.WeatherDataToStore に変換します。
 	var dataToStorePointers []*weather_entity.WeatherDataToStore
 	for _, item := range items {
-		typedItem, ok := item.([]*weather_entity.WeatherDataToStore)
+		typedItem, ok := item.(*weather_entity.WeatherDataToStore) // ここを修正: item は個々のポインタ型
 		if !ok {
 			// 予期しない入力アイテムの型はスキップ可能、リトライ不可
-			return exception.NewBatchError("weather_writer", fmt.Sprintf("予期しない入力アイテムの型です: %T, 期待される型: []*weather_entity.WeatherDataToStore", item), nil, false, true)
+			return exception.NewBatchError("weather_writer", fmt.Sprintf("予期しない入力アイテムの型です: %T, 期待される型: *weather_entity.WeatherDataToStore", item), nil, false, true) // エラーメッセージも修正
 		}
-		dataToStorePointers = append(dataToStorePointers, typedItem...)
+		dataToStorePointers = append(dataToStorePointers, typedItem) // typedItem は既にポインタなので、そのまま追加
 	}
 
 	// []*weather_entity.WeatherDataToStore を []weather_entity.WeatherDataToStore に変換
@@ -116,4 +116,4 @@ func (w *WeatherItemWriter) GetExecutionContext(ctx context.Context) (core.Execu
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ writer.Writer[any] = (*WeatherItemWriter)(nil) // Writer[any] に変更
+var _ itemwriter.ItemWriter[any] = (*WeatherItemWriter)(nil) // ItemWriter[any] に変更

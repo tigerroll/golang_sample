@@ -13,9 +13,9 @@ import (
 	core "sample/pkg/batch/job/core"
 	repository "sample/pkg/batch/repository"
 	stepListener "sample/pkg/batch/step/listener"
-	"sample/pkg/batch/step/processor"
-	"sample/pkg/batch/step/reader"
-	"sample/pkg/batch/step/writer"
+	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
+	itemreader "sample/pkg/batch/step/reader"       // Renamed import
+	itemwriter "sample/pkg/batch/step/writer"       // Renamed import
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -24,9 +24,9 @@ import (
 // Reader, Processor, Writer を使用してアイテムを処理します。
 type ChunkStep struct { // ジェネリクス型を削除
 	name string
-	reader reader.Reader[any] // any に戻す
-	processor processor.Processor[any, any] // any に戻す
-	writer writer.Writer[any] // any に戻す
+	reader itemreader.ItemReader[any] // any に戻す
+	processor itemprocessor.ItemProcessor[any, any] // any に戻す
+	writer itemwriter.ItemWriter[any] // any に戻す
 	chunkSize int
 	jobRepository repository.JobRepository
 
@@ -46,9 +46,9 @@ type ChunkStep struct { // ジェネリクス型を削除
 // NewChunkStep は新しい ChunkStep のインスタンスを作成します。
 func NewChunkStep[I, O any]( // ジェネリクス型はコンストラクタの引数にのみ残す
 	name string,
-	r reader.Reader[I],
-	p processor.Processor[I, O],
-	w writer.Writer[O],
+	r itemreader.ItemReader[I],
+	p itemprocessor.ItemProcessor[I, O],
+	w itemwriter.ItemWriter[O],
 	chunkSize int,
 	repo repository.JobRepository,
 	stepLs []stepListener.StepExecutionListener,
@@ -62,9 +62,9 @@ func NewChunkStep[I, O any]( // ジェネリクス型はコンストラクタの
 ) *ChunkStep { // ジェネリクス型を削除
 	return &ChunkStep{ // ジェネリクス型を削除
 		name:                 name,
-		reader:               r.(reader.Reader[any]), // any にキャスト
-		processor:            p.(processor.Processor[any, any]), // any にキャスト
-		writer:               w.(writer.Writer[any]), // any にキャスト
+		reader:               r.(itemreader.ItemReader[any]), // any にキャスト
+		processor:            p.(itemprocessor.ItemProcessor[any, any]), // any にキャスト
+		writer:               w.(itemwriter.ItemWriter[any]), // any にキャスト
 		chunkSize:            chunkSize,
 		jobRepository:        repo,
 		stepListeners:        stepLs,

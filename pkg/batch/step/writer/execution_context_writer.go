@@ -1,11 +1,12 @@
 // pkg/batch/step/writer/execution_context_writer.go
-package writer
+package itemwriter // パッケージ名を 'itemwriter' に変更
 
 import (
 	"context"
 	"database/sql" // トランザクションを受け取るため
 
 	core "sample/pkg/batch/job/core"
+	// itemwriter "sample/pkg/batch/step/writer" // REMOVED: Self-import is not needed
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -119,4 +120,4 @@ func (w *ExecutionContextWriter) GetExecutionContext(ctx context.Context) (core.
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ Writer[any] = (*ExecutionContextWriter)(nil)
+var _ ItemWriter[any] = (*ExecutionContextWriter)(nil) // REMOVED: itemwriter.ItemWriter -> ItemWriter

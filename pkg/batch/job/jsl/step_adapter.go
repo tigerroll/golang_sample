@@ -2,109 +2,351 @@ package jsl
 
 import (
 	"fmt"
+	"reflect"
 
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/job/core"
-	"sample/pkg/batch/repository"
-	"sample/pkg/batch/step"
+	config "sample/pkg/batch/config"
+	core "sample/pkg/batch/job/core"
+	repository "sample/pkg/batch/repository"
+	step "sample/pkg/batch/step" // For ChunkStep and TaskletStep
 	stepListener "sample/pkg/batch/step/listener"
-	stepProcessor "sample/pkg/batch/step/processor"
-	stepReader "sample/pkg/batch/step/reader"
-	stepWriter "sample/pkg/batch/step/writer"
-	"sample/pkg/batch/util/exception"
+	itemprocessor "sample/pkg/batch/step/processor" // エイリアスを itemprocessor に変更
+	itemreader "sample/pkg/batch/step/reader"       // エイリアスを itemreader に変更
+	itemwriter "sample/pkg/batch/step/writer"       // エイリアスを itemwriter に変更
+	logger "sample/pkg/batch/util/logger"
+	exception "sample/pkg/batch/util/exception"
+	yaml "gopkg.in/yaml.v3" // Import yaml package for robust unmarshalling
 )
 
-// NewCoreStep は JSL Step 定義を core.Step 実装に変換します。
-// チャンク指向ステップとタスクレット指向ステップの両方を扱い、必要なバリデーションと
-// componentRegistry からのコンポーネント参照の解決を行います。
-func NewCoreStep(
-	jslStep Step,
-	componentRegistry map[string]any,
+// ConvertJSLToCoreFlow は JSL の Flow 定義を core.FlowDefinition に変換します。
+// componentRegistry は、JSLで参照されるコンポーネント（Reader, Processor, Writer, Tasklet）のインスタンスを保持するマップです。
+// jobRepository は、ステップ内でリポジトリが必要な場合に使用されます。
+// cfg はアプリケーション全体のコンフィグです。
+// listenerBuilders は、ステップレベルおよびアイテムレベルのリスナーを動的に構築するためのマップです。
+func ConvertJSLToCoreFlow(
+	jslFlow Flow,
+	componentRegistry map[string]any, // any 型のコンポーネントインスタンスを受け取る
 	jobRepository repository.JobRepository,
-	retryConfig *config.RetryConfig,
-	itemRetryConfig config.ItemRetryConfig,
-	itemSkipConfig config.ItemSkipConfig,
-	stepListeners []stepListener.StepExecutionListener, // Instantiated listeners
-	itemReadListeners []core.ItemReadListener,          // Instantiated listeners
-	itemProcessListeners []core.ItemProcessListener,    // Instantiated listeners
-	itemWriteListeners []core.ItemWriteListener,        // Instantiated listeners
-	skipListeners []stepListener.SkipListener,          // Instantiated listeners
-	retryItemListeners []stepListener.RetryItemListener, // Instantiated listeners
-) (core.Step, error) {
-	isChunk := jslStep.Reader.Ref != "" || jslStep.Processor.Ref != "" || jslStep.Writer.Ref != "" || jslStep.Chunk != nil
-	isTasklet := jslStep.Tasklet.Ref != ""
+	cfg *config.Config,
+	stepListenerBuilders map[string]any, // map[string]StepExecutionListenerBuilder
+	itemReadListenerBuilders map[string]any, // map[string]core.ItemReadListenerBuilder
+	itemProcessListenerBuilders map[string]any, // map[string]core.ItemProcessListenerBuilder
+	itemWriteListenerBuilders map[string]any, // map[string]core.ItemWriteListenerBuilder
+	skipListenerBuilders map[string]any, // map[string]stepListener.SkipListenerBuilder
+	retryItemListenerBuilders map[string]any, // map[string]stepListener.RetryItemListenerBuilder
+) (*core.FlowDefinition, error) {
+	module := "jsl_converter"
+	flowDef := core.NewFlowDefinition(jslFlow.StartElement)
 
-	if isChunk && isTasklet {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ステップ '%s' はチャンク指向と Tasklet 指向の両方を定義しています。どちらか一方のみを指定してください。", jslStep.ID), nil, false, false)
-	}
-	if !isChunk && !isTasklet {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ステップ '%s' はチャンク指向または Tasklet 指向のいずれかの定義が必要です。", jslStep.ID), nil, false, false)
+	// ★ 追加: start-element が elements に存在するかチェック
+	if _, ok := jslFlow.Elements[jslFlow.StartElement]; !ok {
+		return nil, exception.NewBatchError(module, fmt.Sprintf("フローの 'start-element' '%s' が 'elements' に見つかりません", jslFlow.StartElement), nil, false, false)
 	}
 
-	if isChunk {
-		// チャンクステップのバリデーション
-		if jslStep.Reader.Ref == "" {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("チャンクステップ '%s' に 'reader' が定義されていません", jslStep.ID), nil, false, false)
+	for id, element := range jslFlow.Elements {
+		// interface{} から具体的な JSL 構造体 (Step または Decision) に変換するために、
+		// 一度 YAML にマーシャルし、再度アンマーシャルする。
+		// これは、YAML unmarshalling が interface{} にマップする際の一般的なパターン。
+		elementBytes, err := yaml.Marshal(element)
+		if err != nil {
+			return nil, exception.NewBatchError(module, fmt.Sprintf("フロー要素 '%s' の再マーシャルに失敗しました", id), err, false, false)
 		}
-		if jslStep.Writer.Ref == "" {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("チャンクステップ '%s' に 'writer' が定義されていません", jslStep.ID), nil, false, false)
+
+		// Step としてアンマーシャルを試みる
+		var jslStep Step
+		if err := yaml.Unmarshal(elementBytes, &jslStep); err == nil && (jslStep.Reader.Ref != "" || jslStep.Tasklet.Ref != "") {
+			// Step であると判断
+			jslStep.ID = id // マップのキーからIDを設定
+
+			// ★ 追加: ステップIDがマップのキーと一致するかチェック
+			if jslStep.ID != id {
+				return nil, exception.NewBatchError(module, fmt.Sprintf("ステップ '%s' のIDがマップのキー '%s' と一致しません", jslStep.ID, id), nil, false, false)
+			}
+
+			var coreStep core.Step
+			if jslStep.Chunk != nil {
+				// チャンク指向ステップ
+				if jslStep.Reader.Ref == "" || jslStep.Processor.Ref == "" || jslStep.Writer.Ref == "" {
+					return nil, exception.NewBatchErrorf(module, "チャンクステップ '%s' には reader, processor, writer が全て必要です", id)
+				}
+
+				// コンポーネントレジストリからコンポーネントを取得し、`any` 型のジェネリックインターフェースに型アサーション
+				// これにより, ChunkStep コンストラクタはこれらの `any` インターフェースを受け入れることができる
+				readerComp, ok := componentRegistry[jslStep.Reader.Ref]
+				if !ok {
+					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つかりません", jslStep.Reader.Ref)
+				}
+				r, isReader := readerComp.(itemreader.ItemReader[any])
+				if !isReader {
+					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つからないか、不正な型です (期待: ItemReader[any], 実際: %s)", jslStep.Reader.Ref, reflect.TypeOf(readerComp))
+				}
+
+				processorComp, ok := componentRegistry[jslStep.Processor.Ref]
+				if !ok {
+					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つかりません", jslStep.Processor.Ref)
+				}
+				p, isProcessor := processorComp.(itemprocessor.ItemProcessor[any, any])
+				if !isProcessor {
+					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つからないか、不正な型です (期待: ItemProcessor[any, any], 実際: %s)", jslStep.Processor.Ref, reflect.TypeOf(processorComp))
+				}
+
+				writerComp, ok := componentRegistry[jslStep.Writer.Ref]
+				if !ok {
+					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つかりません", jslStep.Writer.Ref)
+				}
+				w, isWriter := writerComp.(itemwriter.ItemWriter[any])
+				if !isWriter {
+					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つからないか、不正な型です (期待: ItemWriter[any], 実際: %s)", jslStep.Writer.Ref, reflect.TypeOf(writerComp))
+				}
+
+				// ステップレベルリスナーの構築
+				var stepExecListeners []stepListener.StepExecutionListener
+				for _, listenerRef := range jslStep.Listeners {
+					builderAny, found := stepListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (stepListener.StepExecutionListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("StepExecutionListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					stepExecListeners = append(stepExecListeners, listenerInstance)
+				}
+
+				// アイテムレベルリスナーの構築
+				var itemReadListeners []core.ItemReadListener
+				for _, listenerRef := range jslStep.ItemReadListeners {
+					builderAny, found := itemReadListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "ItemReadListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (core.ItemReadListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "ItemReadListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.ItemReadListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("ItemReadListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					itemReadListeners = append(itemReadListeners, listenerInstance)
+				}
+
+				var itemProcessListeners []core.ItemProcessListener
+				for _, listenerRef := range jslStep.ItemProcessListeners {
+					builderAny, found := itemProcessListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "ItemProcessListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (core.ItemProcessListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "ItemProcessListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.ItemProcessListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("ItemProcessListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					itemProcessListeners = append(itemProcessListeners, listenerInstance)
+				}
+
+				var itemWriteListeners []core.ItemWriteListener
+				for _, listenerRef := range jslStep.ItemWriteListeners {
+					builderAny, found := itemWriteListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "ItemWriteListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (core.ItemWriteListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "ItemWriteListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.ItemWriteListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("ItemWriteListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					itemWriteListeners = append(itemWriteListeners, listenerInstance)
+				}
+
+				var skipListeners []stepListener.SkipListener
+				for _, listenerRef := range jslStep.SkipListeners {
+					builderAny, found := skipListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "SkipListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (stepListener.SkipListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "SkipListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.SkipListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("SkipListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					skipListeners = append(skipListeners, listenerInstance)
+				}
+
+				var retryItemListeners []stepListener.RetryItemListener
+				for _, listenerRef := range jslStep.RetryItemListeners {
+					builderAny, found := retryItemListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "RetryItemListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (stepListener.RetryItemListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "RetryItemListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.RetryItemListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("RetryItemListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					retryItemListeners = append(retryItemListeners, listenerInstance)
+				}
+
+				coreStep = step.NewJSLAdaptedStep(
+					jslStep.ID, // name
+					r,
+					p,
+					w,
+					jslStep.Chunk.ItemCount, // chunkSize
+					&cfg.Batch.Retry, // stepRetryConfig
+					cfg.Batch.ItemRetry, // itemRetryCfg
+					cfg.Batch.ItemSkip,  // itemSkipCfg
+					jobRepository, // repo
+					stepExecListeners,
+					itemReadListeners,
+					itemProcessListeners,
+					itemWriteListeners,
+					skipListeners,
+					retryItemListeners,
+				)
+				logger.Debugf("チャンクステップ '%s' を構築しました。", id)
+
+			} else if jslStep.Tasklet.Ref != "" {
+				// タスクレット指向ステップ
+				taskletComp, ok := componentRegistry[jslStep.Tasklet.Ref]
+				if !ok {
+					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つかりません", jslStep.Tasklet.Ref)
+				}
+				t, isTasklet := taskletComp.(step.Tasklet) // step.Tasklet インターフェースに型アサーション
+				if !isTasklet {
+					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: step.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletComp))
+				}
+
+				// ステップレベルリスナーの構築 (チャンクステップと同じ)
+				var stepExecListeners []stepListener.StepExecutionListener
+				for _, listenerRef := range jslStep.Listeners {
+					builderAny, found := stepListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (stepListener.StepExecutionListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("StepExecutionListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					stepExecListeners = append(stepExecListeners, listenerInstance)
+				}
+
+				coreStep = step.NewTaskletStep(
+					jslStep.ID, // name
+					t,
+					jobRepository, // JobRepository を渡す
+					stepExecListeners,
+				)
+				logger.Debugf("タスクレットステップ '%s' を構築しました。", id)
+
+			} else {
+				return nil, exception.NewBatchErrorf(module, "ステップ '%s' はチャンクまたはタスクレットのいずれかを定義する必要があります", id)
+			}
+
+			err = flowDef.AddElement(id, coreStep)
+			if err != nil {
+				return nil, exception.NewBatchError(module, fmt.Sprintf("フローにステップ '%s' の追加に失敗しました", id), err, false, false)
+			}
+
+			// ステップの遷移ルールを追加
+			for _, transition := range jslStep.Transitions {
+				// ★ 追加: 遷移ルールのバリデーション
+				if err := validateTransition(id, transition, jslFlow.Elements); err != nil {
+					return nil, err
+				}
+				flowDef.AddTransitionRule(id, transition.On, transition.To, transition.End, transition.Fail, transition.Stop)
+			}
+
+		} else {
+			// Decision としてアンマーシャルを試みる
+			var jslDecision Decision
+			if err := yaml.Unmarshal(elementBytes, &jslDecision); err == nil && jslDecision.ID != "" { // len(jslDecision.Transitions) > 0 は Decision に遷移ルールが必須であることを確認するため、後で追加
+				// ★ 追加: デシジョンIDがマップのキーと一致するかチェック
+				if jslDecision.ID != id {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' のIDがマップのキー '%s' と一致しません", jslDecision.ID, id), nil, false, false)
+				}
+				// ★ 追加: デシジョンに遷移ルールが必須であることを確認
+				if len(jslDecision.Transitions) == 0 {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' に遷移ルールが定義されていません", id), nil, false, false)
+				}
+
+				coreDecision := core.NewSimpleDecision(jslDecision.ID) // SimpleDecision を使用
+				err := flowDef.AddElement(id, coreDecision)
+				if err != nil {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("フローに Decision '%s' の追加に失敗しました", id), err, false, false)
+				}
+
+				// Decision の遷移ルールを追加
+				for _, transition := range jslDecision.Transitions {
+					// ★ 追加: 遷移ルールのバリデーション
+					if err := validateTransition(id, transition, jslFlow.Elements); err != nil {
+						return nil, err
+					}
+					flowDef.AddTransitionRule(id, transition.On, transition.To, transition.End, transition.Fail, transition.Stop)
+				}
+				logger.Debugf("Decision '%s' を構築しました。", id)
+
+			} else {
+				return nil, exception.NewBatchErrorf(module, "不明なフロー要素の型です: ID '%s', データ: %s", id, string(elementBytes))
+			}
 		}
-		if jslStep.Chunk == nil {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("チャンクステップ '%s' に 'chunk' 設定が定義されていません", jslStep.ID), nil, false, false)
-		}
-		if jslStep.Chunk.ItemCount <= 0 {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("チャンクステップ '%s' の 'chunk.item-count' は0より大きい値である必要があります", jslStep.ID), nil, false, false)
-		}
-		if jslStep.Chunk.CommitInterval <= 0 {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("チャンクステップ '%s' の 'chunk.commit-interval' は0より大きい値である必要があります", jslStep.ID), nil, false, false)
-		}
-		return convertJSLChunkStepToCoreStep(jslStep, componentRegistry, jobRepository, retryConfig, itemRetryConfig, itemSkipConfig, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners)
-	} else { // isTasklet
-		// Taskletステップのバリデーション
-		if jslStep.Tasklet.Ref == "" {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("Taskletステップ '%s' に 'tasklet' が定義されていません", jslStep.ID), nil, false, false)
-		}
-		return convertJSLTaskletStepToCoreStep(jslStep, componentRegistry, jobRepository, stepListeners) // Pass stepListeners
 	}
+
+	return flowDef, nil
 }
 
-// convertJSLChunkStepToCoreStep は JSL Step 定義をチャンク処理用の core.Step 実装に変換します。
-// この関数は jsl パッケージ内でプライベートです。
-func convertJSLChunkStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, retryConfig *config.RetryConfig, itemRetryConfig config.ItemRetryConfig, itemSkipConfig config.ItemSkipConfig, stepListeners []stepListener.StepExecutionListener, itemReadListeners []core.ItemReadListener, itemProcessListeners []core.ItemProcessListener, itemWriteListeners []core.ItemWriteListener, skipListeners []stepListener.SkipListener, retryItemListeners []stepListener.RetryItemListener) (core.Step, error) { // Keep all listener slices
-	r, ok := componentRegistry[jslStep.Reader.Ref].(stepReader.Reader[any])
-	if !ok {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("リーダー '%s' が見つからないか、不正な型です (期待: Reader[any])", jslStep.Reader.Ref), nil, false, false)
+// validateTransition validates a single transition rule.
+func validateTransition(fromElementID string, t Transition, allElements map[string]interface{}) error {
+	if t.On == "" {
+		return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルールに 'on' が定義されていません", fromElementID), nil, false, false)
 	}
 
-	var p stepProcessor.Processor[any, any]
-	if jslStep.Processor.Ref != "" {
-		p, ok = componentRegistry[jslStep.Processor.Ref].(stepProcessor.Processor[any, any])
-		if !ok {
-			return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("プロセッサー '%s' が見つからないか、不正な型です (期待: Processor[any, any])", jslStep.Processor.Ref), nil, false, false)
+	// Check mutual exclusivity of End, Fail, Stop, To
+	exclusiveCount := 0
+	if t.End {
+		exclusiveCount++
+	}
+	if t.Fail {
+		exclusiveCount++
+	}
+	if t.Stop {
+		exclusiveCount++
+	}
+	if t.To != "" {
+		exclusiveCount++
+	}
+
+	if exclusiveCount == 0 {
+		return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルール (on: '%s') に 'to', 'end', 'fail', 'stop' のいずれも定義されていません", fromElementID, t.On), nil, false, false)
+	}
+	if exclusiveCount > 1 {
+		return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルール (on: '%s') は 'to', 'end', 'fail', 'stop' のうち複数定義されています。これらは排他的です。", fromElementID, t.On), nil, false, false)
+	}
+
+	// If 'to' is specified, ensure the target element exists
+	if t.To != "" {
+		if _, ok := allElements[t.To]; !ok {
+			return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルール (on: '%s') の 'to' で指定された要素 '%s' が見つかりません", fromElementID, t.On, t.To), nil, false, false)
 		}
-	} else {
-		p = nil
 	}
-
-	w, ok := componentRegistry[jslStep.Writer.Ref].(stepWriter.Writer[any])
-	if !ok {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("ライター '%s' が見つからないか、不正な型です (期待: Writer[any])", jslStep.Writer.Ref), nil, false, false)
-	}
-
-	chunkSize := 1
-	if jslStep.Chunk != nil {
-		chunkSize = jslStep.Chunk.ItemCount
-	}
-
-	return step.NewJSLAdaptedStep(jslStep.ID, r, p, w, chunkSize, retryConfig, itemRetryConfig, itemSkipConfig, jobRepository, stepListeners, itemReadListeners, itemProcessListeners, itemWriteListeners, skipListeners, retryItemListeners), nil
-}
-
-// convertJSLTaskletStepToCoreStep は JSL Step 定義をタスクレット処理用の core.Step 実装に変換します。
-// この関数は jsl パッケージ内でプライベートです。
-func convertJSLTaskletStepToCoreStep(jslStep Step, componentRegistry map[string]any, jobRepository repository.JobRepository, stepListeners []stepListener.StepExecutionListener) (core.Step, error) { // Keep stepListeners
-	t, ok := componentRegistry[jslStep.Tasklet.Ref].(step.Tasklet)
-	if !ok {
-		return nil, exception.NewBatchError("jsl_converter", fmt.Sprintf("タスクレット '%s' が見つからないか、不正な型です (期待: Tasklet)", jslStep.Tasklet.Ref), nil, false, false)
-	}
-	return step.NewTaskletStep(jslStep.ID, t, jobRepository, stepListeners), nil
+	return nil
 }

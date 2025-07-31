@@ -1,5 +1,5 @@
 // pkg/batch/step/reader/execution_context_reader.go
-package reader
+package itemreader // パッケージ名を 'itemreader' に変更
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	"reflect"
 
 	core "sample/pkg/batch/job/core"
-	logger "sample/pkg/batch/util/logger"
+	logger "sample/pkg/batch/util/logger" // Keep logger
+	// itemreader "sample/pkg/batch/step/reader" // REMOVED: Self-import is not needed
 )
 
 // ExecutionContextReader は JobExecution.ExecutionContext からデータを読み込む Reader です。
@@ -99,7 +100,7 @@ func (r *ExecutionContextReader) SetExecutionContext(ctx context.Context, ec cor
 	r.executionContext = ec // まず全体をコピー
 
 	// currentIndex の復元
-	if idx, ok := ec.GetInt("reader_context_currentIndex"); ok {
+	if idx, ok := ec.GetInt("currentIndex"); ok {
 		r.currentIndex = idx
 		logger.Debugf("ExecutionContextReader: ExecutionContext から currentIndex を復元しました: %d", r.currentIndex)
 	} else {
@@ -141,5 +142,5 @@ func (r *ExecutionContextReader) GetExecutionContext(ctx context.Context) (core.
 	return newEC, nil
 }
 
-// ExecutionContextReader が Reader[any] インターフェースを満たすことを確認
-var _ Reader[any] = (*ExecutionContextReader)(nil)
+// ExecutionContextReader が ItemReader[any] インターフェースを満たすことを確認
+var _ ItemReader[any] = (*ExecutionContextReader)(nil) // REMOVED: itemreader.ItemReader -> ItemReader
