@@ -19,34 +19,34 @@ import (
 	core "sample/pkg/batch/job/core"
 
 	// weather 関連のパッケージをインポート
-	appConfig "sample/example/weather/config"
-	appRepo "sample/example/weather/repository"
-	appProcessor "sample/example/weather/step/processor"
-	appReader "sample/example/weather/step/reader"
-	appWriter "sample/example/weather/step/writer"
 	appJob "sample/example/weather/job"
 	appTasklet "sample/example/weather/step/tasklet" // 新しい tasklet パッケージをインポート
+	appConfig "sample/example/weather/config"
+	appRepo "sample/example/weather/repository"
+	weatherprocessor "sample/example/weather/step/processor" // パッケージ名を変更
+	weatherreader "sample/example/weather/step/reader"       // パッケージ名を変更
+	weatherwriter "sample/example/weather/step/writer"       // パッケージ名を変更
 
 	// pkg/batch に残る汎用コンポーネントのインポート
-	executionContextReader "sample/pkg/batch/step/reader"
-	executionContextWriter "sample/pkg/batch/step/writer"
+	executionContextItemReader "sample/pkg/batch/step/reader" // Renamed import
+	executionContextItemWriter "sample/pkg/batch/step/writer" // Renamed import
 	steplistener "sample/pkg/batch/step/listener" // stepListener をインポート
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
 func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.Config, db *sql.DB) {
 	// Weather 関連コンポーネントの登録
-	jobFactory.RegisterComponentBuilder("weatherReader", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherItemReader", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
 		weatherReaderCfg := &appConfig.WeatherReaderConfig{
 			APIEndpoint: cfg.Batch.APIEndpoint,
 			APIKey:      cfg.Batch.APIKey,
 		}
-		return appReader.NewWeatherReader(weatherReaderCfg), nil
+		return weatherreader.NewWeatherReader(weatherReaderCfg), nil // パッケージ名を変更
 	})
-	jobFactory.RegisterComponentBuilder("weatherProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appProcessor.NewWeatherProcessor(), nil
+	jobFactory.RegisterComponentBuilder("weatherItemProcessor", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return weatherprocessor.NewWeatherProcessor(), nil // パッケージ名を変更
 	})
-	jobFactory.RegisterComponentBuilder("weatherWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
+	jobFactory.RegisterComponentBuilder("weatherItemWriter", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
 		var weatherSpecificRepo appRepo.WeatherRepository
 		switch cfg.Database.Type {
 		case "postgres", "redshift":
@@ -56,24 +56,24 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 		default:
 			return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 		}
-		return appWriter.NewWeatherWriter(weatherSpecificRepo), nil
+		return weatherwriter.NewWeatherWriter(weatherSpecificRepo), nil // パッケージ名を変更
 	})
 
 	// ダミーコンポーネントの登録
-	jobFactory.RegisterComponentBuilder("dummyReader", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appReader.NewDummyReader(), nil
+	jobFactory.RegisterComponentBuilder("dummyItemReader", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return weatherreader.NewDummyReader(), nil // パッケージ名を変更
 	})
-	jobFactory.RegisterComponentBuilder("dummyProcessor", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appProcessor.NewDummyProcessor(), nil
+	jobFactory.RegisterComponentBuilder("dummyItemProcessor", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return weatherprocessor.NewDummyProcessor(), nil // パッケージ名を変更
 	})
-	jobFactory.RegisterComponentBuilder("dummyWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return appWriter.NewDummyWriter(), nil
+	jobFactory.RegisterComponentBuilder("dummyItemWriter", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return weatherwriter.NewDummyWriter(), nil // パッケージ名を変更
 	})
-	jobFactory.RegisterComponentBuilder("executionContextReader", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return executionContextReader.NewExecutionContextReader(), nil
+	jobFactory.RegisterComponentBuilder("executionContextItemReader", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return executionContextItemReader.NewExecutionContextReader(), nil
 	})
-	jobFactory.RegisterComponentBuilder("executionContextWriter", func(cfg *config.Config, db *sql.DB) (any, error) {
-		return executionContextWriter.NewExecutionContextWriter(), nil
+	jobFactory.RegisterComponentBuilder("executionContextItemWriter", func(cfg *config.Config, db *sql.DB) (any, error) { // Renamed component name
+		return executionContextItemWriter.NewExecutionContextWriter(), nil
 	})
 	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB) (any, error) {
 		return appTasklet.NewDummyTasklet(), nil // appTasklet パッケージから呼び出す

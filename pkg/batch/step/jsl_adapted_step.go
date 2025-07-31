@@ -13,9 +13,9 @@ import (
 	core "sample/pkg/batch/job/core"
 	repository "sample/pkg/batch/repository"
 	stepListener "sample/pkg/batch/step/listener"
-	stepProcessor "sample/pkg/batch/step/processor"
-	stepReader "sample/pkg/batch/step/reader"
-	stepWriter "sample/pkg/batch/step/writer"
+	itemprocessor "sample/pkg/batch/step/processor" // エイリアスを itemprocessor に変更
+	itemreader "sample/pkg/batch/step/reader"       // エイリアスを itemreader に変更
+	itemwriter "sample/pkg/batch/step/writer"       // エイリアスを itemwriter に変更
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -28,9 +28,9 @@ import (
 // 内部で適切な型アサーションを行います。
 type JSLAdaptedStep struct {
 	name                 string                            // ステップ名
-	reader               stepReader.Reader[any]            // Reader[O any]
-	processor            stepProcessor.Processor[any, any] // Processor[I, O any]
-	writer               stepWriter.Writer[any]            // Writer[I any]
+	reader               itemreader.ItemReader[any]            // ItemReader[O any]
+	processor            itemprocessor.ItemProcessor[any, any] // ItemProcessor[I, O any]
+	writer               itemwriter.ItemWriter[any]            // ItemWriter[I any]
 	chunkSize            int
 	stepRetryConfig      *config.RetryConfig                // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
 	itemRetryConfig      config.ItemRetryConfig             // アイテムレベルのリトライ設定
@@ -52,9 +52,9 @@ var _ core.Step = (*JSLAdaptedStep)(nil)
 // reader, processor, writer は any 型引数を持つジェネリックインターフェースとして受け取ります。
 func NewJSLAdaptedStep(
 	name string,
-	reader stepReader.Reader[any], // Reader[any]
-	processor stepProcessor.Processor[any, any], // Processor[any, any]
-	writer stepWriter.Writer[any], // Writer[any]
+	reader itemreader.ItemReader[any], // ItemReader[any]
+	processor itemprocessor.ItemProcessor[any, any], // ItemProcessor[any, any]
+	writer itemwriter.ItemWriter[any], // ItemWriter[any]
 	chunkSize int,
 	stepRetryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
@@ -239,14 +239,18 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 		// ステップの終了時刻を設定
 		stepExecution.EndTime = time.Now()
 
-		// Reader/Writer の Close を呼び出す
-		if err := s.reader.Close(ctx); err != nil {
-			logger.Errorf("ステップ '%s': Reader のクローズに失敗しました: %v", s.name, err)
-			stepExecution.AddFailureException(err)
+		// Reader, Writer の ExecutionContext をステップの ExecutionContext に保存
+		if ec, err := s.reader.GetExecutionContext(ctx); err == nil {
+			// Reader の ExecutionContext 全体を "reader_context" キーで保存
+			stepExecution.ExecutionContext.Put("reader_context", ec)
+		} else {
+			logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
 		}
-		if err := s.writer.Close(ctx); err != nil {
+		if ec, err := s.writer.GetExecutionContext(ctx); err == nil {
+			// Writer の ExecutionContext 全体を "writer_context" キーで保存
+			stepExecution.ExecutionContext.Put("writer_context", ec)
+		} else {
 			logger.Errorf("ステップ '%s': Writer のクローズに失敗しました: %v", s.name, err)
-			stepExecution.AddFailureException(err)
 		}
 
 		// ステップ実行後処理の通知
