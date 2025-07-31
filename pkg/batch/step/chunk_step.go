@@ -3,29 +3,30 @@ package step
 import (
 	"context"
 	"fmt"
-	"time"
+	"io" // io.EOF のために追加
 	"reflect" // reflect パッケージを追加
+	"time"
 
 	// "github.com/google/uuid" // UUID生成のためにインポート (NewStepExecutionで生成されるため不要)
 
 	"sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
+	repository "sample/pkg/batch/repository"
 	stepListener "sample/pkg/batch/step/listener"
 	"sample/pkg/batch/step/processor"
 	"sample/pkg/batch/step/reader"
 	"sample/pkg/batch/step/writer"
-	repository "sample/pkg/batch/repository"
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
 
 // ChunkStep はチャンク指向のステップを実装します。
 // Reader, Processor, Writer を使用してアイテムを処理します。
-type ChunkStep[I, O any] struct {
+type ChunkStep struct { // ジェネリクス型を削除
 	name string
-	reader reader.Reader[I]
-	processor processor.Processor[I, O]
-	writer writer.Writer[O]
+	reader reader.Reader[any] // any に戻す
+	processor processor.Processor[any, any] // any に戻す
+	writer writer.Writer[any] // any に戻す
 	chunkSize int
 	jobRepository repository.JobRepository
 
@@ -43,7 +44,7 @@ type ChunkStep[I, O any] struct {
 }
 
 // NewChunkStep は新しい ChunkStep のインスタンスを作成します。
-func NewChunkStep[I, O any](
+func NewChunkStep[I, O any]( // ジェネリクス型はコンストラクタの引数にのみ残す
 	name string,
 	r reader.Reader[I],
 	p processor.Processor[I, O],
@@ -58,12 +59,12 @@ func NewChunkStep[I, O any](
 	retryItemLs []stepListener.RetryItemListener,
 	itemRetryCfg config.ItemRetryConfig,
 	itemSkipCfg config.ItemSkipConfig,
-) *ChunkStep[I, O] {
-	return &ChunkStep[I, O]{
+) *ChunkStep { // ジェネリクス型を削除
+	return &ChunkStep{ // ジェネリクス型を削除
 		name:                 name,
-		reader:               r,
-		processor:            p,
-		writer:               w,
+		reader:               r.(reader.Reader[any]), // any にキャスト
+		processor:            p.(processor.Processor[any, any]), // any にキャスト
+		writer:               w.(writer.Writer[any]), // any にキャスト
 		chunkSize:            chunkSize,
 		jobRepository:        repo,
 		stepListeners:        stepLs,
@@ -78,17 +79,17 @@ func NewChunkStep[I, O any](
 }
 
 // ID はステップのIDを返します。
-func (cs *ChunkStep[I, O]) ID() string {
+func (cs *ChunkStep) ID() string { // ジェネリクス型を削除
 	return cs.name
 }
 
 // StepName はステップの名前を返します。
-func (cs *ChunkStep[I, O]) StepName() string {
+func (cs *ChunkStep) StepName() string { // ジェネリクス型を削除
 	return cs.name
 }
 
 // Execute はチャンクステップのビジネスロジックを実行します。
-func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
+func (cs *ChunkStep) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error { // ジェネリクス型を削除
 	logger.Infof("ステップ '%s' の実行を開始します。", cs.name)
 
 	// StepExecution は Job.Run メソッドで既に初期化され、JobExecution に追加されていることを想定
@@ -167,6 +168,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 	}()
 
 	// チャンク処理ループ
+ChunkLoop: // ラベルを追加
 	for {
 		select {
 		case <-ctx.Done():
@@ -177,24 +179,31 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 		default:
 			// チャンクの開始
 			currentChunkReadCount := 0
-			currentChunkProcessedItems := make([]O, 0, cs.chunkSize)
+			currentChunkProcessedItems := make([]any, 0, cs.chunkSize) // O を any に変更
 
+			var lastReadError error // チャンク内の最後の読み込みエラーを保持
 			// トランザクションの開始
 			tx, err := cs.jobRepository.GetDB().BeginTx(ctx, nil)
 			if err != nil {
-				stepExecution.MarkAsFailed(exception.NewBatchError("chunk_step", "トランザクションの開始に失敗しました", err, true, false))
+				stepExecution.MarkAsFailed(exception.NewBatchError("chunk_step", "トランザクションの開始に失敗しました", err, false, false)) // 引数の順序と型を修正
 				return err
 			}
 
 			// Read フェーズ
 			for i := 0; i < cs.chunkSize; i++ {
-				var itemI I
+				var itemI any // I を any に変更
 				readAttempts := 0
 				for { // リトライループ
 					readAttempts++
 					itemI, readError = cs.reader.Read(ctx)
 					if readError == nil {
 						break // 読み込み成功
+					}
+
+					// io.EOF はデータの終端を示すため、エラーではない。ただし、このチャンクの読み込みは終了。
+					if readError == io.EOF {
+						lastReadError = io.EOF // EOFを記録
+						break
 					}
 
 					// 読み込みエラーハンドリング
@@ -224,15 +233,15 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 					}
 
 					// 致命的な読み込みエラー
-					stepExecution.MarkAsFailed(readError)
+					stepExecution.MarkAsFailed(readError) // ここで readError は io.EOF ではない
 					stepExecution.ExitStatus = core.ExitStatusFailed
 					_ = tx.Rollback() // トランザクションをロールバック
 					return readError
 				}
 
-				// Readerがnilを返したら終了 (ジェネリクス型 O のゼロ値チェック)
+				// Readerがnilを返したら終了 (io.EOFでbreakした場合、itemIはnil)
 				// reflectIsZero はポインタ型でない場合にゼロ値を正しく判定するために使用
-				if reflect.ValueOf(itemI).Kind() == reflect.Ptr && reflect.ValueOf(itemI).IsNil() {
+				if itemI == nil { // nil チェックで十分
 					break
 				}
 				if reflect.ValueOf(itemI).Kind() != reflect.Ptr && reflectIsZero(itemI) {
@@ -243,7 +252,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 				totalReadCount++
 
 				// Process フェーズ
-				var itemO O
+				var itemO any // O を any に変更
 				processAttempts := 0
 				for { // リトライループ
 					processAttempts++
@@ -275,7 +284,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 						}
 						totalSkipProcessCount++
 						processError = nil // スキップしたのでエラーをクリアし、次のアイテムへ
-						itemO = *new(O) // 処理結果をゼロ値にリセット
+						itemO = nil // 処理結果を nil にリセット
 						break // 処理をスキップしたので、このアイテムの処理は終了
 					}
 
@@ -288,7 +297,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 
 				// 処理結果がnilの場合（フィルタリングされた場合）
 				// reflectIsZero はポインタ型でない場合にゼロ値を正しく判定するために使用
-				if reflect.ValueOf(itemO).Kind() == reflect.Ptr && reflect.ValueOf(itemO).IsNil() {
+				if itemO == nil { // nil チェックで十分
 					totalFilterCount++
 					continue
 				}
@@ -299,10 +308,10 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 				currentChunkProcessedItems = append(currentChunkProcessedItems, itemO)
 			}
 
-			// 読み込みアイテムがなければチャンク処理終了
-			if currentChunkReadCount == 0 {
+			// 読み込みアイテムがチャンクサイズ未満であれば、データの終端に達したと判断
+			if lastReadError == io.EOF { // 最後の読み込みでEOFだった場合、チャンク処理を終了
 				_ = tx.Rollback() // 空のトランザクションはロールバック
-				break
+				break ChunkLoop // ラベル付き break で外側のループを終了
 			}
 
 			// Write フェーズ
@@ -310,7 +319,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 				writeAttempts := 0
 				for { // リトライループ
 					writeAttempts++
-					writeError = cs.writer.Write(ctx, tx, currentChunkProcessedItems)
+					writeError = cs.writer.Write(ctx, tx, currentChunkProcessedItems) // currentChunkProcessedItems は []any
 					if writeError == nil {
 						break // 書き込み成功
 					}
@@ -363,7 +372,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 			// 書き込みエラーがなければコミット
 			if writeError == nil {
 				if err := tx.Commit(); err != nil {
-					stepExecution.MarkAsFailed(exception.NewBatchError("chunk_step", "トランザクションのコミットに失敗しました", err, true, false))
+					stepExecution.MarkAsFailed(exception.NewBatchError("chunk_step", "トランザクションのコミットに失敗しました", err, false, false))
 					stepExecution.RollbackCount++ // コミット失敗はロールバックとみなす
 					_ = tx.Rollback() // コミット失敗時のロールバック
 					return err
@@ -377,10 +386,6 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 				logger.Debugf("ステップ '%s': チャンク処理中に書き込みエラーが発生し、スキップされました。", cs.name)
 			}
 
-			// 読み込みアイテムがチャンクサイズ未満であれば、データの終端に達したと判断
-			if currentChunkReadCount < cs.chunkSize {
-				break
-			}
 		}
 	}
 
@@ -390,7 +395,7 @@ func (cs *ChunkStep[I, O]) Execute(ctx context.Context, jobExecution *core.JobEx
 }
 
 // Close はリソースを解放するためのメソッドです。
-func (cs *ChunkStep[I, O]) Close(ctx context.Context) error {
+func (cs *ChunkStep) Close(ctx context.Context) error { // ジェネリクス型を削除
 	var errs []error
 	if err := cs.reader.Close(ctx); err != nil {
 		errs = append(errs, exception.NewBatchError("chunk_step", "Reader のクローズに失敗しました", err, false, false))
@@ -410,7 +415,7 @@ func (cs *ChunkStep[I, O]) Close(ctx context.Context) error {
 
 // SetExecutionContext は ExecutionContext を設定します。
 // ChunkStep 自体は ExecutionContext を直接保持せず、Reader/Writer に委譲します。
-func (cs *ChunkStep[I, O]) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
+func (cs *ChunkStep) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error { // ジェネリクス型を削除
 	// Reader と Writer の ExecutionContext を設定
 	if err := cs.reader.SetExecutionContext(ctx, ec); err != nil {
 		return exception.NewBatchError("chunk_step", "Reader の ExecutionContext 設定に失敗しました", err, false, false)
@@ -423,7 +428,7 @@ func (cs *ChunkStep[I, O]) SetExecutionContext(ctx context.Context, ec core.Exec
 
 // GetExecutionContext は ExecutionContext を取得します。
 // Reader と Writer の ExecutionContext をマージして返します。
-func (cs *ChunkStep[I, O]) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
+func (cs *ChunkStep) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) { // ジェネリクス型を削除
 	mergedEC := core.NewExecutionContext()
 
 	if ec, err := cs.reader.GetExecutionContext(ctx); err == nil {
@@ -447,22 +452,30 @@ func (cs *ChunkStep[I, O]) GetExecutionContext(ctx context.Context) (core.Execut
 
 // reflectIsZero は reflect パッケージを使用して、任意の型のゼロ値をチェックします。
 // ジェネリクス型 O が nil を許容しないプリミティブ型の場合に役立ちます。
-func reflectIsZero[T any](v T) bool {
+func reflectIsZero(v any) bool { // T を any に変更
 	return reflect.ValueOf(&v).Elem().IsZero()
 }
 
 // convertToInterfaceSlice は任意の型のスライスを []interface{} に変換します。
 // リスナーに渡すために必要です。
-func convertToInterfaceSlice[T any](slice []T) []interface{} {
+func convertToInterfaceSlice(slice any) []interface{} { // T を any に変更
 	if slice == nil {
 		return nil
 	}
-	result := make([]interface{}, len(slice))
-	for i, v := range slice {
+	// slice は []any 型として渡されることを想定
+	concreteSlice, ok := slice.([]any)
+	if !ok {
+		// This should ideally not happen if currentChunkProcessedItems is always []any
+		// but for safety, we can log or return an error.
+		logger.Errorf("convertToInterfaceSlice: 予期しないスライス型です: %T", slice)
+		return nil
+	}
+	result := make([]interface{}, len(concreteSlice))
+	for i, v := range concreteSlice {
 		result[i] = v
 	}
 	return result
 }
 
-// ChunkStep が core.Step インターフェースを満たすことを確認
-var _ core.Step = (*ChunkStep[any, any])(nil)
+// ChunkStep が core.Step インターフェースを満たすことを確認 (ジェネリクス型を削除)
+var _ core.Step = (*ChunkStep)(nil)
