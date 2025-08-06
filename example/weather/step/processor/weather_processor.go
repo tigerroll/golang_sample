@@ -11,6 +11,19 @@ import (
 	weather_entity "sample/example/weather/domain/entity"
 )
 
+// tokyoLocation は Asia/Tokyo タイムゾーンを保持します。
+// アプリケーション起動時に一度ロードされます。
+var tokyoLocation *time.Location
+
+func init() {
+	var err error
+	tokyoLocation, err = time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		// ロードに失敗した場合はUTCにフォールバック（通常は発生しないはず）
+		tokyoLocation = time.UTC
+	}
+}
+
 type WeatherProcessor struct {
 	// 設定などの依存があれば
 	// config *config.WeatherProcessorConfig // 必要に応じて追加
@@ -41,7 +54,7 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
  
 	var dataToStore []*weather_entity.WeatherDataToStore
 	// CollectedAt は現在時刻を使用しているため、設定は不要
-	collectedAt := time.Now().In(time.FixedZone("Asia/Tokyo", 9*60*60))
+	collectedAt := time.Now().In(tokyoLocation) // ロードしたタイムゾーンを使用
 
 	for i := range forecast.Hourly.Time {
 		select {
@@ -50,9 +63,10 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 		default:
 		}
 
-		parsedTime, err := time.Parse("2006-01-02T15:04", forecast.Hourly.Time[i])
+		// タイムゾーンを指定してパース
+		parsedTime, err := time.ParseInLocation("2006-01-02T15:04", forecast.Hourly.Time[i], tokyoLocation)
 		if err != nil {
-			parsedTime, err = time.Parse(time.RFC3339, forecast.Hourly.Time[i])
+			parsedTime, err = time.ParseInLocation(time.RFC3339, forecast.Hourly.Time[i], tokyoLocation)
 			if err != nil {
 				// 時間のパース失敗はスキップ可能、リトライ不可
 				return nil, exception.NewBatchError("weather_processor", fmt.Sprintf("時間のパースに失敗しました: %s", forecast.Hourly.Time[i]), err, false, true)

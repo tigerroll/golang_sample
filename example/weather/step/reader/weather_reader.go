@@ -142,16 +142,17 @@ func (r *WeatherReader) SetExecutionContext(ctx context.Context, ec core.Executi
   r.executionContext = ec // まず全体をコピー
 
   // currentIndex の復元
-  if idx, ok := ec.GetInt("currentIndex"); ok {
+  if val, ok := ec.Get("currentIndex"); ok {
+    if idx, ok := val.(int); ok {
     r.currentIndex = idx
     logger.Debugf("WeatherReader: ExecutionContext から currentIndex を復元しました: %d", r.currentIndex)
-  } else {
-    r.currentIndex = 0 // 見つからない場合は初期値
-    logger.Debugf("WeatherReader: ExecutionContext に currentIndex が見つかりませんでした。0 に初期化します。")
+    } else { logger.Warnf("WeatherReader: ExecutionContext の currentIndex が予期しない型です。0 に初期化します。") }
   }
-
+  // 見つからない場合や型が異なる場合は r.currentIndex はデフォルト値 (0) のまま
+  
   // forecastData の復元 (JSON文字列として保存されていると仮定)
-  if forecastJSON, ok := ec.GetString("forecastData"); ok && forecastJSON != "" {
+  if val, ok := ec.Get("forecastData"); ok {
+    if forecastJSON, ok := val.(string); ok && forecastJSON != "" {
     var forecast weather_entity.OpenMeteoForecast
     if err := json.Unmarshal([]byte(forecastJSON), &forecast); err != nil {
       logger.Errorf("WeatherReader: ExecutionContext から forecastData のデコードに失敗しました: %v", err)
@@ -159,11 +160,10 @@ func (r *WeatherReader) SetExecutionContext(ctx context.Context, ec core.Executi
       return exception.NewBatchError("weather_reader", "forecastData のデコードに失敗しました", err, false, false)
     }
     r.forecastData = &forecast
-    logger.Debugf("WeatherReader: ExecutionContext から forecastData を復元しました。レコード数: %d", len(r.forecastData.Hourly.Time))
-  } else {
-    r.forecastData = nil // 見つからない場合はnil
-    logger.Debugf("WeatherReader: ExecutionContext に forecastData が見つかりませんでした。次回 Read 時にフェッチします。")
+    logger.Debugf("WeatherReader: ExecutionContext から forecastData を復元しました。レコード数: %d", len(r.forecastData.Hourly.Time)) 
+    } else { logger.Warnf("WeatherReader: ExecutionContext の forecastData が予期しない型です。次回 Read 時にフェッチします。") }
   }
+  // 見つからない場合や型が異なる場合は r.forecastData はデフォルト値 (nil) のまま
 
   return nil
 }

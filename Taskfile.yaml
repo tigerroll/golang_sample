@@ -12,8 +12,8 @@ vars:
 tasks:
   test:
     desc: "Run test for the batch package."
-    cmds:
-      - go test {{.MODULE_NAME}}/test/batch/config -v
+    cmds: # testディレクトリ以下の全てのテストを実行するように変更
+      - go test ./test/... -v
 
   build:
     desc: "Build the fetcher executable to {{.BUILD_OUTPUT_DIR}}/"
