@@ -1,24 +1,18 @@
 package factory
 
 import (
-	"database/sql" // Add sql import for *sql.DB
-	"fmt"
-	"reflect"
+	"fmt" // ★ 追加: fmt パッケージを再度インポート
 
+	component "sample/pkg/batch/job/component"
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	jsl "sample/pkg/batch/job/jsl"
 	jobListener "sample/pkg/batch/job/listener"
-	stepListener "sample/pkg/batch/step/listener" // Keep stepListener for step-level listeners
+	stepListener "sample/pkg/batch/step/listener"
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
 	repository "sample/pkg/batch/repository"
 )
-
-// ComponentBuilder は、特定のコンポーネント（Reader, Processor, Writer）を生成するための関数型です。
-// 依存関係 (config, db など) を受け取り、生成されたコンポーネントのインターフェースとエラーを返します。
-// ジェネリックインターフェースを返すため、any を使用します。
-type ComponentBuilder func(cfg *config.Config, db *sql.DB) (any, error) // Changed to *sql.DB
 
 // StepExecutionListenerBuilder は StepExecutionListener を生成するための関数型です。
 type StepExecutionListenerBuilder func(cfg *config.Config) (stepListener.StepExecutionListener, error)
@@ -57,9 +51,9 @@ type JobBuilder func(
 type JobFactory struct {
 	config            *config.Config
 	jobRepository     repository.JobRepository
-	componentBuilders map[string]ComponentBuilder
+	componentBuilders map[string]component.ComponentBuilder
 	jobBuilders       map[string]JobBuilder
-	jobListenerBuilders map[string]JobListenerBuilder // JobListenerBuilder を追加
+	jobListenerBuilders map[string]JobListenerBuilder
 	stepListenerBuilders map[string]StepExecutionListenerBuilder
 	itemReadListenerBuilders map[string]ItemReadListenerBuilder
 	itemProcessListenerBuilders map[string]ItemProcessListenerBuilder
@@ -74,7 +68,7 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 	jf := &JobFactory{
 		config:        cfg,
 		jobRepository: repo,
-		componentBuilders: make(map[string]ComponentBuilder),
+		componentBuilders: make(map[string]component.ComponentBuilder),
 		jobBuilders:       make(map[string]JobBuilder),
 		jobListenerBuilders: make(map[string]JobListenerBuilder), // 初期化
 		stepListenerBuilders: make(map[string]StepExecutionListenerBuilder),
@@ -89,7 +83,7 @@ func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactor
 
 // RegisterComponentBuilder は、指定された名前でコンポーネントビルド関数を登録します。
 // このメソッドは main.go など、アプリケーションの初期化フェーズで呼び出されます。
-func (f *JobFactory) RegisterComponentBuilder(name string, builder ComponentBuilder) {
+func (f *JobFactory) RegisterComponentBuilder(name string, builder component.ComponentBuilder) {
 	f.componentBuilders[name] = builder
 	logger.Debugf("JobFactory: コンポーネントビルダー '%s' を登録しました。", name)
 }
@@ -160,8 +154,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		return nil, exception.NewBatchErrorf("job_factory", "指定された Job '%s' のビルダーが登録されていません", jobName)
 	}
 
-	// 3. JSL 定義に基づいてコンポーネントをインスタンス化し、レジストリに登録
-	// JobRepository から基盤となる *sql.DB 接続を取得し、ComponentBuilder に渡す
+	// 3. JobRepository から基盤となる *sql.DB 接続を取得
 	sqlJobRepo, ok := f.jobRepository.(*repository.SQLJobRepository)
 	if !ok {
 		return nil, exception.NewBatchErrorf("job_factory", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
@@ -171,23 +164,12 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		return nil, exception.NewBatchErrorf("job_factory", "JobRepository からデータベース接続を取得できませんでした。")
 	}
 
-	componentInstances := make(map[string]any) // map[string]any に変更
-
-	// 登録されたビルド関数を使用してコンポーネントを動的にインスタンス化
-	for componentRefName, builder := range f.componentBuilders {
-		instance, err := builder(f.config, dbConnection) // Pass Config and *sql.DB
-		if err != nil {
-			return nil, exception.NewBatchError("job_factory", fmt.Sprintf("コンポーネント '%s' のビルドに失敗しました", componentRefName), err, false, false)
-		}
-		componentInstances[componentRefName] = instance
-		logger.Debugf("コンポーネント '%s' (Type: %s) を生成しました。", componentRefName, reflect.TypeOf(instance))
-	}
+	// コンポーネントの事前インスタンス化ループは削除します。
+	// コンポーネントのインスタンス化は jsl.ConvertJSLToCoreFlow 内で行われるようになります。
 
 	// 4. JSL Flow を core.FlowDefinition に変換
-	// jobRepository を ConvertJSLToCoreFlow に渡す
-	// Step-level および Item-level リスナーを JSL からインスタンス化
+	// jsl.ConvertJSLToCoreFlow に componentBuilders (map[string]component.ComponentBuilder) を渡す
 	// ConvertJSLToCoreFlow に渡すリスナービルダーマップ
-	// 各ビルダーをその基底となる無名関数型にキャストして any に格納
 	stepListenerBuilders := make(map[string]any)
 	for k, v := range f.stepListenerBuilders {
 		stepListenerBuilders[k] = (func(*config.Config) (stepListener.StepExecutionListener, error))(v)
@@ -213,13 +195,13 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		retryItemListenerBuilders[k] = (func(*config.Config) (stepListener.RetryItemListener, error))(v)
 	}
 
-	// ConvertJSLToCoreFlow に componentRegistry (map[string]any) を渡す
-	// そして、JSLAdaptedStep のコンストラクタに渡す際に、適切な型アサーションを行う
+	// ConvertJSLToCoreFlow に componentBuilders を渡すように変更
 	coreFlow, err := jsl.ConvertJSLToCoreFlow(
 		jslJob.Flow,
-		componentInstances,
+		f.componentBuilders, // ここを componentBuilders に変更
 		f.jobRepository,
 		f.config, // Config 全体を渡す
+		dbConnection, // dbConnection を追加
 		stepListenerBuilders,
 		itemReadListenerBuilders,
 		itemProcessListenerBuilders,

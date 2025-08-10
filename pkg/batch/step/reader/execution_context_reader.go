@@ -1,15 +1,15 @@
-// pkg/batch/step/reader/execution_context_reader.go
 package itemreader // パッケージ名を 'itemreader' に変更
 
 import (
 	"context"
+	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"io" // io.EOF のためにインポート
 	"reflect"
 
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
 	logger "sample/pkg/batch/util/logger" // Keep logger
-	// itemreader "sample/pkg/batch/step/reader" // REMOVED: Self-import is not needed
 )
 
 // ExecutionContextReader は JobExecution.ExecutionContext からデータを読み込む Reader です。
@@ -27,14 +27,25 @@ type ExecutionContextReader struct {
 }
 
 // NewExecutionContextReader は新しい ExecutionContextReader のインスタンスを作成します。
-// 読み込むデータのキーを指定します。
-func NewExecutionContextReader() *ExecutionContextReader {
-	return &ExecutionContextReader{
-		dataKey:          "processed_weather_data", // デフォルトのキー。JSLで設定可能にするべき。
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
+// properties から dataKey を設定します。
+func NewExecutionContextReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*ExecutionContextReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg // 未使用の引数を無視
+	_ = db
+
+	reader := &ExecutionContextReader{
+		dataKey:          "processed_weather_data", // デフォルトのキー
 		data:             make([]any, 0),
 		currentIndex:     0,
 		executionContext: core.NewExecutionContext(),
 	}
+
+	// properties から dataKey を設定
+	if key, ok := properties["dataKey"]; ok && key != "" {
+		reader.dataKey = key
+	}
+
+	return reader, nil
 }
 
 // Read は ExecutionContext からアイテムを一つずつ読み込みます。

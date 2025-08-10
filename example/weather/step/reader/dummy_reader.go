@@ -1,79 +1,85 @@
 package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
-  "context"
-  "io" // io パッケージをインポート
+	"context"
+	"database/sql" // Add sql import for *sql.DB
+	"io"           // io パッケージをインポート
 
-  core "sample/pkg/batch/job/core" // core パッケージをインポート
-  logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
-  itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
+	config "sample/pkg/batch/config" // config パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
+	logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
 )
 
 // DummyReader は常に io.EOF を返すダミーの Reader です。
 // ItemReader[any] インターフェースを実装します。
-type DummyReader struct{ // 構造体名は変更しない
-  // ExecutionContext を保持するためのフィールド
-  executionContext core.ExecutionContext
+type DummyReader struct { // 構造体名は変更しない
+	// ExecutionContext を保持するためのフィールド
+	executionContext core.ExecutionContext
 }
 
 // NewDummyReader は新しい DummyReader のインスタンスを作成します。
-func NewDummyReader() *DummyReader {
-  return &DummyReader{
-    executionContext: core.NewExecutionContext(), // 初期化
-  }
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
+func NewDummyReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg        // 未使用の引数を無視
+	_ = db
+	_ = properties
+	return &DummyReader{
+		executionContext: core.NewExecutionContext(), // 初期化
+	}, nil
 }
 
 // Read は ItemReader インターフェースの実装です。
 // 常に io.EOF を返してデータの終端を示します。
 func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    return nil, ctx.Err()
-  default:
-  }
-  logger.Debugf("DummyReader.Read が呼び出されました。io.EOF を返します。")
-  return nil, io.EOF // 常に終端を示す
+	// Context の完了をチェック
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyReader.Read が呼び出されました。io.EOF を返します。")
+	return nil, io.EOF // 常に終端を示す
 }
 
 // Close は ItemReader インターフェースの実装です。
 // DummyReader は閉じるリソースがないため、何もしません。
 func (r *DummyReader) Close(ctx context.Context) error {
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    return ctx.Err()
-  default:
-  }
-  logger.Debugf("DummyReader.Close が呼び出されました。")
-  return nil
+	// Context の完了をチェック
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyReader.Close が呼び出されました。")
+	return nil
 }
 
 // SetExecutionContext は ItemReader インターフェースの実装です。
 // 渡された ExecutionContext を内部に設定します。
 func (r *DummyReader) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error {
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    return ctx.Err()
-  default:
-  }
-  r.executionContext = ec
-  logger.Debugf("DummyReader.SetExecutionContext が呼び出されました。")
-  return nil
+	// Context の完了をチェック
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	r.executionContext = ec
+	logger.Debugf("DummyReader.SetExecutionContext が呼び出されました。")
+	return nil
 }
 
 // GetExecutionContext は ItemReader インターフェースの実装です。
 // 現在の ExecutionContext を返します。
 func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) {
-  // Context の完了をチェック
-  select {
-  case <-ctx.Done():
-    return nil, ctx.Err()
-  default:
-  }
-  logger.Debugf("DummyReader.GetExecutionContext が呼び出されました。")
-  return r.executionContext, nil
+	// Context の完了をチェック
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyReader.GetExecutionContext が呼び出されました。")
+	return r.executionContext, nil
 }
 
 // DummyReader が ItemReader[any] インターフェースを満たすことを確認

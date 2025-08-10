@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql" // sql パッケージをインポート
 	"fmt"
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
 	logger "sample/pkg/batch/util/logger"
 	itemwriter "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート
@@ -20,12 +21,26 @@ type WeatherItemWriter struct {
 	executionContext core.ExecutionContext
 }
 
-// NewWeatherItemWriter は新しいWeatherItemWriterのインスタンスを作成します。
-func NewWeatherWriter(repo appRepo.WeatherRepository) *WeatherItemWriter { // appRepo.WeatherRepository を使用
-	return &WeatherItemWriter{
-		repo:             repo,
-		executionContext: core.NewExecutionContext(), // 初期化
+// NewWeatherWriter は新しいWeatherItemWriterのインスタンスを作成します。
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
+// データベースリポジトリはここで生成します。
+func NewWeatherWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherItemWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = properties // 現時点では properties は使用しないが、シグネチャを合わせるために受け取る
+
+	var weatherSpecificRepo appRepo.WeatherRepository
+	switch cfg.Database.Type {
+	case "postgres", "redshift":
+		weatherSpecificRepo = appRepo.NewPostgresWeatherRepository(db)
+	case "mysql":
+		weatherSpecificRepo = appRepo.NewMySQLWeatherRepository(db)
+	default:
+		return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 	}
+
+	return &WeatherItemWriter{
+		repo:             weatherSpecificRepo, // ここで生成したリポジトリを使用
+		executionContext: core.NewExecutionContext(), // 初期化
+	}, nil
 }
 
 // Write は加工済みの天気データアイテムのチャンクをデータベースに保存します。
