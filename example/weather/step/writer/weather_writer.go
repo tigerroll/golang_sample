@@ -43,6 +43,18 @@ func NewWeatherWriter(cfg *config.Config, db *sql.DB, properties map[string]stri
 	}, nil
 }
 
+// Open は ItemWriter インターフェースの実装です。
+// WeatherItemWriter はリソースを開く必要がないため、SetExecutionContext を呼び出すだけです。
+func (w *WeatherItemWriter) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	logger.Debugf("WeatherItemWriter.Open が呼び出されました。")
+	return w.SetExecutionContext(ctx, ec)
+}
+
 // Write は加工済みの天気データアイテムのチャンクをデータベースに保存します。
 // 引数を []weather_entity.WeatherDataToStore に変更し、トランザクションを受け取るように変更します。
 func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error {

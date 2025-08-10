@@ -55,6 +55,19 @@ func NewWeatherReader(cfg *config.Config, db *sql.DB, properties map[string]stri
 	}, nil
 }
 
+// Open は ItemReader インターフェースの実装です。
+// ExecutionContext から状態を復元し、必要に応じてリソースを開きます。
+func (r *WeatherReader) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	logger.Debugf("WeatherReader.Open が呼び出されました。")
+	// SetExecutionContext と同様のロジックで状態を復元
+	return r.SetExecutionContext(ctx, ec)
+}
+
 // Read メソッドが Reader インターフェースを満たすように修正
 // アイテムを一つずつ返すように変更
 func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を any に変更
