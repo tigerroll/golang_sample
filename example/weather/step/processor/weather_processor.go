@@ -2,9 +2,11 @@ package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
 
 import (
 	"context"
+	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"time"
 
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
@@ -29,12 +31,15 @@ type WeatherProcessor struct {
 	// config *config.WeatherProcessorConfig // 必要に応じて追加
 }
 
-// NewWeatherProcessor が引数なし、または WeatherProcessorConfig を受け取るように修正 (ここでは引数なしのまま)
-func NewWeatherProcessor(/* cfg *config.WeatherProcessorConfig */) *WeatherProcessor {
+// NewWeatherProcessor が ComponentBuilder のシグネチャに合わせるように修正
+func NewWeatherProcessor(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg        // 未使用の引数を無視
+	_ = db
+	_ = properties
 	return &WeatherProcessor{
 		// 初期化
 		// config: cfg, // 必要に応じて初期化
-	}
+	}, nil
 }
 
 // Process メソッドが Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすように修正

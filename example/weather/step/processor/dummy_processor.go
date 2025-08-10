@@ -2,10 +2,13 @@ package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
 
 import (
 	"context"
+	"database/sql" // Add sql import for *sql.DB
+	"fmt"          // Add fmt for Sprintf
+	"time"
+
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
 	logger "sample/pkg/batch/util/logger"
-	"fmt" // Add fmt for Sprintf
-	"time"
 )
 
 // DummyProcessor は入力アイテムをそのまま返すダミーの Processor です。
@@ -13,7 +16,13 @@ import (
 type DummyProcessor struct{}
 
 // NewDummyProcessor は新しい DummyProcessor のインスタンスを作成します。
-func NewDummyProcessor() *DummyProcessor { return &DummyProcessor{} }
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
+func NewDummyProcessor(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg        // 未使用の引数を無視
+	_ = db
+	_ = properties
+	return &DummyProcessor{}, nil
+}
 
 // Process は ItemProcessor インターフェースの実装です。
 // 入力として受け取ったアイテムをそのまま返すか、汎用的なダミーデータを返します。

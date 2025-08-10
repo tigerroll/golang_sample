@@ -1,12 +1,11 @@
-// pkg/batch/step/writer/execution_context_writer.go
 package itemwriter // パッケージ名を 'itemwriter' に変更
 
 import (
 	"context"
 	"database/sql" // トランザクションを受け取るため
 
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	// itemwriter "sample/pkg/batch/step/writer" // REMOVED: Self-import is not needed
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -20,12 +19,23 @@ type ExecutionContextWriter struct {
 }
 
 // NewExecutionContextWriter は新しい ExecutionContextWriter のインスタンスを作成します。
-// 書き込むデータのキーを指定します。
-func NewExecutionContextWriter() *ExecutionContextWriter {
-	return &ExecutionContextWriter{
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
+// properties から dataKey を設定します。
+func NewExecutionContextWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*ExecutionContextWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg // 未使用の引数を無視
+	_ = db
+
+	writer := &ExecutionContextWriter{
 		dataKey:          "processed_weather_data", // デフォルトのキー。JSLで設定可能にするべき。
 		executionContext: core.NewExecutionContext(),
 	}
+
+	// properties から dataKey を設定
+	if key, ok := properties["dataKey"]; ok && key != "" {
+		writer.dataKey = key
+	}
+
+	return writer, nil
 }
 
 // Write はアイテムのチャンクを JobExecution.ExecutionContext に保存します。

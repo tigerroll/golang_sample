@@ -2,12 +2,14 @@ package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
 	"context"
+	"database/sql" // sql パッケージをインポート
 	"encoding/json" // json パッケージをインポート
 	"fmt"
 	"io" // io パッケージをインポート
 	"net/http"
 	"time" // time パッケージをインポート
 
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
@@ -29,13 +31,28 @@ type WeatherReader struct {
 	executionContext core.ExecutionContext
 }
 
-// NewWeatherReader が WeatherReaderConfig を受け取るように修正
-func NewWeatherReader(cfg *weather_config.WeatherReaderConfig) *WeatherReader {
+// NewWeatherReader が ComponentBuilder のシグネチャに合わせるように修正
+func NewWeatherReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = db // 未使用の引数を無視
+
+	weatherReaderCfg := &weather_config.WeatherReaderConfig{
+		APIEndpoint: cfg.Batch.APIEndpoint,
+		APIKey:      cfg.Batch.APIKey,
+	}
+
+	// JSL properties があれば、config の値を上書きする
+	if endpoint, ok := properties["apiEndpoint"]; ok && endpoint != "" {
+		weatherReaderCfg.APIEndpoint = endpoint
+	}
+	if apiKey, ok := properties["apiKey"]; ok && apiKey != "" {
+		weatherReaderCfg.APIKey = apiKey
+	}
+
 	return &WeatherReader{
-		config: cfg,
+		config: weatherReaderCfg,
 		client: &http.Client{},
 		executionContext: core.NewExecutionContext(), // 初期化
-	}
+	}, nil
 }
 
 // Read メソッドが Reader インターフェースを満たすように修正
@@ -61,7 +78,9 @@ func (r *WeatherReader) Read(ctx context.Context) (any, error) { // 戻り値を
 			return nil, exception.NewBatchError("weather_reader", "HTTPリクエストの作成に失敗しました", err, false, false)
 		}
 		// APIキーが必要な場合、ヘッダーに追加などを検討
-		// req.Header.Set("X-API-Key", r.config.APIKey) // 必要に応じてAPIキーを追加
+		if r.config.APIKey != "" {
+			req.Header.Set("X-API-Key", r.config.APIKey) // 必要に応じてAPIキーを追加
+		}
 
 		client := &http.Client{Timeout: 10 * time.Second} // タイムアウトを設定
 		resp, err := client.Do(req)

@@ -2,10 +2,12 @@ package tasklet
 
 import (
 	"context"
+	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"math/rand" // rand パッケージをインポート
 	"time"
 
+	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
 	step "sample/pkg/batch/step" // pkg/batch/step を参照
 	logger "sample/pkg/batch/util/logger"
@@ -21,11 +23,15 @@ type DummyTasklet struct {
 }
 
 // NewDummyTasklet は新しい DummyTasklet のインスタンスを作成します。
-func NewDummyTasklet() *DummyTasklet {
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
+func NewDummyTasklet(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyTasklet, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg        // 未使用の引数を無視
+	_ = db
+	_ = properties
 	return &DummyTasklet{
 		executionContext: core.NewExecutionContext(),
 		executionCount:   0,
-	}
+	}, nil
 }
 
 // Execute は Tasklet のビジネスロジックを実行します。

@@ -1,32 +1,36 @@
 package jsl
 
 import (
+	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"reflect"
 
+	component "sample/pkg/batch/job/component" // ★ 変更: factory の代わりに component をインポート
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	repository "sample/pkg/batch/repository"
-	step "sample/pkg/batch/step" // For ChunkStep and TaskletStep
+	step "sample/pkg/batch/step"
 	stepListener "sample/pkg/batch/step/listener"
-	itemprocessor "sample/pkg/batch/step/processor" // エイリアスを itemprocessor に変更
-	itemreader "sample/pkg/batch/step/reader"       // エイリアスを itemreader に変更
-	itemwriter "sample/pkg/batch/step/writer"       // エイリアスを itemwriter に変更
+	itemprocessor "sample/pkg/batch/step/processor"
+	itemreader "sample/pkg/batch/step/reader"
+	itemwriter "sample/pkg/batch/step/writer"
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
-	yaml "gopkg.in/yaml.v3" // Import yaml package for robust unmarshalling
+	yaml "gopkg.in/yaml.v3"
 )
 
 // ConvertJSLToCoreFlow は JSL の Flow 定義を core.FlowDefinition に変換します。
-// componentRegistry は、JSLで参照されるコンポーネント（Reader, Processor, Writer, Tasklet）のインスタンスを保持するマップです。
+// componentBuilders は、JSLで参照されるコンポーネント（Reader, Processor, Writer, Tasklet）のビルダを保持するマップです。
 // jobRepository は、ステップ内でリポジトリが必要な場合に使用されます。
 // cfg はアプリケーション全体のコンフィグです。
+// db はデータベース接続です。
 // listenerBuilders は、ステップレベルおよびアイテムレベルのリスナーを動的に構築するためのマップです。
 func ConvertJSLToCoreFlow(
 	jslFlow Flow,
-	componentRegistry map[string]any, // any 型のコンポーネントインスタンスを受け取る
+	componentBuilders map[string]component.ComponentBuilder, // ★ 変更: component.ComponentBuilder を参照
 	jobRepository repository.JobRepository,
 	cfg *config.Config,
+	db *sql.DB, // ★ 追加: db を追加
 	stepListenerBuilders map[string]any, // map[string]StepExecutionListenerBuilder
 	itemReadListenerBuilders map[string]any, // map[string]core.ItemReadListenerBuilder
 	itemProcessListenerBuilders map[string]any, // map[string]core.ItemProcessListenerBuilder
@@ -69,33 +73,44 @@ func ConvertJSLToCoreFlow(
 					return nil, exception.NewBatchErrorf(module, "チャンクステップ '%s' には reader, processor, writer が全て必要です", id)
 				}
 
-				// コンポーネントレジストリからコンポーネントを取得し、`any` 型のジェネリックインターフェースに型アサーション
-				// これにより, ChunkStep コンストラクタはこれらの `any` インターフェースを受け入れることができる
-				readerComp, ok := componentRegistry[jslStep.Reader.Ref]
+				// ★ 変更: コンポーネントビルダからコンポーネントをインスタンス化し、プロパティを渡す
+				readerBuilder, ok := componentBuilders[jslStep.Reader.Ref]
 				if !ok {
-					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つかりません", jslStep.Reader.Ref)
+					return nil, exception.NewBatchErrorf(module, "リーダー '%s' のビルダーが見つかりません", jslStep.Reader.Ref)
 				}
-				r, isReader := readerComp.(itemreader.ItemReader[any])
+				readerInstance, err := readerBuilder(cfg, db, jslStep.Reader.Properties) // properties を渡す
+				if err != nil {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("リーダー '%s' のビルドに失敗しました", jslStep.Reader.Ref), err, false, false)
+				}
+				r, isReader := readerInstance.(itemreader.ItemReader[any])
 				if !isReader {
-					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つからないか、不正な型です (期待: ItemReader[any], 実際: %s)", jslStep.Reader.Ref, reflect.TypeOf(readerComp))
+					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つからないか、不正な型です (期待: ItemReader[any], 実際: %s)", jslStep.Reader.Ref, reflect.TypeOf(readerInstance))
 				}
 
-				processorComp, ok := componentRegistry[jslStep.Processor.Ref]
+				processorBuilder, ok := componentBuilders[jslStep.Processor.Ref]
 				if !ok {
-					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つかりません", jslStep.Processor.Ref)
+					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' のビルダーが見つかりません", jslStep.Processor.Ref)
 				}
-				p, isProcessor := processorComp.(itemprocessor.ItemProcessor[any, any])
+				processorInstance, err := processorBuilder(cfg, db, jslStep.Processor.Properties) // properties を渡す
+				if err != nil {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("プロセッサ '%s' のビルドに失敗しました", jslStep.Processor.Ref), err, false, false)
+				}
+				p, isProcessor := processorInstance.(itemprocessor.ItemProcessor[any, any])
 				if !isProcessor {
-					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つからないか、不正な型です (期待: ItemProcessor[any, any], 実際: %s)", jslStep.Processor.Ref, reflect.TypeOf(processorComp))
+					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つからないか、不正な型です (期待: ItemProcessor[any, any], 実際: %s)", jslStep.Processor.Ref, reflect.TypeOf(processorInstance))
 				}
 
-				writerComp, ok := componentRegistry[jslStep.Writer.Ref]
+				writerBuilder, ok := componentBuilders[jslStep.Writer.Ref]
 				if !ok {
-					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つかりません", jslStep.Writer.Ref)
+					return nil, exception.NewBatchErrorf(module, "ライター '%s' のビルダーが見つかりません", jslStep.Writer.Ref)
 				}
-				w, isWriter := writerComp.(itemwriter.ItemWriter[any])
+				writerInstance, err := writerBuilder(cfg, db, jslStep.Writer.Properties) // properties を渡す
+				if err != nil {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("ライター '%s' のビルドに失敗しました", jslStep.Writer.Ref), err, false, false)
+				}
+				w, isWriter := writerInstance.(itemwriter.ItemWriter[any])
 				if !isWriter {
-					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つからないか、不正な型です (期待: ItemWriter[any], 実際: %s)", jslStep.Writer.Ref, reflect.TypeOf(writerComp))
+					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つからないか、不正な型です (期待: ItemWriter[any], 実際: %s)", jslStep.Writer.Ref, reflect.TypeOf(writerInstance))
 				}
 
 				// ステップレベルリスナーの構築
@@ -223,13 +238,17 @@ func ConvertJSLToCoreFlow(
 
 			} else if jslStep.Tasklet.Ref != "" {
 				// タスクレット指向ステップ
-				taskletComp, ok := componentRegistry[jslStep.Tasklet.Ref]
+				taskletBuilder, ok := componentBuilders[jslStep.Tasklet.Ref] // ★ 変更: componentRegistry から componentBuilders に変更
 				if !ok {
-					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つかりません", jslStep.Tasklet.Ref)
+					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' のビルダーが見つかりません", jslStep.Tasklet.Ref)
 				}
-				t, isTasklet := taskletComp.(step.Tasklet) // step.Tasklet インターフェースに型アサーション
+				taskletInstance, err := taskletBuilder(cfg, db, jslStep.Tasklet.Properties) // ★ 変更: properties を渡す
+				if err != nil {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("タスクレット '%s' のビルドに失敗しました", jslStep.Tasklet.Ref), err, false, false)
+				}
+				t, isTasklet := taskletInstance.(step.Tasklet) // step.Tasklet インターフェースに型アサーション
 				if !isTasklet {
-					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: step.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletComp))
+					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: step.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletInstance))
 				}
 
 				// ステップレベルリスナーの構築 (チャンクステップと同じ)
@@ -339,6 +358,7 @@ func validateTransition(fromElementID string, t Transition, allElements map[stri
 		return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルール (on: '%s') に 'to', 'end', 'fail', 'stop' のいずれも定義されていません", fromElementID, t.On), nil, false, false)
 	}
 	if exclusiveCount > 1 {
+		// ★ 修正: ここでエラーオブジェクトのみを返すように変更
 		return exception.NewBatchError("jsl_converter", fmt.Sprintf("フロー要素 '%s' の遷移ルール (on: '%s') は 'to', 'end', 'fail', 'stop' のうち複数定義されています。これらは排他的です。", fromElementID, t.On), nil, false, false)
 	}
 

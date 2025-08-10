@@ -3,24 +3,29 @@ package weatherwriter // パッケージ名を 'weatherwriter' に変更
 import (
 	"context"
 	"database/sql" // sql パッケージをインポート
+
+	config "sample/pkg/batch/config" // config パッケージをインポート
+	core "sample/pkg/batch/job/core"
 	itemwriter "sample/pkg/batch/step/writer" // Renamed import
 	logger "sample/pkg/batch/util/logger"
-
-	core "sample/pkg/batch/job/core"
 )
 
 // DummyWriter は何も行わないダミーの Writer です。
 // ItemWriter[any] インターフェースを実装します。
-type DummyWriter struct{ // 構造体名は変更しない
+type DummyWriter struct { // 構造体名は変更しない
 	// ExecutionContext を保持するためのフィールド
 	executionContext core.ExecutionContext
 }
 
 // NewDummyWriter は新しい DummyWriter のインスタンスを作成します。
-func NewDummyWriter() *DummyWriter {
+// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
+func NewDummyWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = cfg        // 未使用の引数を無視
+	_ = db
+	_ = properties
 	return &DummyWriter{
 		executionContext: core.NewExecutionContext(), // 初期化
-	}
+	}, nil
 }
 
 // Write は ItemWriter インターフェースの実装です。

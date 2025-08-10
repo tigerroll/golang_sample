@@ -40,7 +40,8 @@ type Step struct {
 
 // ComponentRef refers to a registered component (reader, processor, writer, tasklet).
 type ComponentRef struct {
-	Ref string `yaml:"ref"` // The name/ID of the component (e.g., "weatherReader", "myTasklet")
+	Ref        string            `yaml:"ref"`                 // The name/ID of the component (e.g., "weatherReader", "myTasklet")
+	Properties map[string]string `yaml:"properties,omitempty"` // JSLから注入されるプロパティ
 }
 
 // Chunk defines chunk-oriented processing properties for a step.
