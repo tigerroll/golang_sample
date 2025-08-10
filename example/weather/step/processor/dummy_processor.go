@@ -7,13 +7,17 @@ import (
 	"time"
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
 	logger "sample/pkg/batch/util/logger"
 )
 
 // DummyProcessor は入力アイテムをそのまま返すダミーの Processor です。
 // ItemProcessor[any, any] インターフェースを実装します。
-type DummyProcessor struct{}
+type DummyProcessor struct{
+	// ExecutionContext を保持するためのフィールド
+	executionContext core.ExecutionContext // ★ 追加
+}
 
 // NewDummyProcessor は新しい DummyProcessor のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
@@ -21,7 +25,9 @@ func NewDummyProcessor(cfg *config.Config, db *sql.DB, properties map[string]str
 	_ = cfg        // 未使用の引数を無視
 	_ = db
 	_ = properties
-	return &DummyProcessor{}, nil
+	return &DummyProcessor{
+		executionContext: core.NewExecutionContext(), // ★ 追加: 初期化
+	}, nil
 }
 
 // Process は ItemProcessor インターフェースの実装です。
@@ -39,6 +45,29 @@ func (p *DummyProcessor) Process(ctx context.Context, item any) (any, error) { /
 	// 汎用的なダミーデータを返す
 	// 例: 入力アイテムをそのまま返す、またはシンプルな文字列を返す
 	return any(fmt.Sprintf("Processed dummy item: %v at %s", item, time.Now().Format(time.RFC3339))), nil
+}
+
+// SetExecutionContext は ItemProcessor インターフェースの実装です。
+func (p *DummyProcessor) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	p.executionContext = ec
+	logger.Debugf("DummyProcessor.SetExecutionContext が呼び出されました。")
+	return nil
+}
+
+// GetExecutionContext は ItemProcessor インターフェースの実装です。
+func (p *DummyProcessor) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyProcessor.GetExecutionContext が呼び出されました。")
+	return p.executionContext, nil
 }
 
 // DummyProcessor が ItemProcessor[any, any] インターフェースを満たすことを確認

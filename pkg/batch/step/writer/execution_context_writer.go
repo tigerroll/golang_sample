@@ -38,6 +38,18 @@ func NewExecutionContextWriter(cfg *config.Config, db *sql.DB, properties map[st
 	return writer, nil
 }
 
+// Open は ItemWriter インターフェースの実装です。
+// ExecutionContext から状態を復元し、必要に応じてリソースを開きます。
+func (w *ExecutionContextWriter) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	// SetExecutionContext と同様のロジックで状態を復元
+	return w.SetExecutionContext(ctx, ec)
+}
+
 // Write はアイテムのチャンクを JobExecution.ExecutionContext に保存します。
 // この Writer はデータベーストランザクションを直接使用しないため、tx は無視されます。
 func (w *ExecutionContextWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // tx を追加

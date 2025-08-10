@@ -29,6 +29,18 @@ func NewDummyReader(cfg *config.Config, db *sql.DB, properties map[string]string
 	}, nil
 }
 
+// Open は ItemReader インターフェースの実装です。
+// DummyReader はリソースを開く必要がないため、SetExecutionContext を呼び出すだけです。
+func (r *DummyReader) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyReader.Open が呼び出されました。")
+	return r.SetExecutionContext(ctx, ec)
+}
+
 // Read は ItemReader インターフェースの実装です。
 // 常に io.EOF を返してデータの終端を示します。
 func (r *DummyReader) Read(ctx context.Context) (any, error) { // O は any

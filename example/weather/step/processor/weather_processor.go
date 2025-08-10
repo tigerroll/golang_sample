@@ -7,6 +7,7 @@ import (
 	"time"
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
@@ -29,6 +30,7 @@ func init() {
 type WeatherProcessor struct {
 	// 設定などの依存があれば
 	// config *config.WeatherProcessorConfig // 必要に応じて追加
+	executionContext core.ExecutionContext // ★ 追加
 }
 
 // NewWeatherProcessor が ComponentBuilder のシグネチャに合わせるように修正
@@ -39,6 +41,7 @@ func NewWeatherProcessor(cfg *config.Config, db *sql.DB, properties map[string]s
 	return &WeatherProcessor{
 		// 初期化
 		// config: cfg, // 必要に応じて初期化
+		executionContext: core.NewExecutionContext(), // ★ 追加: 初期化
 	}, nil
 }
 
@@ -90,6 +93,27 @@ func (p *WeatherProcessor) Process(ctx context.Context, item any) (any, error) {
 
 	// ここで []*entity.WeatherDataToStore を any 型として返します。
 	return dataToStore, nil
+}
+
+// SetExecutionContext は ItemProcessor インターフェースの実装です。
+func (p *WeatherProcessor) SetExecutionContext(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	p.executionContext = ec
+	return nil
+}
+
+// GetExecutionContext は ItemProcessor インターフェースの実装です。
+func (p *WeatherProcessor) GetExecutionContext(ctx context.Context) (core.ExecutionContext, error) { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	return p.executionContext, nil
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認

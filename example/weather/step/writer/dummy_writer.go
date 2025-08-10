@@ -28,6 +28,18 @@ func NewDummyWriter(cfg *config.Config, db *sql.DB, properties map[string]string
 	}, nil
 }
 
+// Open は ItemWriter インターフェースの実装です。
+// DummyWriter はリソースを開く必要がないため、SetExecutionContext を呼び出すだけです。
+func (w *DummyWriter) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	logger.Debugf("DummyWriter.Open が呼び出されました。")
+	return w.SetExecutionContext(ctx, ec)
+}
+
 // Write は ItemWriter インターフェースの実装です。
 // アイテムのスライスを受け取り、何も行わずに nil を返します。
 func (w *DummyWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // ★ シグネチャを []any に変更し、tx を追加

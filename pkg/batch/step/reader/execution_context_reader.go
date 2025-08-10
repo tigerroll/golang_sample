@@ -48,6 +48,18 @@ func NewExecutionContextReader(cfg *config.Config, db *sql.DB, properties map[st
 	return reader, nil
 }
 
+// Open は ItemReader インターフェースの実装です。
+// ExecutionContext から状態を復元し、必要に応じてリソースを開きます。
+func (r *ExecutionContextReader) Open(ctx context.Context, ec core.ExecutionContext) error { // ★ 追加
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	// SetExecutionContext と同様のロジックで状態を復元
+	return r.SetExecutionContext(ctx, ec)
+}
+
 // Read は ExecutionContext からアイテムを一つずつ読み込みます。
 func (r *ExecutionContextReader) Read(ctx context.Context) (any, error) {
 	select {
