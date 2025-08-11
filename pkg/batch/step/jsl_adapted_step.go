@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"math" // math パッケージを追加
+	"net"
 	"reflect"
 	"time"
 
@@ -283,8 +283,8 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
 		eofReached := false
 
-		// トランザクションを開始
-		tx, err := s.jobRepository.GetDB().BeginTx(ctx, nil)
+		// トランザクションを開始 (JobRepository から DBConnection を取得)
+		tx, err := s.jobRepository.GetDBConnection().BeginTx(ctx, nil) // ★ 変更
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
 			stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
@@ -503,7 +503,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
 				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts)
+				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name)
 			}
 		} else {
 			// この試行がエラーなく完了した場合

@@ -12,10 +12,10 @@ import (
 	"sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	repository "sample/pkg/batch/repository"
-	stepListener "sample/pkg/batch/step/listener"
-	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
-	itemreader "sample/pkg/batch/step/reader"       // Renamed import
-	itemwriter "sample/pkg/batch/step/writer"       // Renamed import
+	stepListener "sample/pkg/batch/step/listener" // そのまま
+	processor "sample/pkg/batch/step/processor" // エイリアスを processor に変更
+	reader "sample/pkg/batch/step/reader"       // エイリアスを reader に変更
+	writer "sample/pkg/batch/step/writer"       // エイリアスを writer に変更
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -24,9 +24,9 @@ import (
 // Reader, Processor, Writer を使用してアイテムを処理します。
 type ChunkStep struct { // ジェネリクス型を削除
 	name string
-	reader itemreader.ItemReader[any] // any に戻す
-	processor itemprocessor.ItemProcessor[any, any] // any に戻す
-	writer itemwriter.ItemWriter[any] // any に戻す
+	reader reader.ItemReader[any] // reader.ItemReader に変更
+	processor processor.ItemProcessor[any, any] // processor.ItemProcessor に変更
+	writer writer.ItemWriter[any] // writer.ItemWriter に変更
 	chunkSize int
 	jobRepository repository.JobRepository
 
@@ -46,9 +46,9 @@ type ChunkStep struct { // ジェネリクス型を削除
 // NewChunkStep は新しい ChunkStep のインスタンスを作成します。
 func NewChunkStep[I, O any]( // ジェネリクス型はコンストラクタの引数にのみ残す
 	name string,
-	r itemreader.ItemReader[I],
-	p itemprocessor.ItemProcessor[I, O],
-	w itemwriter.ItemWriter[O],
+	r reader.ItemReader[I], // reader.ItemReader に変更
+	p processor.ItemProcessor[I, O], // processor.ItemProcessor に変更
+	w writer.ItemWriter[O], // writer.ItemWriter に変更
 	chunkSize int,
 	repo repository.JobRepository,
 	stepLs []stepListener.StepExecutionListener,
@@ -62,9 +62,9 @@ func NewChunkStep[I, O any]( // ジェネリクス型はコンストラクタの
 ) *ChunkStep { // ジェネリクス型を削除
 	return &ChunkStep{ // ジェネリクス型を削除
 		name:                 name,
-		reader:               r.(itemreader.ItemReader[any]), // any にキャスト
-		processor:            p.(itemprocessor.ItemProcessor[any, any]), // any にキャスト
-		writer:               w.(itemwriter.ItemWriter[any]), // any にキャスト
+		reader:               r.(reader.ItemReader[any]), // reader.ItemReader にキャスト
+		processor:            p.(processor.ItemProcessor[any, any]), // processor.ItemProcessor にキャスト
+		writer:               w.(writer.ItemWriter[any]), // writer.ItemWriter にキャスト
 		chunkSize:            chunkSize,
 		jobRepository:        repo,
 		stepListeners:        stepLs,
@@ -182,8 +182,8 @@ ChunkLoop: // ラベルを追加
 			currentChunkProcessedItems := make([]any, 0, cs.chunkSize) // O を any に変更
 
 			var lastReadError error // チャンク内の最後の読み込みエラーを保持
-			// トランザクションの開始
-			tx, err := cs.jobRepository.GetDB().BeginTx(ctx, nil)
+			// トランザクションの開始 (JobRepository から DBConnection を取得)
+			tx, err := cs.jobRepository.GetDBConnection().BeginTx(ctx, nil) // ★ 変更
 			if err != nil {
 				stepExecution.MarkAsFailed(exception.NewBatchError("chunk_step", "トランザクションの開始に失敗しました", err, false, false)) // 引数の順序と型を修正
 				return err
@@ -394,7 +394,7 @@ ChunkLoop: // ラベルを追加
 	return nil
 }
 
-// Close はリソースを解放するためのメソッドです。
+// Close はリソースを解放します。
 func (cs *ChunkStep) Close(ctx context.Context) error { // ジェネリクス型を削除
 	var errs []error
 	if err := cs.reader.Close(ctx); err != nil {
@@ -477,5 +477,5 @@ func convertToInterfaceSlice(slice any) []interface{} { // T を any に変更
 	return result
 }
 
-// ChunkStep が core.Step インターフェースを満たすことを確認 (ジェネリクス型を削除)
-var _ core.Step = (*ChunkStep)(nil)
+// ChunkStep が core.Step インターフェースを満たすことを確認
+var _ core.Step = (*ChunkStep)(nil) // core.Step に変更

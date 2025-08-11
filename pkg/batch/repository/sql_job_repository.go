@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"sample/pkg/batch/database" // database パッケージをインポート
+
 	core "sample/pkg/batch/job/core"
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
@@ -14,18 +16,22 @@ import (
 
 // SQLJobRepository は JobRepository インターフェースの SQL データベース実装です。
 type SQLJobRepository struct {
-	db *sql.DB
+	db           *sql.DB
+	dbConnection database.DBConnection // DBConnection インターフェースを追加
 }
 
 // NewSQLJobRepository は新しい SQLJobRepository のインスタンスを作成します。
 // 既に確立されたデータベース接続を受け取ります。
 func NewSQLJobRepository(db *sql.DB) *SQLJobRepository {
-	return &SQLJobRepository{db: db}
+	return &SQLJobRepository{
+		db:           db,
+		dbConnection: database.NewSQLDBAdapter(db), // SQLDBAdapter でラップ
+	}
 }
 
-// GetDB はデータベース接続を返します。
-func (r *SQLJobRepository) GetDB() *sql.DB {
-	return r.db
+// GetDBConnection は JobRepository インターフェースの実装です。
+func (r *SQLJobRepository) GetDBConnection() database.DBConnection {
+	return r.dbConnection
 }
 
 // --- JobInstance 関連メソッドの実装 ---

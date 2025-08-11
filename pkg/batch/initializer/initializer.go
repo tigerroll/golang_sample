@@ -42,7 +42,7 @@ func applyMigrations(databaseURL string, migrationPath string, dbDriverName stri
 
 	var migrateURL string
 	switch dbDriverName {
-	case "postgres":
+	case "postgres", "redshift":
 		migrateURL = databaseURL // postgres://... の形式を想定。デフォルトの schema_migrations を使用。
 	case "mysql":
 		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定。デフォルトの schema_migrations を使用。
@@ -90,7 +90,7 @@ func NewBatchInitializer(cfg *config.Config) *BatchInitializer {
 
 // Initialize はバッチアプリケーションの初期化処理を実行します。
 // .env ファイルのロードは呼び出し元 (application.go) で行われるため、ここでは削除
-func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.JobLauncher, batch_joboperator.JobOperator, *factory.JobFactory, error) {
+func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.JobLauncher, batch_joboperator.JobOperator, error) { // ★ 変更: *factory.JobFactory を削除
 	logger.Debugf("BatchInitializer.Initialize が呼び出されました。")
 
 	// Step 1: 設定のロード (main.go から移動)
@@ -98,7 +98,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	bytesLoader := config.NewBytesConfigLoader(bi.Config.EmbeddedConfig)
 	cfg, err := bytesLoader.Load()
 	if err != nil {
-		return nil, nil, nil, exception.NewBatchError("initializer", "設定のロードに失敗しました", err, false, false)
+		return nil, nil, exception.NewBatchError("initializer", "設定のロードに失敗しました", err, false, false)
 	}
 	// ロードされた設定を BatchInitializer の Config に反映
 	bi.Config = cfg
@@ -110,7 +110,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	// Step 2: データベース接続とマイグレーション
 	dbDSN := bi.Config.Database.ConnectionString()
 	if dbDSN == "" {
-		return nil, nil, nil, exception.NewBatchErrorf("initializer", "データベース接続文字列の構築に失敗しました。")
+		return nil, nil, exception.NewBatchErrorf("initializer", "データベース接続文字列の構築に失敗しました。")
 	}
 
 	dbDriverName := ""
@@ -120,46 +120,36 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	case "mysql":
 		dbDriverName = "mysql"
 	default:
-		return nil, nil, nil, exception.NewBatchErrorf("initializer", "未対応のデータベースタイプです: %s", bi.Config.Database.Type)
+		return nil, nil, exception.NewBatchErrorf("initializer", "未対応のデータベースタイプです: %s", bi.Config.Database.Type)
 	}
-	
+
 	// バッチフレームワークのマイグレーションを実行
 	// pkg/batch/resources/migrations/batch_framework にあるマイグレーションを適用
 	frameworkMigrationPath := "pkg/batch/resources/migrations/batch_framework"
 	logger.Infof("DEBUG_LOG: Initializer version 20250810_1500. Attempting framework migration from %s", frameworkMigrationPath)
 	// repository.RunMigrations は内部で接続を管理するため、別途DB接続は不要
 	if err := repository.RunMigrations(dbDriverName, dbDSN, frameworkMigrationPath); err != nil {
-		return nil, nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
+		return nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
 
 	// アプリケーション固有のマイグレーションを実行 (設定されていれば)
 	if bi.Config.Database.AppMigrationPath != "" {
 		if err := applyMigrations(dbDSN, bi.Config.Database.AppMigrationPath, dbDriverName); err != nil {
-			return nil, nil, nil, exception.NewBatchError("initializer", "アプリケーションのマイグレーションに失敗しました", err, false, false)
+			return nil, nil, exception.NewBatchError("initializer", "アプリケーションのマイグレーションに失敗しました", err, false, false)
 		}
 	}
 
 	// Step 3: Job Repository の生成
 	jobRepository, err := repository.NewJobRepository(ctx, *bi.Config)
 	if err != nil {
-		return nil, nil, nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
+		return nil, nil, exception.NewBatchError("initializer", "Job Repository の生成に失敗しました", err, false, false)
 	}
 	bi.JobRepository = jobRepository
 	logger.Infof("Job Repository を生成しました。")
 
-	// JobRepository から基盤となる *sql.DB 接続を取得
-	sqlJobRepo, ok := jobRepository.(*repository.SQLJobRepository)
-	if !ok {
-		return nil, nil, nil, exception.NewBatchErrorf("initializer", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-	}
-	dbConnectionForComponents := sqlJobRepo.GetDB()
-	if dbConnectionForComponents == nil {
-		return nil, nil, nil, exception.NewBatchErrorf("initializer", "JobRepository からデータベース接続を取得できませんでした。")
-	}
-
 	// Step 4: JSL 定義のロード
 	if err := jsl.LoadJSLDefinitionFromBytes(bi.JSLDefinitionBytes); err != nil {
-		return nil, nil, nil, exception.NewBatchError("initializer", "JSL 定義のロードに失敗しました", err, false, false)
+		return nil, nil, exception.NewBatchError("initializer", "JSL 定義のロードに失敗しました", err, false, false)
 	}
 	logger.Infof("JSL 定義のロードが完了しました。ロードされたジョブ数: %d", jsl.GetLoadedJobCount())
 
@@ -178,7 +168,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	bi.JobLauncher = jobLauncher
 	logger.Infof("SimpleJobLauncher を生成しました。")
 
-	return bi.JobLauncher, bi.JobOperator, bi.JobFactory, nil
+	return bi.JobLauncher, bi.JobOperator, nil // ★ 変更: *factory.JobFactory を削除
 }
 
 // Close は BatchInitializer が保持するリソースを解放します。

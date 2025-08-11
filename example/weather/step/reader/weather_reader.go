@@ -2,7 +2,6 @@ package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
 	"context"
-	"database/sql" // sql パッケージをインポート
 	"encoding/json" // json パッケージをインポート
 	"fmt"
 	"io" // io パッケージをインポート
@@ -11,7 +10,8 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
+	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	reader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート (エイリアスを reader に変更)
 	logger "sample/pkg/batch/util/logger"
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
@@ -32,8 +32,8 @@ type WeatherReader struct {
 }
 
 // NewWeatherReader が ComponentBuilder のシグネチャに合わせるように修正
-func NewWeatherReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
-	_ = db // 未使用の引数を無視
+func NewWeatherReader(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*WeatherReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+	_ = repo // 未使用の引数を無視
 
 	weatherReaderCfg := &weather_config.WeatherReaderConfig{
 		APIEndpoint: cfg.Batch.APIEndpoint,
@@ -227,4 +227,4 @@ func (r *WeatherReader) GetExecutionContext(ctx context.Context) (core.Execution
 }
 
 // WeatherReader が Reader[*entity.OpenMeteoForecast] インターフェースを満たすことを確認
-var _ itemreader.ItemReader[any] = (*WeatherReader)(nil) // ItemReader[any] に変更
+var _ reader.ItemReader[any] = (*WeatherReader)(nil) // reader.ItemReader[any] に変更
