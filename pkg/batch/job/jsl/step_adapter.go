@@ -1,7 +1,6 @@
 package jsl
 
 import (
-	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"reflect"
 
@@ -9,11 +8,11 @@ import (
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	repository "sample/pkg/batch/repository"
-	step "sample/pkg/batch/step"
-	stepListener "sample/pkg/batch/step/listener"
-	itemprocessor "sample/pkg/batch/step/processor"
-	itemreader "sample/pkg/batch/step/reader"
-	itemwriter "sample/pkg/batch/step/writer"
+	step "sample/pkg/batch/step" // そのまま
+	stepListener "sample/pkg/batch/step/listener" // そのまま
+	processor "sample/pkg/batch/step/processor" // エイリアスを processor に変更
+	reader "sample/pkg/batch/step/reader"       // エイリアスを reader に変更
+	writer "sample/pkg/batch/step/writer"       // エイリアスを writer に変更
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
 	yaml "gopkg.in/yaml.v3"
@@ -23,21 +22,19 @@ import (
 // componentBuilders は、JSLで参照されるコンポーネント（Reader, Processor, Writer, Tasklet）のビルダを保持するマップです。
 // jobRepository は、ステップ内でリポジトリが必要な場合に使用されます。
 // cfg はアプリケーション全体のコンフィグです。
-// db はデータベース接続です。
 // listenerBuilders は、ステップレベルおよびアイテムレベルのリスナーを動的に構築するためのマップです。
 func ConvertJSLToCoreFlow(
 	jslFlow Flow,
 	componentBuilders map[string]component.ComponentBuilder, // ★ 変更: component.ComponentBuilder を参照
 	jobRepository repository.JobRepository,
 	cfg *config.Config,
-	db *sql.DB, // ★ 追加: db を追加
 	stepListenerBuilders map[string]any, // map[string]StepExecutionListenerBuilder
 	itemReadListenerBuilders map[string]any, // map[string]core.ItemReadListenerBuilder
 	itemProcessListenerBuilders map[string]any, // map[string]core.ItemProcessListenerBuilder
 	itemWriteListenerBuilders map[string]any, // map[string]core.ItemWriteListenerBuilder
 	skipListenerBuilders map[string]any, // map[string]stepListener.SkipListenerBuilder
 	retryItemListenerBuilders map[string]any, // map[string]stepListener.RetryItemListenerBuilder
-) (*core.FlowDefinition, error) {
+) (*core.FlowDefinition, error) { // ★ 変更: db *sql.DB を削除
 	module := "jsl_converter"
 	flowDef := core.NewFlowDefinition(jslFlow.StartElement)
 
@@ -78,11 +75,11 @@ func ConvertJSLToCoreFlow(
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "リーダー '%s' のビルダーが見つかりません", jslStep.Reader.Ref)
 				}
-				readerInstance, err := readerBuilder(cfg, db, jslStep.Reader.Properties) // properties を渡す
+				readerInstance, err := readerBuilder(cfg, jobRepository, jslStep.Reader.Properties)
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("リーダー '%s' のビルドに失敗しました", jslStep.Reader.Ref), err, false, false)
 				}
-				r, isReader := readerInstance.(itemreader.ItemReader[any])
+				r, isReader := readerInstance.(reader.ItemReader[any])
 				if !isReader {
 					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つからないか、不正な型です (期待: ItemReader[any], 実際: %s)", jslStep.Reader.Ref, reflect.TypeOf(readerInstance))
 				}
@@ -91,11 +88,11 @@ func ConvertJSLToCoreFlow(
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' のビルダーが見つかりません", jslStep.Processor.Ref)
 				}
-				processorInstance, err := processorBuilder(cfg, db, jslStep.Processor.Properties) // properties を渡す
+				processorInstance, err := processorBuilder(cfg, jobRepository, jslStep.Processor.Properties)
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("プロセッサ '%s' のビルドに失敗しました", jslStep.Processor.Ref), err, false, false)
 				}
-				p, isProcessor := processorInstance.(itemprocessor.ItemProcessor[any, any])
+				p, isProcessor := processorInstance.(processor.ItemProcessor[any, any])
 				if !isProcessor {
 					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つからないか、不正な型です (期待: ItemProcessor[any, any], 実際: %s)", jslStep.Processor.Ref, reflect.TypeOf(processorInstance))
 				}
@@ -104,11 +101,11 @@ func ConvertJSLToCoreFlow(
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "ライター '%s' のビルダーが見つかりません", jslStep.Writer.Ref)
 				}
-				writerInstance, err := writerBuilder(cfg, db, jslStep.Writer.Properties) // properties を渡す
+				writerInstance, err := writerBuilder(cfg, jobRepository, jslStep.Writer.Properties)
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("ライター '%s' のビルドに失敗しました", jslStep.Writer.Ref), err, false, false)
 				}
-				w, isWriter := writerInstance.(itemwriter.ItemWriter[any])
+				w, isWriter := writerInstance.(writer.ItemWriter[any])
 				if !isWriter {
 					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つからないか、不正な型です (期待: ItemWriter[any], 実際: %s)", jslStep.Writer.Ref, reflect.TypeOf(writerInstance))
 				}
@@ -242,7 +239,7 @@ func ConvertJSLToCoreFlow(
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' のビルダーが見つかりません", jslStep.Tasklet.Ref)
 				}
-				taskletInstance, err := taskletBuilder(cfg, db, jslStep.Tasklet.Properties) // ★ 変更: properties を渡す
+				taskletInstance, err := taskletBuilder(cfg, jobRepository, jslStep.Tasklet.Properties) // ★ 変更: properties を渡す
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("タスクレット '%s' のビルドに失敗しました", jslStep.Tasklet.Ref), err, false, false)
 				}

@@ -1,14 +1,14 @@
-package itemreader // パッケージ名を 'itemreader' に変更
+package reader // パッケージ名を 'reader' に変更
 
 import (
 	"context"
-	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"io" // io.EOF のためにインポート
 	"reflect"
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
+	repository "sample/pkg/batch/repository" // repository パッケージをインポート
 	logger "sample/pkg/batch/util/logger" // Keep logger
 )
 
@@ -27,11 +27,11 @@ type ExecutionContextReader struct {
 }
 
 // NewExecutionContextReader は新しい ExecutionContextReader のインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
 // properties から dataKey を設定します。
-func NewExecutionContextReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*ExecutionContextReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewExecutionContextReader(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*ExecutionContextReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg // 未使用の引数を無視
-	_ = db
+	_ = repo // 未使用の引数を無視
 
 	reader := &ExecutionContextReader{
 		dataKey:          "processed_weather_data", // デフォルトのキー
@@ -166,4 +166,4 @@ func (r *ExecutionContextReader) GetExecutionContext(ctx context.Context) (core.
 }
 
 // ExecutionContextReader が ItemReader[any] インターフェースを満たすことを確認
-var _ ItemReader[any] = (*ExecutionContextReader)(nil) // REMOVED: itemreader.ItemReader -> ItemReader
+var _ ItemReader[any] = (*ExecutionContextReader)(nil) // reader.ItemReader[any] から ItemReader[any] に変更

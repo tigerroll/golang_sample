@@ -2,11 +2,12 @@ package weatherwriter // パッケージ名を 'weatherwriter' に変更
 
 import (
 	"context"
-	"database/sql" // sql パッケージをインポート
+	"sample/pkg/batch/database" // database パッケージをインポート
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	itemwriter "sample/pkg/batch/step/writer" // Renamed import
+	repository "sample/pkg/batch/repository" // そのまま
+	writer "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート (エイリアスを writer に変更)
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -18,10 +19,10 @@ type DummyWriter struct { // 構造体名は変更しない
 }
 
 // NewDummyWriter は新しい DummyWriter のインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
-func NewDummyWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
+func NewDummyWriter(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg        // 未使用の引数を無視
-	_ = db
+	_ = repo       // 未使用の引数を無視
 	_ = properties
 	return &DummyWriter{
 		executionContext: core.NewExecutionContext(), // 初期化
@@ -42,7 +43,7 @@ func (w *DummyWriter) Open(ctx context.Context, ec core.ExecutionContext) error 
 
 // Write は ItemWriter インターフェースの実装です。
 // アイテムのスライスを受け取り、何も行わずに nil を返します。
-func (w *DummyWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // ★ シグネチャを []any に変更し、tx を追加
+func (w *DummyWriter) Write(ctx context.Context, tx database.Tx, items []any) error { // ★ シグネチャを []any に変更し、tx を database.Tx に変更
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -100,4 +101,4 @@ func (w *DummyWriter) GetExecutionContext(ctx context.Context) (core.ExecutionCo
 }
 
 // DummyWriter が ItemWriter[any] インターフェースを満たすことを確認
-var _ itemwriter.ItemWriter[any] = (*DummyWriter)(nil) // ここは itemwriter を参照
+var _ writer.ItemWriter[any] = (*DummyWriter)(nil) // writer.ItemWriter[any] に変更

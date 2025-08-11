@@ -2,13 +2,15 @@ package weatherwriter // パッケージ名を 'weatherwriter' に変更
 
 import (
 	"context"
-	"database/sql" // sql パッケージをインポート
+	_ "database/sql" // sql.Stmt のためにブランクインポート
 	"fmt"
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	logger "sample/pkg/batch/util/logger"
-	itemwriter "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート
+	logger "sample/pkg/batch/util/logger" // そのまま
+	writer "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート (エイリアスを writer に変更)
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
+	batchRepo "sample/pkg/batch/repository" // batchRepo をインポート
+	"sample/pkg/batch/database" // database パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
 	appRepo "sample/example/weather/repository" // repository パッケージをインポート (エイリアスを appRepo に変更)
@@ -22,17 +24,18 @@ type WeatherItemWriter struct {
 }
 
 // NewWeatherWriter は新しいWeatherItemWriterのインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
-// データベースリポジトリはここで生成します。
-func NewWeatherWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherItemWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
+// データベースリポジリはここで生成します。
+func NewWeatherWriter(cfg *config.Config, repo batchRepo.JobRepository, properties map[string]string) (*WeatherItemWriter, error) { // ★ 変更: シグネチャを component.ComponentBuilder に合わせる
 	_ = properties // 現時点では properties は使用しないが、シグネチャを合わせるために受け取る
 
 	var weatherSpecificRepo appRepo.WeatherRepository
+
 	switch cfg.Database.Type {
 	case "postgres", "redshift":
-		weatherSpecificRepo = appRepo.NewPostgresWeatherRepository(db)
+		weatherSpecificRepo = appRepo.NewPostgresWeatherRepository(repo) // ★ 変更: repo を渡す
 	case "mysql":
-		weatherSpecificRepo = appRepo.NewMySQLWeatherRepository(db)
+		weatherSpecificRepo = appRepo.NewMySQLWeatherRepository(repo) // ★ 変更: repo を渡す
 	default:
 		return nil, fmt.Errorf("未対応のデータベースタイプです: %s", cfg.Database.Type)
 	}
@@ -57,7 +60,7 @@ func (w *WeatherItemWriter) Open(ctx context.Context, ec core.ExecutionContext) 
 
 // Write は加工済みの天気データアイテムのチャンクをデータベースに保存します。
 // 引数を []weather_entity.WeatherDataToStore に変更し、トランザクションを受け取るように変更します。
-func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error {
+func (w *WeatherItemWriter) Write(ctx context.Context, tx database.Tx, items []any) error { // tx を database.Tx に変更
 	// Context の完了をチェック
 	select {
 	case <-ctx.Done():
@@ -97,7 +100,7 @@ func (w *WeatherItemWriter) Write(ctx context.Context, tx *sql.Tx, items []any) 
 	}
 
 	// BulkInsertWeatherData にトランザクションを渡す
-	err := w.repo.BulkInsertWeatherData(ctx, tx, finalDataToStore) // finalDataToStore を渡す
+	err := w.repo.BulkInsertWeatherData(ctx, tx, finalDataToStore) // tx を database.Tx に変更
 	if err != nil {
 		// バルク挿入失敗はリトライ可能、スキップ不可 (チャンク全体が対象のため)
 		return exception.NewBatchError("weather_writer", "天気データのバルク挿入に失敗しました", err, true, false)
@@ -143,4 +146,4 @@ func (w *WeatherItemWriter) GetExecutionContext(ctx context.Context) (core.Execu
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ itemwriter.ItemWriter[any] = (*WeatherItemWriter)(nil) // ItemWriter[any] に変更
+var _ writer.ItemWriter[any] = (*WeatherItemWriter)(nil) // writer.ItemWriter[any] に変更

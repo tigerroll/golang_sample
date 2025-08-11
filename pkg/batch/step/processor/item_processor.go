@@ -1,4 +1,4 @@
-package itemprocessor // パッケージ名を 'itemprocessor' に変更
+package processor // パッケージ名を 'processor' に変更
 
 import "context"
 import core "sample/pkg/batch/job/core" // core パッケージをインポート

@@ -1,4 +1,4 @@
-package itemreader // パッケージ名を 'itemreader' に変更
+package reader // パッケージ名を 'reader' に変更
 
 import "context"
 import core "sample/pkg/batch/job/core" // core パッケージをインポート

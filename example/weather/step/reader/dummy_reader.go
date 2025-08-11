@@ -2,12 +2,12 @@ package weatherreader // パッケージ名を 'weatherreader' に変更
 
 import (
 	"context"
-	"database/sql" // Add sql import for *sql.DB
 	"io"           // io パッケージをインポート
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	itemreader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート
+	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	reader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート (エイリアスを reader に変更)
 	logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
 )
 
@@ -19,10 +19,10 @@ type DummyReader struct { // 構造体名は変更しない
 }
 
 // NewDummyReader は新しい DummyReader のインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
-func NewDummyReader(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
+func NewDummyReader(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg        // 未使用の引数を無視
-	_ = db
+	_ = repo
 	_ = properties
 	return &DummyReader{
 		executionContext: core.NewExecutionContext(), // 初期化
@@ -95,4 +95,4 @@ func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionCo
 }
 
 // DummyReader が ItemReader[any] インターフェースを満たすことを確認
-var _ itemreader.ItemReader[any] = (*DummyReader)(nil) // ここは itemreader を参照
+var _ reader.ItemReader[any] = (*DummyReader)(nil) // reader.ItemReader[any] に変更

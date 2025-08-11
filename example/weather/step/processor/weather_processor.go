@@ -2,13 +2,13 @@ package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
 
 import (
 	"context"
-	"database/sql" // Add sql import for *sql.DB
 	"fmt"
 	"time"
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
+	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	processor "sample/pkg/batch/step/processor" // ItemProcessor インターフェースをインポート (エイリアスを processor に変更)
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
@@ -34,9 +34,9 @@ type WeatherProcessor struct {
 }
 
 // NewWeatherProcessor が ComponentBuilder のシグネチャに合わせるように修正
-func NewWeatherProcessor(cfg *config.Config, db *sql.DB, properties map[string]string) (*WeatherProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewWeatherProcessor(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*WeatherProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg        // 未使用の引数を無視
-	_ = db
+	_ = repo       // 未使用の引数を無視
 	_ = properties
 	return &WeatherProcessor{
 		// 初期化
@@ -117,4 +117,4 @@ func (p *WeatherProcessor) GetExecutionContext(ctx context.Context) (core.Execut
 }
 
 // WeatherProcessor が Processor[*entity.OpenMeteoForecast, []*entity.WeatherDataToStore] インターフェースを満たすことを確認
-var _ itemprocessor.ItemProcessor[any, any] = (*WeatherProcessor)(nil) // ItemProcessor[any, any] に変更
+var _ processor.ItemProcessor[any, any] = (*WeatherProcessor)(nil) // processor.ItemProcessor[any, any] に変更
