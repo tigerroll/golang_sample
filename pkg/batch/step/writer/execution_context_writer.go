@@ -1,12 +1,13 @@
-package itemwriter // パッケージ名を 'itemwriter' に変更
+package writer // パッケージ名を 'writer' に変更
 
 import (
 	"context"
-	"database/sql" // トランザクションを受け取るため
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
+	repository "sample/pkg/batch/repository" // repository パッケージをインポート
 	logger "sample/pkg/batch/util/logger"
+	"sample/pkg/batch/database" // database パッケージをインポート
 )
 
 // ExecutionContextWriter は、受け取ったアイテムを JobExecution.ExecutionContext に書き込む Writer です。
@@ -19,11 +20,11 @@ type ExecutionContextWriter struct {
 }
 
 // NewExecutionContextWriter は新しい ExecutionContextWriter のインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取ります。
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
 // properties から dataKey を設定します。
-func NewExecutionContextWriter(cfg *config.Config, db *sql.DB, properties map[string]string) (*ExecutionContextWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewExecutionContextWriter(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*ExecutionContextWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg // 未使用の引数を無視
-	_ = db
+	_ = repo // 未使用の引数を無視
 
 	writer := &ExecutionContextWriter{
 		dataKey:          "processed_weather_data", // デフォルトのキー。JSLで設定可能にするべき。
@@ -52,7 +53,7 @@ func (w *ExecutionContextWriter) Open(ctx context.Context, ec core.ExecutionCont
 
 // Write はアイテムのチャンクを JobExecution.ExecutionContext に保存します。
 // この Writer はデータベーストランザクションを直接使用しないため、tx は無視されます。
-func (w *ExecutionContextWriter) Write(ctx context.Context, tx *sql.Tx, items []any) error { // tx を追加
+func (w *ExecutionContextWriter) Write(ctx context.Context, tx database.Tx, items []any) error { // tx を database.Tx に変更
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

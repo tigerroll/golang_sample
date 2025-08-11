@@ -154,19 +154,6 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		return nil, exception.NewBatchErrorf("job_factory", "指定された Job '%s' のビルダーが登録されていません", jobName)
 	}
 
-	// 3. JobRepository から基盤となる *sql.DB 接続を取得
-	sqlJobRepo, ok := f.jobRepository.(*repository.SQLJobRepository)
-	if !ok {
-		return nil, exception.NewBatchErrorf("job_factory", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-	}
-	dbConnection := sqlJobRepo.GetDB()
-	if dbConnection == nil {
-		return nil, exception.NewBatchErrorf("job_factory", "JobRepository からデータベース接続を取得できませんでした。")
-	}
-
-	// コンポーネントの事前インスタンス化ループは削除します。
-	// コンポーネントのインスタンス化は jsl.ConvertJSLToCoreFlow 内で行われるようになります。
-
 	// 4. JSL Flow を core.FlowDefinition に変換
 	// jsl.ConvertJSLToCoreFlow に componentBuilders (map[string]component.ComponentBuilder) を渡す
 	// ConvertJSLToCoreFlow に渡すリスナービルダーマップ
@@ -201,7 +188,6 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		f.componentBuilders, // ここを componentBuilders に変更
 		f.jobRepository,
 		f.config, // Config 全体を渡す
-		dbConnection, // dbConnection を追加
 		stepListenerBuilders,
 		itemReadListenerBuilders,
 		itemProcessListenerBuilders,

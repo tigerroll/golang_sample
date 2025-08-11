@@ -2,13 +2,13 @@ package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
 
 import (
 	"context"
-	"database/sql" // Add sql import for *sql.DB
 	"fmt"          // Add fmt for Sprintf
 	"time"
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	itemprocessor "sample/pkg/batch/step/processor" // Renamed import
+	repository "sample/pkg/batch/repository" // そのまま
+	processor "sample/pkg/batch/step/processor" // ItemProcessor インターフェースをインポート (エイリアスを processor に変更)
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -20,10 +20,10 @@ type DummyProcessor struct{
 }
 
 // NewDummyProcessor は新しい DummyProcessor のインスタンスを作成します。
-// ComponentBuilder のシグネチャに合わせ、cfg, db, properties を受け取りますが、現時点では利用しません。
-func NewDummyProcessor(cfg *config.Config, db *sql.DB, properties map[string]string) (*DummyProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+// ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
+func NewDummyProcessor(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
 	_ = cfg        // 未使用の引数を無視
-	_ = db
+	_ = repo       // 未使用の引数を無視
 	_ = properties
 	return &DummyProcessor{
 		executionContext: core.NewExecutionContext(), // ★ 追加: 初期化
@@ -71,4 +71,4 @@ func (p *DummyProcessor) GetExecutionContext(ctx context.Context) (core.Executio
 }
 
 // DummyProcessor が ItemProcessor[any, any] インターフェースを満たすことを確認
-var _ itemprocessor.ItemProcessor[any, any] = (*DummyProcessor)(nil) // ここは itemprocessor を参照
+var _ processor.ItemProcessor[any, any] = (*DummyProcessor)(nil) // processor.ItemProcessor[any, any] に変更

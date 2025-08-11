@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	config "sample/pkg/batch/config"
@@ -25,51 +24,51 @@ import (
 	weatherwriter "sample/example/weather/step/writer"       // パッケージ名を変更
 
 	// pkg/batch に残る汎用コンポーネントのインポート
-	executionContextItemReader "sample/pkg/batch/step/reader" // Renamed import
-	executionContextItemWriter "sample/pkg/batch/step/writer" // Renamed import
+	executionContextReader "sample/pkg/batch/step/reader" // エイリアスを executionContextReader に変更
+	executionContextWriter "sample/pkg/batch/step/writer" // エイリアスを executionContextWriter に変更
 	steplistener "sample/pkg/batch/step/listener" // stepListener をインポート
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
-func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.Config, db *sql.DB) {
+func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.Config, jobRepo repository.JobRepository) { // ★ 変更: db を jobRepo に変更
 	// Weather 関連コンポーネントの登録
-	jobFactory.RegisterComponentBuilder("weatherItemReader", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("weatherItemReader", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewWeatherReader のシグネチャ変更に合わせて引数を渡す
-		return weatherreader.NewWeatherReader(cfg, db, properties) // ★ 変更
+		return weatherreader.NewWeatherReader(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("weatherItemProcessor", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("weatherItemProcessor", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewWeatherProcessor のシグネチャ変更に合わせて引数を渡す
-		return weatherprocessor.NewWeatherProcessor(cfg, db, properties) // ★ 変更
+		return weatherprocessor.NewWeatherProcessor(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("weatherItemWriter", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("weatherItemWriter", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewWeatherWriter のシグネチャ変更に合わせて引数を渡す
-		return weatherwriter.NewWeatherWriter(cfg, db, properties) // ★ 変更
+		return weatherwriter.NewWeatherWriter(cfg, repo, properties) // ★ 変更
 	})
 
 	// ダミーコンポーネントの登録
-	jobFactory.RegisterComponentBuilder("dummyItemReader", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("dummyItemReader", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewDummyReader のシグネチャ変更に合わせて引数を渡す
-		return weatherreader.NewDummyReader(cfg, db, properties) // ★ 変更
+		return weatherreader.NewDummyReader(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("dummyItemProcessor", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("dummyItemProcessor", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewDummyProcessor のシグネチャ変更に合わせて引数を渡す
-		return weatherprocessor.NewDummyProcessor(cfg, db, properties) // ★ 変更
+		return weatherprocessor.NewDummyProcessor(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("dummyItemWriter", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("dummyItemWriter", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewDummyWriter のシグネチャ変更に合わせて引数を渡す
-		return weatherwriter.NewDummyWriter(cfg, db, properties) // ★ 変更
+		return weatherwriter.NewDummyWriter(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("executionContextItemReader", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("executionContextItemReader", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewExecutionContextReader のシグネチャ変更に合わせて引数を渡す
-		return executionContextItemReader.NewExecutionContextReader(cfg, db, properties) // ★ 変更
+		return executionContextReader.NewExecutionContextReader(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("executionContextItemWriter", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) { // Renamed component name
+	jobFactory.RegisterComponentBuilder("executionContextItemWriter", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewExecutionContextWriter のシグネチャ変更に合わせて引数を渡す
-		return executionContextItemWriter.NewExecutionContextWriter(cfg, db, properties) // ★ 変更
+		return executionContextWriter.NewExecutionContextWriter(cfg, repo, properties) // ★ 変更
 	})
-	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, db *sql.DB, properties map[string]string) (any, error) {
+	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (any, error) { // ★ 変更: db を repo に変更
 		// NewDummyTasklet のシグネチャ変更に合わせて引数を渡す
-		return appTasklet.NewDummyTasklet(cfg, db, properties) // ★ 変更
+		return appTasklet.NewDummyTasklet(cfg, repo, properties) // ★ 変更
 	})
 
 	// Step-level listeners の登録
@@ -119,7 +118,7 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 }
 
 // setupApplication はアプリケーションの初期化処理を実行し、必要なコンポーネントを返します。
-func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, joblauncher.JobLauncher, joboperator.JobOperator, *factory.JobFactory, error) { // ★ 戻り値の型と順序を変更
+func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, joblauncher.JobLauncher, joboperator.JobOperator, error) { // ★ 戻り値の型と順序を変更 (JobFactory を削除)
 	// .env ファイルのロード
 	if envFilePath != "" {
 		if err := godotenv.Load(envFilePath); err != nil {
@@ -139,25 +138,21 @@ func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, e
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	jobLauncher, jobOperator, jobFactory, initErr := batchInitializer.Initialize(ctx) // ★ 戻り値の順序と型を変更
+	jobLauncher, jobOperator, initErr := batchInitializer.Initialize(ctx) // ★ 戻り値の順序と型を変更 (JobFactory を削除)
 	if initErr != nil {
-		return nil, nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
+		return nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
 	}
 	logger.Infof("バッチアプリケーションの初期化が完了しました。")
 
 	// JobFactory からデータベース接続を取得し、アプリケーションコンポーネントの登録に渡す
-	sqlJobRepo, ok := batchInitializer.JobRepository.(*repository.SQLJobRepository)
-	if !ok {
-		return nil, nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository の実装が予期された型ではありません。*sql.DB 接続を取得できません。")
-	}
-	dbConnection := sqlJobRepo.GetDB()
-	if dbConnection == nil {
-		return nil, nil, nil, nil, exception.NewBatchErrorf("app", "JobRepository からデータベース接続を取得できませんでした。")
+	// JobFactory は BatchInitializer のフィールドとして保持されるため、直接アクセス
+	if batchInitializer.JobFactory == nil {
+		return nil, nil, nil, exception.NewBatchErrorf("app", "JobFactory が初期化されていません。")
 	}
 
-	registerApplicationComponents(jobFactory, batchInitializer.Config, dbConnection)
+	registerApplicationComponents(batchInitializer.JobFactory, batchInitializer.Config, batchInitializer.JobRepository) // ★ 変更: dbConnection の代わりに batchInitializer.JobRepository を渡す
 
-	return batchInitializer, jobLauncher, jobOperator, jobFactory, nil // ★ 戻り値の順序と型を変更
+	return batchInitializer, jobLauncher, jobOperator, nil // ★ 戻り値の順序と型を変更 (JobFactory を削除)
 }
 
 // executeJob は指定されたジョブを実行し、その結果に基づいて終了コードを返します。
@@ -203,8 +198,8 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	batchInitializer, jobLauncher, _, _, _ := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL) // ★ 戻り値の順序と型を変更
-	if batchInitializer == nil { // setupApplication がエラーを返した場合のチェック
+	batchInitializer, jobLauncher, _, initErr := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL) // ★ 戻り値の順序と型を変更 (JobFactory を削除)
+	if initErr != nil { // setupApplication がエラーを返した場合のチェック
 		return 1
 	}
 
