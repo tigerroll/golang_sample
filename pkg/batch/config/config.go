@@ -1,3 +1,4 @@
+// pkg/batch/config/config.go
 package config
 
 import (
@@ -24,6 +25,10 @@ type DatabaseConfig struct {
 	TableID   string `yaml:"table_id"`
 	// ★ 追加: アプリケーション固有のマイグレーションファイルのパス
 	AppMigrationPath string `yaml:"app_migration_path"`
+	// ★ 追加: 接続プール設定
+	MaxOpenConns         int `yaml:"max_open_conns"`
+	MaxIdleConns         int `yaml:"max_idle_conns"`
+	ConnMaxLifetimeMinutes int `yaml:"conn_max_lifetime_minutes"`
 }
 
 func (c DatabaseConfig) ConnectionString() string {
@@ -110,6 +115,11 @@ func NewConfig() *Config {
 				SkipLimit: 0, // デフォルトはスキップなし
 				SkippableExceptions: []string{}, // デフォルトは空
 			},
+		},
+		Database: DatabaseConfig{ // ★ 追加: DatabaseConfig のデフォルト値を設定
+			MaxOpenConns:         10, // デフォルト値
+			MaxIdleConns:         5,  // デフォルト値
+			ConnMaxLifetimeMinutes: 5,  // デフォルト値
 		},
 	}
 }

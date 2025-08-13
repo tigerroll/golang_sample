@@ -9,6 +9,10 @@ database:
   # ★ 追加: アプリケーション固有のマイグレーションパス
   # 例: weather アプリケーションのマイグレーションファイルが 'example/weather/resources/migrations' にある場合
   app_migration_path: "example/weather/resources/migrations"
+  # ★ 追加: 接続プール設定
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 5
 
 batch:
   polling_interval_seconds: 3600
