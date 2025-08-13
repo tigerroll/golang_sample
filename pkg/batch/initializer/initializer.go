@@ -17,7 +17,8 @@ import (
 	factory "sample/pkg/batch/job/factory"
 	jsl "sample/pkg/batch/job/jsl"
 	batch_joboperator "sample/pkg/batch/job/joboperator"
-	repository "sample/pkg/batch/repository"
+	batch_database "sample/pkg/batch/database" // database パッケージをインポート
+	repository "sample/pkg/batch/repository" // ★ この行が重要です。repository パッケージを再度インポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -128,7 +129,7 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	frameworkMigrationPath := "pkg/batch/resources/migrations/batch_framework"
 	logger.Infof("DEBUG_LOG: Initializer version 20250810_1500. Attempting framework migration from %s", frameworkMigrationPath)
 	// repository.RunMigrations は内部で接続を管理するため、別途DB接続は不要
-	if err := repository.RunMigrations(dbDriverName, dbDSN, frameworkMigrationPath); err != nil {
+	if err := batch_database.RunMigrations(dbDriverName, dbDSN, frameworkMigrationPath); err != nil { // database.RunMigrations に変更
 		return nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
 

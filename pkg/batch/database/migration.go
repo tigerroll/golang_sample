@@ -1,4 +1,4 @@
-package repository
+package database // パッケージ名を database に変更
 
 import (
 	"fmt"
