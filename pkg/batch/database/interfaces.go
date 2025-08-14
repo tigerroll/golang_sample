@@ -22,7 +22,10 @@ type DBConnection interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (Tx, error)
 	Close() error
 	PingContext(ctx context.Context) error
-	// 必要に応じて他のメソッドを追加
+	// 追加: 直接的なクエリ実行メソッド
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // sqlTxAdapter は sql.Tx を database.Tx インターフェースに適合させるアダプターです。
@@ -87,4 +90,19 @@ func (a *sqlDBAdapter) Close() error {
 // PingContext は sql.DB の PingContext メソッドを呼び出します。
 func (a *sqlDBAdapter) PingContext(ctx context.Context) error {
 	return a.db.PingContext(ctx)
+}
+
+// ExecContext は sql.DB の ExecContext メソッドを呼び出します。
+func (a *sqlDBAdapter) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return a.db.ExecContext(ctx, query, args...)
+}
+
+// QueryContext は sql.DB の QueryContext メソッドを呼び出します。
+func (a *sqlDBAdapter) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return a.db.QueryContext(ctx, query, args...)
+}
+
+// QueryRowContext は sql.DB の QueryRowContext メソッドを呼び出します。
+func (a *sqlDBAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return a.db.QueryRowContext(ctx, query)
 }
