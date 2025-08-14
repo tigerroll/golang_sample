@@ -1,9 +1,6 @@
 package repository
 
 import (
-	"context"
-	"fmt"
-
 	"sample/pkg/batch/database"
 	// core "sample/pkg/batch/job/core" // No longer directly used for types, but keep if needed for other reasons
 	exception "sample/pkg/batch/util/exception"
