@@ -3,6 +3,9 @@ package database
 import (
 	"context"
 	"database/sql"
+
+	"sample/pkg/batch/config"
+	"sample/pkg/batch/database/connector" // 新しく追加
 )
 
 // Tx はデータベーストランザクションのインターフェースです。
@@ -22,7 +25,10 @@ type DBConnection interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (Tx, error)
 	Close() error
 	PingContext(ctx context.Context) error
-	// 必要に応じて他のメソッドを追加
+	// 追加: 直接的なクエリ実行メソッド
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // sqlTxAdapter は sql.Tx を database.Tx インターフェースに適合させるアダプターです。
@@ -57,7 +63,7 @@ func (a *sqlTxAdapter) QueryContext(ctx context.Context, query string, args ...a
 
 // QueryRowContext は sql.Tx の QueryRowContext メソッドを呼び出します。
 func (a *sqlTxAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return a.Tx.QueryRowContext(ctx, query)
+	return a.Tx.QueryRowContext(ctx, query, args...) // 修正: args を渡す
 }
 
 // sqlDBAdapter は sql.DB を database.DBConnection インターフェースに適合させるアダプターです。
@@ -87,4 +93,30 @@ func (a *sqlDBAdapter) Close() error {
 // PingContext は sql.DB の PingContext メソッドを呼び出します。
 func (a *sqlDBAdapter) PingContext(ctx context.Context) error {
 	return a.db.PingContext(ctx)
+}
+
+// ExecContext は sql.DB の ExecContext メソッドを呼び出します。
+func (a *sqlDBAdapter) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return a.db.ExecContext(ctx, query, args...)
+}
+
+// QueryContext は sql.DB の QueryContext メソッドを呼び出します。
+func (a *sqlDBAdapter) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return a.db.QueryContext(ctx, query, args...)
+}
+
+// QueryRowContext は sql.DB の QueryRowContext メソッドを呼び出します。
+func (a *sqlDBAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return a.db.QueryRowContext(ctx, query, args...) // 修正: args を渡す
+}
+
+// NewDBConnectionFromConfig は設定に基づいて適切なデータベース接続を確立します。
+// 登録されたコネクタの中から適切なものを選択して接続します。
+func NewDBConnectionFromConfig(cfg config.DatabaseConfig) (DBConnection, error) { // ★ 変更: 戻り値を DBConnection に
+	rawDB, err := connector.GetSQLDB(cfg) // connector パッケージの GetSQLDB を呼び出す
+	if err != nil {
+		return nil, err
+	}
+	// 取得した *sql.DB を DBConnection インターフェースに適合させる
+	return NewSQLDBAdapter(rawDB), nil // ★ 追加: アダプターでラップして返す
 }

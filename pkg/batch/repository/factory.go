@@ -2,10 +2,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"sample/pkg/batch/config"
+	"sample/pkg/batch/database" // database パッケージをインポート
 	"sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 
@@ -21,25 +21,23 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 	logger.Debugf("JobRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 
 	// ここでデータベース接続を確立します。
-	// 既存の DatabaseConfig と ConnectionString() メソッドを利用します。
-	db, err := sql.Open(cfg.Database.Type, cfg.Database.ConnectionString()) // ドライバ名は config.Database.Type をそのまま使用
+	// database.NewDBConnectionFromConfig は DBConnection インターフェースを返します。
+	dbConn, err := database.NewDBConnectionFromConfig(cfg.Database) // ★ 変更: dbConn を直接受け取る
 	if err != nil {
 		logger.Errorf("JobRepository 用のデータベース接続確立に失敗しました (Type: %s): %v", cfg.Database.Type, err)
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベース接続確立に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
 
 	// データベースへの疎通確認 (Ping)
-	if err = db.PingContext(ctx); err != nil {
-		db.Close() // Ping に失敗したら接続を閉じる
+	if err = dbConn.PingContext(ctx); err != nil { // ★ 変更: dbConn を使用
+		dbConn.Close() // Ping に失敗したら接続を閉じる
 		logger.Errorf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s): %v", cfg.Database.Type, err)
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベースへの Ping に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)
 	}
 
-	// Simplification: 一旦 SQLJobRepository を返す前提で進めます。
-	// 実際のプロダクションコードでは、データベースタイプごとに異なる JobRepository 実装を用意し、
-	// ここで適切な実装を選択する必要があります。
-	logger.Debugf("SQLJobRepository を生成しました。")
-	return NewSQLJobRepository(db), nil
+	// SQLJobRepository に DBConnection インターフェースを渡す
+	logger.Debugf("SQLJobRepository を生成しました。") // ログメッセージはそのまま
+	return NewSQLJobRepository(dbConn), nil // ★ 変更: dbConn を渡す
 }
 
 // TODO: Job Repository が使用するデータベース接続を閉じるための関数や、

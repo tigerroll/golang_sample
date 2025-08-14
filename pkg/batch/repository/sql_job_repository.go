@@ -16,16 +16,14 @@ import (
 
 // SQLJobRepository は JobRepository インターフェースの SQL データベース実装です。
 type SQLJobRepository struct {
-	db           *sql.DB
 	dbConnection database.DBConnection // DBConnection インターフェースを追加
 }
 
 // NewSQLJobRepository は新しい SQLJobRepository のインスタンスを作成します。
-// 既に確立されたデータベース接続を受け取ります。
-func NewSQLJobRepository(db *sql.DB) *SQLJobRepository {
+// 既に確立されたデータベース接続の抽象化を受け取ります。
+func NewSQLJobRepository(dbConn database.DBConnection) *SQLJobRepository { // ★ 変更: dbConn を受け取る
 	return &SQLJobRepository{
-		db:           db,
-		dbConnection: database.NewSQLDBAdapter(db), // SQLDBAdapter でラップ
+		dbConnection: dbConn, // ★ 変更: 受け取った dbConn を直接使用
 	}
 }
 
@@ -47,11 +45,11 @@ func (r *SQLJobRepository) SaveJobInstance(ctx context.Context, jobInstance *cor
 
 	// job_instances テーブルに保存することを想定
 	// テーブル構造例: id UUID PRIMARY KEY, job_name VARCHAR(255), job_parameters JSONB, create_time TIMESTAMP, version INTEGER
-	query := `
+	query := ` 
     INSERT INTO job_instances (id, job_name, job_parameters, create_time, version)
     VALUES ($1, $2, $3, $4, $5);
   `
-	_, err = r.db.ExecContext(
+	_, err = r.dbConnection.ExecContext( // ★ 変更: r.db -> r.dbConnection
 		ctx,
 		query,
 		jobInstance.ID,
@@ -86,9 +84,9 @@ func (r *SQLJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Con
     SELECT id, job_name, job_parameters, create_time, version
     FROM job_instances
     WHERE job_name = $1 AND job_parameters @> $2; -- PostgreSQL の JSONB 演算子 @> を使用する例
-    -- MySQL の場合: WHERE job_name = ? AND JSON_CONTAINS(job_parameters, ?)
+    -- MySQL の場合: WHERE job_name = ? AND JSON_CONTAINS(job_parameters, ?) 
     `
-	row := r.db.QueryRowContext(ctx, query, jobName, paramsJSON)
+	row := r.dbConnection.QueryRowContext(ctx, query, jobName, paramsJSON) // ★ 変更: r.db -> r.dbConnection
 
 	jobInstance := &core.JobInstance{}
 	var paramsJSONFromDB sql.NullString
@@ -132,8 +130,8 @@ func (r *SQLJobRepository) FindJobInstanceByID(ctx context.Context, instanceID s
     SELECT id, job_name, job_parameters, create_time, version
     FROM job_instances
     WHERE id = $1;
-  `
-	row := r.db.QueryRowContext(ctx, query, instanceID)
+  ` 
+	row := r.dbConnection.QueryRowContext(ctx, query, instanceID) // ★ 変更: r.db -> r.dbConnection
 
 	jobInstance := &core.JobInstance{}
 	var paramsJSONFromDB sql.NullString
@@ -174,7 +172,7 @@ func (r *SQLJobRepository) GetJobInstanceCount(ctx context.Context, jobName stri
     SELECT COUNT(*) FROM job_instances WHERE job_name = $1;
   `
 	var count int
-	err := r.db.QueryRowContext(ctx, query, jobName).Scan(&count)
+	err := r.dbConnection.QueryRowContext(ctx, query, jobName).Scan(&count) // ★ 変更: r.db -> r.dbConnection
 	if err != nil {
 		return 0, exception.NewBatchError("job_repository", fmt.Sprintf("ジョブ '%s' の JobInstance 数取得に失敗しました", jobName), err, false, false)
 	}
@@ -186,7 +184,7 @@ func (r *SQLJobRepository) GetJobNames(ctx context.Context) ([]string, error) {
 	query := `
     SELECT DISTINCT job_name FROM job_instances ORDER BY job_name;
   `
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.dbConnection.QueryContext(ctx, query) // ★ 変更: r.db -> r.dbConnection
 	if err != nil {
 		return nil, exception.NewBatchError("job_repository", "ジョブ名の取得に失敗しました", err, false, false)
 	}
@@ -243,7 +241,7 @@ func (r *SQLJobRepository) SaveJobExecution(ctx context.Context, jobExecution *c
     INSERT INTO job_executions (id, job_instance_id, job_name, start_time, end_time, status, exit_status, exit_code, create_time, last_updated, version, job_parameters, failure_exceptions, execution_context, current_step_name)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
   `
-	_, err = r.db.ExecContext(
+	_, err = r.dbConnection.ExecContext( // ★ 変更: r.db -> r.dbConnection
 		ctx,
 		query,
 		jobExecution.ID,
@@ -297,8 +295,8 @@ func (r *SQLJobRepository) UpdateJobExecution(ctx context.Context, jobExecution 
     UPDATE job_executions
     SET end_time = $1, status = $2, exit_status = $3, exit_code = $4, last_updated = $5, version = $6, job_parameters = $7, failure_exceptions = $8, execution_context = $9, current_step_name = $10
     WHERE id = $11; -- TODO: バージョンによる楽観的ロックを追加することも検討 (WHERE id = $11 AND version = $12)
-  `
-	res, err := r.db.ExecContext(
+  ` 
+	res, err := r.dbConnection.ExecContext( // ★ 変更: r.db -> r.dbConnection
 		ctx,
 		query,
 		sql.NullTime{Time: jobExecution.EndTime, Valid: !jobExecution.EndTime.IsZero()}, // NULLable 対応
@@ -338,8 +336,8 @@ func (r *SQLJobRepository) FindJobExecutionByID(ctx context.Context, executionID
     SELECT id, job_instance_id, job_name, start_time, end_time, status, exit_status, exit_code, create_time, last_updated, version, job_parameters, failure_exceptions, execution_context, current_step_name
     FROM job_executions
     WHERE id = $1;
-  `
-	row := r.db.QueryRowContext(ctx, query, executionID)
+  ` 
+	row := r.dbConnection.QueryRowContext(ctx, query, executionID) // ★ 変更: r.db -> r.dbConnection
 
 	jobExecution := &core.JobExecution{}
 	var endTime sql.NullTime
@@ -455,7 +453,7 @@ func (r *SQLJobRepository) FindLatestJobExecution(ctx context.Context, jobInstan
     ORDER BY create_time DESC
     LIMIT 1;
   `
-	row := r.db.QueryRowContext(ctx, query, jobInstanceID)
+	row := r.dbConnection.QueryRowContext(ctx, query, jobInstanceID) // ★ 変更: r.db -> r.dbConnection
 
 	jobExecution := &core.JobExecution{}
 	var endTime sql.NullTime
@@ -565,7 +563,7 @@ func (r *SQLJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, j
     WHERE job_instance_id = $1
     ORDER BY create_time ASC; -- 実行順に並べる
   `
-	rows, err := r.db.QueryContext(ctx, query, jobInstance.ID)
+	rows, err := r.dbConnection.QueryContext(ctx, query, jobInstance.ID) // ★ 変更: r.db -> r.dbConnection
 	if err != nil {
 		return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) に関連する JobExecution の取得に失敗しました", jobInstance.ID), err, false, false)
 	}
@@ -709,7 +707,7 @@ func (r *SQLJobRepository) SaveStepExecution(ctx context.Context, stepExecution 
 		return exception.NewBatchError("job_repository", "StepExecution が JobExecution に紐づいていません", nil, false, false)
 	}
 
-	_, err = r.db.ExecContext(
+	_, err = r.dbConnection.ExecContext( // ★ 変更: r.db -> r.dbConnection
 		ctx,
 		query,
 		stepExecution.ID,
@@ -756,8 +754,8 @@ func (r *SQLJobRepository) UpdateStepExecution(ctx context.Context, stepExecutio
     UPDATE step_executions
     SET end_time = $1, status = $2, exit_status = $3, read_count = $4, write_count = $5, commit_count = $6, rollback_count = $7, failure_exceptions = $8, execution_context = $9, last_updated = $10
     WHERE id = $11;
-  `
-	res, err := r.db.ExecContext(
+  ` 
+	res, err := r.dbConnection.ExecContext( // ★ 変更: r.db -> r.dbConnection
 		ctx,
 		query,
 		sql.NullTime{Time: stepExecution.EndTime, Valid: !stepExecution.EndTime.IsZero()}, // NULLable 対応
@@ -795,8 +793,8 @@ func (r *SQLJobRepository) FindStepExecutionByID(ctx context.Context, executionI
     SELECT id, job_execution_id, step_name, start_time, end_time, status, exit_status, read_count, write_count, commit_count, rollback_count, failure_exceptions, execution_context
     FROM step_executions
     WHERE id = $1;
-  `
-	row := r.db.QueryRowContext(ctx, query, executionID)
+  ` 
+	row := r.dbConnection.QueryRowContext(ctx, query, executionID) // ★ 変更: r.db -> r.dbConnection
 
 	stepExecution := &core.StepExecution{}
 	var jobExecutionID string // 所属する JobExecution ID を取得用
@@ -884,8 +882,8 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
     FROM step_executions
     WHERE job_execution_id = $1
     ORDER BY start_time ASC; -- ステップ実行順に並べる
-  `
-	rows, err := r.db.QueryContext(ctx, query, jobExecutionID)
+  ` 
+	rows, err := r.dbConnection.QueryContext(ctx, query, jobExecutionID) // ★ 変更: r.db -> r.dbConnection
 	if err != nil {
 		return nil, exception.NewBatchError("job_repository", fmt.Sprintf("JobExecution (ID: %s) に関連する StepExecution の取得に失敗しました", jobExecutionID), err, false, false)
 	}
@@ -984,8 +982,8 @@ func (r *SQLJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Contex
 
 // Close はデータベース接続を閉じます。
 func (r *SQLJobRepository) Close() error {
-	if r.db != nil {
-		err := r.db.Close()
+	if r.dbConnection != nil { // ★ 変更: r.db -> r.dbConnection
+		err := r.dbConnection.Close() // ★ 変更: r.db -> r.dbConnection
 		if err != nil {
 			return exception.NewBatchError("job_repository", "データベース接続を閉じるのに失敗しました", err, false, false)
 		}
