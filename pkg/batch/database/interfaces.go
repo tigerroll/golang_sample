@@ -60,7 +60,7 @@ func (a *sqlTxAdapter) QueryContext(ctx context.Context, query string, args ...a
 
 // QueryRowContext は sql.Tx の QueryRowContext メソッドを呼び出します。
 func (a *sqlTxAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return a.Tx.QueryRowContext(ctx, query)
+	return a.Tx.QueryRowContext(ctx, query, args...) // 修正: args を渡す
 }
 
 // sqlDBAdapter は sql.DB を database.DBConnection インターフェースに適合させるアダプターです。
@@ -104,5 +104,5 @@ func (a *sqlDBAdapter) QueryContext(ctx context.Context, query string, args ...a
 
 // QueryRowContext は sql.DB の QueryRowContext メソッドを呼び出します。
 func (a *sqlDBAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return a.db.QueryRowContext(ctx, query)
+	return a.db.QueryRowContext(ctx, query, args...) // 修正: args を渡す
 }
