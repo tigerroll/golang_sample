@@ -1,10 +1,7 @@
 package repository
 
 import (
-	"context"
 	"sample/pkg/batch/database" // database パッケージをインポート
-
-	core "sample/pkg/batch/job/core" // core パッケージをインポート
 )
 
 // JobRepository はバッチ実行に関するメタデータを永続化・管理するためのインターフェースです。
