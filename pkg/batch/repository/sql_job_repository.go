@@ -17,6 +17,11 @@ import (
 // SQLJobRepository は JobRepository インターフェースの SQL データベース実装です。
 type SQLJobRepository struct {
 	dbConnection database.DBConnection // DBConnection インターフェースを追加
+
+	// より粒度の細かいインターフェースを埋め込む (JobInstance, JobExecution, StepExecution はこのパッケージ内で定義されたインターフェース名)
+	JobInstance
+	JobExecution
+	StepExecution
 }
 
 // NewSQLJobRepository は新しい SQLJobRepository のインスタンスを作成します。
