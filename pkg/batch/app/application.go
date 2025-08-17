@@ -6,27 +6,25 @@ import (
 
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
-	joblistener "sample/pkg/batch/job/listener" // エイリアスを joblistener に変更
+	joblistener "sample/pkg/batch/job/listener"
 	joboperator "sample/pkg/batch/job/joboperator"
 	initializer "sample/pkg/batch/initializer"
-	joblauncher "sample/pkg/batch/job/joblauncher" // joblauncher パッケージをインポート
-	job "sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
+	joblauncher "sample/pkg/batch/job/joblauncher"
+	job "sample/pkg/batch/repository/job"
 	exception "sample/pkg/batch/util/exception"
-	godotenv "github.com/joho/godotenv" // godotenv をインポート
+	godotenv "github.com/joho/godotenv"
 	logger "sample/pkg/batch/util/logger"
 	core "sample/pkg/batch/job/core"
 
 	// weather 関連のパッケージをインポート
 	appJob "sample/example/weather/job"
-	appTasklet "sample/example/weather/step/tasklet" // 新しい tasklet パッケージをインポート
-	weatherprocessor "sample/example/weather/step/processor" // パッケージ名を変更
-	weatherreader "sample/example/weather/step/reader"       // パッケージ名を変更
-	weatherwriter "sample/example/weather/step/writer"       // パッケージ名を変更
+	appTasklet "sample/example/weather/step/tasklet"
+	weatherprocessor "sample/example/weather/step/processor"
+	weatherreader "sample/example/weather/step/reader"
+	weatherwriter "sample/example/weather/step/writer"
 
 	// pkg/batch に残る汎用コンポーネントのインポート
-	executionContextReader "sample/pkg/batch/step/reader" // エイリアスを executionContextReader に変更
-	executionContextWriter "sample/pkg/batch/step/writer" // エイリアスを executionContextWriter に変更
-	steplistener "sample/pkg/batch/step/listener" // stepListener をインポート
+	steplistener "sample/pkg/batch/step/listener"
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
@@ -60,11 +58,11 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	})
 	jobFactory.RegisterComponentBuilder("executionContextItemReader", func(cfg *config.Config, repo job.JobRepository, properties map[string]string) (any, error) {
 		// NewExecutionContextReader のシグネチャ変更に合わせて引数を渡す
-		return executionContextReader.NewExecutionContextReader(cfg, repo, properties)
+		return reader.NewExecutionContextReader(cfg, repo, properties)
 	})
 	jobFactory.RegisterComponentBuilder("executionContextItemWriter", func(cfg *config.Config, repo job.JobRepository, properties map[string]string) (any, error) {
 		// NewExecutionContextWriter のシグネチャ変更に合わせて引数を渡す
-		return executionContextWriter.NewExecutionContextWriter(cfg, repo, properties)
+		return writer.NewExecutionContextWriter(cfg, repo, properties)
 	})
 	jobFactory.RegisterComponentBuilder("dummyTasklet", func(cfg *config.Config, repo job.JobRepository, properties map[string]string) (any, error) {
 		// NewDummyTasklet のシグネチャ変更に合わせて引数を渡す
@@ -106,9 +104,9 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 
 	// Weather Job のビルダー登録
 	jobFactory.RegisterJobBuilder("weather", func(
-		jobRepository job.JobRepository, // エイリアスを削除し、デフォルトの repository を使用
+		jobRepository job.JobRepository,
 		cfg *config.Config,
-		listeners []joblistener.JobExecutionListener, // エイリアスを joblistener に変更
+		listeners []joblistener.JobExecutionListener,
 		flow *core.FlowDefinition,
 	) (core.Job, error) {
 		return appJob.NewWeatherJob(jobRepository, cfg, listeners, flow), nil
@@ -118,7 +116,7 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 }
 
 // setupApplication はアプリケーションの初期化処理を実行し、必要なコンポーネントを返します。
-func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, joblauncher.JobLauncher, joboperator.JobOperator, error) { // ★ 戻り値の型と順序を変更 (JobFactory を削除)
+func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, embeddedJSL []byte) (*initializer.BatchInitializer, joblauncher.JobLauncher, joboperator.JobOperator, error) {
 	// .env ファイルのロード
 	if envFilePath != "" {
 		if err := godotenv.Load(envFilePath); err != nil {
@@ -138,7 +136,7 @@ func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, e
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	jobLauncher, jobOperator, initErr := batchInitializer.Initialize(ctx) // ★ 戻り値の順序と型を変更 (JobFactory を削除)
+	jobLauncher, jobOperator, initErr := batchInitializer.Initialize(ctx)
 	if initErr != nil {
 		return nil, nil, nil, exception.NewBatchError("app", "バッチアプリケーションの初期化に失敗しました", initErr, false, false)
 	}
@@ -150,13 +148,13 @@ func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, e
 		return nil, nil, nil, exception.NewBatchErrorf("app", "JobFactory が初期化されていません。")
 	}
 
-	registerApplicationComponents(batchInitializer.JobFactory, batchInitializer.Config, batchInitializer.JobRepository) // ★ 変更: dbConnection の代わりに batchInitializer.JobRepository を渡す
+	registerApplicationComponents(batchInitializer.JobFactory, batchInitializer.Config, batchInitializer.JobRepository)
 
-	return batchInitializer, jobLauncher, jobOperator, nil // ★ 戻り値の順序と型を変更 (JobFactory を削除)
+	return batchInitializer, jobLauncher, jobOperator, nil
 }
 
 // executeJob は指定されたジョブを実行し、その結果に基づいて終了コードを返します。
-func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appConfig *config.Config) int { // ★ jobOperator を jobLauncher に変更
+func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appConfig *config.Config) int {
 	jobName := appConfig.Batch.JobName
 	if jobName == "" {
 		logger.Errorf("設定ファイルにジョブ名が指定されていません。")
@@ -165,13 +163,13 @@ func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appCon
 	logger.Infof("実行する Job: '%s'", jobName)
 
 	// JobParameters を作成 (必要に応じてパラメータを設定)
-	jobParams := core.NewJobParameters() // config.NewJobParameters() から core.NewJobParameters() に変更
+	jobParams := core.NewJobParameters()
 	jobParams.Put("input.file", "/path/to/input.csv") // 例としてパラメータを設定
 	jobParams.Put("output.dir", "/path/to/output")    // 例としてパラメータを設定
 	jobParams.Put("process.date", time.Now().Format("2006-01-02")) // 例としてパラメータを設定
 
 	// JobOperator を使用してジョブを起動
-	jobExecution, startErr := jobLauncher.Launch(ctx, jobName, jobParams) // ★ JobLauncher.Launch を呼び出す
+	jobExecution, startErr := jobLauncher.Launch(ctx, jobName, jobParams)
 
 	if startErr != nil {
 		return handleApplicationError(startErr, jobExecution, jobName)
@@ -198,8 +196,8 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 	batchInitializer.JSLDefinitionBytes = embeddedJSL
 
 	// バッチアプリケーションの初期化処理を実行 (JobOperator と JobFactory を受け取る)
-	batchInitializer, jobLauncher, _, initErr := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL) // ★ 戻り値の順序と型を変更 (JobFactory を削除)
-	if initErr != nil { // setupApplication がエラーを返した場合のチェック
+	batchInitializer, jobLauncher, _, initErr := setupApplication(ctx, envFilePath, embeddedConfig, embeddedJSL)
+	if initErr != nil {
 		return 1
 	}
 
@@ -212,7 +210,7 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 		}
 	}()
 
-	return executeJob(ctx, jobLauncher, batchInitializer.Config) // ★ jobOperator を jobLauncher に変更
+	return executeJob(ctx, jobLauncher, batchInitializer.Config)
 }
 
 // handleApplicationError はアプリケーションのエラーを処理し、適切な終了コードを返します。

@@ -10,15 +10,15 @@ import (
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	jobListener "sample/pkg/batch/job/listener"
-	repository "sample/pkg/batch/repository" // エイリアスを削除
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
 
 // WeatherJob は天気予報データを取得・処理・保存するバッチジョブです。
 // core.Job インターフェースを実装します。
-type WeatherJob struct {
-	jobRepository repository.JobRepository
+type WeatherJob struct { // WeatherJob を返す
+	jobRepository job.JobRepository // job.JobRepository に変更
 	config        *config.Config
 	jobListeners  []jobListener.JobExecutionListener
 	flow          *core.FlowDefinition // ★ フロー定義を追加
@@ -30,7 +30,7 @@ var _ core.Job = (*WeatherJob)(nil)
 // NewWeatherJob は新しい WeatherJob のインスタンスを作成します。
 // flow パラメータは JSL からロードされたフロー定義を受け取ります。
 func NewWeatherJob(
-	jobRepository repository.JobRepository,
+	jobRepository job.JobRepository, // job.JobRepository を受け取る
 	cfg *config.Config,
 	listeners []jobListener.JobExecutionListener, // リスナーリストを受け取るように変更
 	flow *core.FlowDefinition, // ★ FlowDefinition を追加
@@ -70,7 +70,7 @@ func (j *WeatherJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobE
 // Run はジョブの実行ロジックを定義します。
 // ジョブのフロー定義に基づいてステップやデシジョンを順次実行します。
 func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error { // ★ 修正: jobParameters を追加
-	logger.Infof("ジョブ '%s' (Execution ID: %s) 実行開始！", j.JobName(), jobExecution.ID)
+	logger.Infof("ジョブ '%s' (Execution ID: %s) 実行するよ！", j.JobName(), jobExecution.ID)
 
 	// JobExecution の開始時刻を設定し、状態をマーク
 	jobExecution.StartTime = time.Now()
@@ -78,7 +78,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 
 	// JobExecution の初期状態を保存
 	if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
-		logger.Errorf("ジョブ '%s': JobExecution の初期状態の更新に失敗しました: %v", j.JobName(), err)
+		logger.Errorf("ジョブ '%s': JobExecution の初期状態の更新に失敗したよ: %v", j.JobName(), err)
 		jobExecution.AddFailureException(err)
 		jobExecution.MarkAsFailed(err)
 		return exception.NewBatchError(j.JobName(), "JobExecution の初期状態更新エラー", err, false, false)
@@ -97,9 +97,9 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 
 		// 最終的な JobExecution の状態を保存
 		if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
-			logger.Errorf("ジョブ '%s': JobExecution の最終状態の更新に失敗しました: %v", j.JobName(), err)
+			logger.Errorf("ジョブ '%s': JobExecution の最終状態の更新に失敗したよ: %v", j.JobName(), err)
 		}
-		logger.Infof("ジョブ '%s' (Execution ID: %s) が終了しました。最終ステータス: %s, 終了ステータス: %s",
+		logger.Infof("ジョブ '%s' (Execution ID: %s) が終了したよ。最終ステータス: %s, 終了ステータス: %s",
 			j.JobName(), jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
 	}()
 
@@ -107,14 +107,14 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 	currentElementID := j.flow.StartElement
 	if jobExecution.CurrentStepName != "" && jobExecution.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
 		// リスタートの場合、中断したステップから再開
-		logger.Infof("ジョブ '%s' はステップ '%s' からリスタートします。", j.JobName(), jobExecution.CurrentStepName)
+		logger.Infof("ジョブ '%s' はステップ '%s' からリスタートするよ。", j.JobName(), jobExecution.CurrentStepName)
 		currentElementID = jobExecution.CurrentStepName
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Warnf("Context がキャンセルされたため、ジョブ '%s' の実行を中断します: %v", j.JobName(), ctx.Err())
+			logger.Warnf("Context がキャンセルされたため、ジョブ '%s' の実行を中断するよ: %v", j.JobName(), ctx.Err())
 			jobExecution.AddFailureException(ctx.Err())
 			jobExecution.MarkAsFailed(ctx.Err())
 			return ctx.Err()
@@ -125,21 +125,21 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 			// フローの終端に達したか、不正な遷移
 			if jobExecution.Status == core.BatchStatusStarted { // ★ 修正: core.BatchStatusStarted を使用
 				jobExecution.MarkAsCompleted()
-				logger.Infof("ジョブ '%s' のフローが正常に完了しました。", j.JobName())
+				logger.Infof("ジョブ '%s' のフローが正常に完了したよ。", j.JobName())
 			}
 			break
 		}
 
 		element, ok := j.flow.Elements[currentElementID]
 		if !ok {
-			err := exception.NewBatchErrorf(j.JobName(), "フロー要素 '%s' が見つかりません", currentElementID)
+			err := exception.NewBatchErrorf(j.JobName(), "フロー要素 '%s' が見つからないよ", currentElementID)
 			logger.Errorf("ジョブ '%s': %v", j.JobName(), err)
 			jobExecution.AddFailureException(err)
 			jobExecution.MarkAsFailed(err)
 			return err
 		}
 
-		logger.Debugf("ジョブ '%s': フロー要素 '%s' を実行します。", j.JobName(), currentElementID)
+		logger.Debugf("ジョブ '%s': フロー要素 '%s' を実行するよ。", j.JobName(), currentElementID)
 
 		var elementExitStatus core.ExitStatus
 		var elementErr error
@@ -156,7 +156,7 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 			for _, se := range jobExecution.StepExecutions {
 				if se.StepName == stepName && se.Status == core.BatchStatusFailed { // ★ 修正: core.BatchStatusFailed を使用
 					stepExecution = se
-					logger.Infof("ジョブ '%s': ステップ '%s' の既存の StepExecution (ID: %s) を再利用します。", j.JobName(), stepName, stepExecution.ID)
+					logger.Infof("ジョブ '%s': ステップ '%s' の既存の StepExecution (ID: %s) を再利用するよ。", j.JobName(), stepName, stepExecution.ID)
 					break
 				}
 			}
@@ -168,23 +168,23 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 				jobExecution.AddStepExecution(stepExecution)                                 // ★ 修正: AddStepExecution を呼び出す
 				// 新しい StepExecution を保存
 				if err := j.jobRepository.SaveStepExecution(ctx, stepExecution); err != nil {
-					logger.Errorf("ジョブ '%s': StepExecution (ID: %s) の保存に失敗しました: %v", j.JobName(), stepExecution.ID, err)
+					logger.Errorf("ジョブ '%s': StepExecution (ID: %s) の保存に失敗したよ: %v", j.JobName(), stepExecution.ID, err)
 					jobExecution.AddFailureException(err)
 					jobExecution.MarkAsFailed(err)
 					return exception.NewBatchError(j.JobName(), "StepExecution の保存エラー", err, false, false)
 				}
-				logger.Infof("ジョブ '%s': 新しい StepExecution (ID: %s) を作成しました。", j.JobName(), stepExecution.ID)
+				logger.Infof("ジョブ '%s': 新しい StepExecution (ID: %s) を作成したよ。", j.JobName(), stepExecution.ID)
 			}
 
 			elementErr = elem.Execute(ctx, jobExecution, stepExecution) // StepExecution を渡す
 			elementExitStatus = stepExecution.ExitStatus                // ステップの終了ステータスを取得
 
 			if elementErr != nil {
-				logger.Errorf("ジョブ '%s': ステップ '%s' の実行中にエラーが発生しました: %v", j.JobName(), stepName, elementErr)
+				logger.Errorf("ジョブ '%s': ステップ '%s' の実行中にエラーが発生したよ: %v", j.JobName(), stepName, elementErr)
 				jobExecution.AddFailureException(elementErr)
 				jobExecution.MarkAsFailed(elementErr)
 			} else {
-				logger.Infof("ジョブ '%s': ステップ '%s' が正常に完了しました。ExitStatus: %s", j.JobName(), stepName, elementExitStatus)
+				logger.Infof("ジョブ '%s': ステップ '%s' が正常に完了したよ。ExitStatus: %s", j.JobName(), stepName, elementExitStatus)
 			}
 
 		case core.Decision:
@@ -195,15 +195,15 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 			elementErr = err
 
 			if elementErr != nil {
-				logger.Errorf("ジョブ '%s': デシジョン '%s' の実行中にエラーが発生しました: %v", j.JobName(), decisionName, elementErr)
+				logger.Errorf("ジョブ '%s': デシジョン '%s' の実行中にエラーが発生したよ: %v", j.JobName(), decisionName, elementErr)
 				jobExecution.AddFailureException(elementErr)
 				jobExecution.MarkAsFailed(elementErr)
 			} else {
-				logger.Infof("ジョブ '%s': デシジョン '%s' が完了しました。結果: %s", j.JobName(), decisionName, decisionResult)
+				logger.Infof("ジョブ '%s': デシジョン '%s' が完了したよ。結果: %s", j.JobName(), decisionName, decisionResult)
 			}
 
 		default:
-			err := exception.NewBatchErrorf(j.JobName(), "不明なフロー要素の型: %T (ID: %s)", elem, currentElementID)
+			err := exception.NewBatchErrorf(j.JobName(), "不明なフロー要素の型だよ: %T (ID: %s)", elem, currentElementID)
 			logger.Errorf("ジョブ '%s': %v", j.JobName(), err)
 			jobExecution.AddFailureException(err)
 			jobExecution.MarkAsFailed(err)
@@ -216,11 +216,11 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 			// 遷移ルールが見つからない場合
 			if elementErr == nil {
 				// 正常終了だが次の遷移がない場合はジョブ完了
-				logger.Infof("ジョブ '%s': フロー要素 '%s' からの遷移ルールが見つかりません。ジョブを完了します。", j.JobName(), element.ID())
+				logger.Infof("ジョブ '%s': フロー要素 '%s' からの遷移ルールが見つからないよ。ジョブを完了するよ。", j.JobName(), element.ID())
 				jobExecution.MarkAsCompleted()
 			} else {
 				// エラー発生で次の遷移がない場合はジョブ失敗
-				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生しましたが、適切な遷移ルールが見つかりません。ジョブを失敗として終了します。", j.JobName(), element.ID())
+				logger.Errorf("ジョブ '%s': フロー要素 '%s' でエラーが発生したけど、適切な遷移ルールが見つからないよ。ジョブを失敗として終了するよ。", j.JobName(), element.ID())
 				jobExecution.MarkAsFailed(elementErr)
 			}
 			break
@@ -228,17 +228,17 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 
 		// 遷移ルールが End, Fail, Stop を指示した場合の処理
 		if transitionRule.End {
-			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されました。ジョブを完了します。", j.JobName(), element.ID())
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'End' 遷移が指示されたよ。ジョブを完了するよ。", j.JobName(), element.ID())
 			jobExecution.MarkAsCompleted()
 			break
 		}
 		if transitionRule.Fail {
-			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されました。ジョブを失敗として終了します。", j.JobName(), element.ID())
+			logger.Errorf("ジョブ '%s': フロー要素 '%s' から 'Fail' 遷移が指示されたよ。ジョブを失敗として終了するよ。", j.JobName(), element.ID())
 			jobExecution.MarkAsFailed(fmt.Errorf("explicit fail transition from %s", element.ID()))
 			break
 		}
 		if transitionRule.Stop {
-			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されました。ジョブを停止します。", j.JobName(), element.ID())
+			logger.Infof("ジョブ '%s': フロー要素 '%s' から 'Stop' 遷移が指示されたよ。ジョブを停止するよ。", j.JobName(), element.ID())
 			jobExecution.MarkAsStopped()
 			break
 		}
@@ -247,6 +247,6 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 		currentElementID = transitionRule.To
 	}
 
-	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了しました。", j.JobName(), jobExecution.ID)
+	logger.Infof("ジョブ '%s' (Execution ID: %s) の実行が完了したよ。", j.JobName(), jobExecution.ID)
 	return nil
 }

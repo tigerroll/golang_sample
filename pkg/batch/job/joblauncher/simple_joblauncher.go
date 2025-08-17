@@ -6,7 +6,7 @@ import (
 
 	core "sample/pkg/batch/job/core"
 	factory "sample/pkg/batch/job/factory" // factory パッケージをインポート
-	"sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -14,14 +14,14 @@ import (
 // SimpleJobLauncher は JobLauncher インターフェースのシンプルな実装です。
 // JobExecution の基本的なライフサイクル管理と JobRepository を使用した永続化を行います。
 // JobFactory を依存として追加し、ジョブオブジェクトの生成も担当します。
-type SimpleJobLauncher struct {
-	jobRepository repository.JobRepository // JobRepository を依存として追加
+type SimpleJobLauncher struct { // SimpleJobLauncher を返す
+	jobRepository job.JobRepository // job.JobRepository を依存として追加
 	jobFactory    factory.JobFactory     // JobFactory を依存として追加
 }
 
 // NewSimpleJobLauncher は新しい SimpleJobLauncher のインスタンスを作成します。
 // JobRepository と JobFactory の実装を受け取るように変更します。
-func NewSimpleJobLauncher(jobRepository repository.JobRepository, jobFactory factory.JobFactory) *SimpleJobLauncher {
+func NewSimpleJobLauncher(jobRepository job.JobRepository, jobFactory factory.JobFactory) *SimpleJobLauncher { // job.JobRepository を受け取る
 	return &SimpleJobLauncher{
 		jobRepository: jobRepository, // JobRepository を初期化
 		jobFactory:    jobFactory,    // JobFactory を初期化
@@ -32,7 +32,7 @@ func NewSimpleJobLauncher(jobRepository repository.JobRepository, jobFactory fac
 // job 引数の型を core.Job に、params を core.JobParameters に、戻り値を *core.JobExecution に変更
 // JobLauncher インターフェースを満たすようにメソッドシグネチャを維持
 func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params core.JobParameters) (*core.JobExecution, error) { // ★ 修正: jobName を直接受け取る
-	logger.Infof("JobLauncher を使用して Job '%s' を起動します。", jobName)
+	logger.Infof("JobLauncher を使用して Job '%s' を起動するよ。", jobName)
 
 	// Step 1: JobInstance の取得または作成
 	// ジョブ名とパラメータに一致する既存の JobInstance を検索します。
@@ -65,7 +65,7 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params c
 	jobExecution := core.NewJobExecution(jobInstance.ID, jobName, params) // JobInstance.ID を追加
 	// NewJobExecution 時点では Status は JobStatusStarting です
 
-	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) の起動処理を開始します。", jobName, jobExecution.ID, jobInstance.ID)
+	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) の起動処理を始めるよ。", jobName, jobExecution.ID, jobInstance.ID)
 
 	// Step 3: JobExecution を JobRepository に保存 (Initial Save)
 	// JobExecution の作成直後に永続化します。ステータスは STARTING です。
@@ -116,7 +116,7 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params c
 		return jobExecution, exception.NewBatchError("job_launcher", fmt.Sprintf("Job '%s' の作成に失敗しました", jobName), err, false, false)
 	}
 
-	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) を実行します。", jobName, jobExecution.ID, jobInstance.ID)
+	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) を実行するよ。", jobName, jobExecution.ID, jobInstance.ID)
 
 	// Step 6: core.Job の Run メソッドを実行し、JobExecution と JobParameters を渡す
 	runErr := batchJob.Run(ctx, jobExecution, params) // ★ 修正: batchJob を使用

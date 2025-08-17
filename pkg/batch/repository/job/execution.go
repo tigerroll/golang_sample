@@ -1,4 +1,4 @@
-package repository
+package job
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 // JobExecution は JobExecution の永続化と取得に関する操作を定義します。
 type JobExecution interface { // ★ 変更: インターフェース名を JobExecution に
-	// SaveJobExecution は新しい JobExecution を永続化します。
+	// SaveJobExecution は新しい JobExecution を永久化します。
 	SaveJobExecution(ctx context.Context, jobExecution *core.JobExecution) error
 
 	// UpdateJobExecution は既存の JobExecution の状態を更新します。

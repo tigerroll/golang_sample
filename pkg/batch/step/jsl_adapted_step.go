@@ -12,7 +12,7 @@ import (
 
 	"sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository"
+	job "sample/pkg/batch/repository/job" // repository を job に変更
 	stepListener "sample/pkg/batch/step/listener"
 	itemprocessor "sample/pkg/batch/step/processor" // エイリアスを itemprocessor に変更
 	itemreader "sample/pkg/batch/step/reader"       // エイリアスを itemreader に変更
@@ -42,7 +42,7 @@ type JSLAdaptedStep struct {
 	itemWriteListeners   []core.ItemWriteListener           // アイテム書き込みリスナー
 	skipListeners        []stepListener.SkipListener        // スキップリスナー
 	retryItemListeners   []stepListener.RetryItemListener   // アイテムリトライリスナー
-	jobRepository        repository.JobRepository           // JobRepository を追加 (トランザクション管理のため)
+	jobRepository        job.JobRepository           // JobRepository を追加 (トランザクション管理のため)
 }
 
 // JSLAdaptedStep が core.Step インターフェースを満たすことを確認します。
@@ -60,7 +60,7 @@ func NewJSLAdaptedStep(
 	stepRetryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
 	itemSkipConfig config.ItemSkipConfig,
-	jobRepository repository.JobRepository, // JobRepository を追加
+	jobRepository job.JobRepository, // JobRepository を追加
 	stepListeners []stepListener.StepExecutionListener, // ステップレベルリスナー
 	itemReadListeners []core.ItemReadListener, // アイテム読み込みリスナー
 	itemProcessListeners []core.ItemProcessListener, // アイテム処理リスナー
@@ -198,7 +198,7 @@ func (s *JSLAdaptedStep) notifyRetryWrite(ctx context.Context, items []interface
 // Execute はチャンク処理を実行します。core.Step インターフェースの実装です。
 // StepExecution のライフサイクル管理（開始/終了マーク、リスナー通知）をここで行います。
 func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
-	logger.Infof("ステップ '%s' (Execution ID: %s) を開始します。", s.name, stepExecution.ID)
+	logger.Infof("ステップ '%s' (Execution ID: %s) を始めるよ。", s.name, stepExecution.ID)
 
 	// StepExecution の開始時刻を設定し、状態をマーク
 	stepExecution.StartTime = time.Now()
@@ -206,27 +206,27 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 	// StepExecution の ExecutionContext から Reader/Writer の状態を復元 (リスタート時)
 	if len(stepExecution.ExecutionContext) > 0 {
-		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元します。", s.name)
+		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元するよ。", s.name)
 		if readerECVal, ok := stepExecution.ExecutionContext.Get("reader_context"); ok {
 			if readerEC, isEC := readerECVal.(core.ExecutionContext); isEC {
 				if err := s.reader.SetExecutionContext(ctx, readerEC); err != nil {
-					logger.Errorf("ステップ '%s': Reader の ExecutionContext 復元に失敗しました: %v", s.name, err)
+					logger.Errorf("ステップ '%s': Reader の ExecutionContext 復元に失敗したよ: %v", s.name, err)
 					stepExecution.AddFailureException(err)
 					return exception.NewBatchError(s.name, "Reader の ExecutionContext 復元エラー", err, false, false)
 				}
 			} else {
-				logger.Warnf("ステップ '%s': Reader の ExecutionContext が予期しない型です: %T", s.name, readerECVal)
+				logger.Warnf("ステップ '%s': Reader の ExecutionContext が予期しない型だよ: %T", s.name, readerECVal)
 			}
 		}
 		if writerECVal, ok := stepExecution.ExecutionContext.Get("writer_context"); ok {
 			if writerEC, isEC := writerECVal.(core.ExecutionContext); isEC {
 				if err := s.writer.SetExecutionContext(ctx, writerEC); err != nil {
-					logger.Errorf("ステップ '%s': Writer の ExecutionContext 復元に失敗しました: %v", s.name, err)
+					logger.Errorf("ステップ '%s': Writer の ExecutionContext 復元に失敗したよ: %v", s.name, err)
 					stepExecution.AddFailureException(err)
 					return exception.NewBatchError(s.name, "Writer の ExecutionContext 復元エラー", err, false, false)
 				}
 			} else {
-				logger.Warnf("ステップ '%s': Writer の ExecutionContext が予期しない型です: %T", s.name, writerECVal)
+				logger.Warnf("ステップ '%s': Writer の ExecutionContext が予期しない型だよ: %T", s.name, writerECVal)
 			}
 		}
 	}
@@ -245,20 +245,20 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			// Reader の ExecutionContext 全体を "reader_context" キーで保存
 			stepExecution.ExecutionContext.Put("reader_context", ec)
 		} else {
-			logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
+			logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 		}
 		if ec, err := s.writer.GetExecutionContext(ctx); err == nil {
 			// Writer の ExecutionContext 全体を "writer_context" キーで保存
 			stepExecution.ExecutionContext.Put("writer_context", ec)
 		} else {
-			logger.Errorf("ステップ '%s': Writer のクローズに失敗しました: %v", s.name, err)
+			logger.Errorf("ステップ '%s': Writer のクローズに失敗したよ: %v", s.name, err)
 		}
 
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
 	}()
 
-	logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されます。", s.name)
+	logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されるよ。", s.name)
 	return s.executeDefaultChunkProcessing(ctx, jobExecution, stepExecution)
 }
 
@@ -286,7 +286,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		// トランザクションを開始 (JobRepository から DBConnection を取得)
 		tx, err := s.jobRepository.GetDBConnection().BeginTx(ctx, nil) // ★ 変更
 		if err != nil {
-			logger.Errorf("ステップ '%s': トランザクションの開始に失敗しました: %v", s.name, err)
+			logger.Errorf("ステップ '%s': トランザクションの開始に失敗したよ: %v", s.name, err)
 			stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
 			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 			chunkAttemptError = true // トランザクション開始失敗もチャンクエラーとして扱う
@@ -299,7 +299,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			for {
 				select {
 				case <-ctx.Done():
-					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断します: %v", s.name, ctx.Err())
+					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断するよ: %v", s.name, ctx.Err())
 					stepExecution.MarkAsFailed(ctx.Err())
 					jobExecution.AddFailureException(ctx.Err())
 					tx.Rollback()
@@ -316,7 +316,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 
 				if itemErr != nil {
 					// Reader または Processor でエラーが発生した場合 (スキップ不可/リトライ不可)
-					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生しました (試行 %d/%d): %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, itemErr)
+					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生したよ (試行 %d/%d): %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, itemErr)
 					chunkAttemptError = true // この試行はエラー
 					break                    // インナーループを抜ける
 				}
@@ -370,11 +370,11 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 							// リトライ可能な例外かチェック
 							if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
 								s.notifyRetryWrite(ctx, processedItemsChunk, writeErr)
-								logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
+								logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされるよ (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
 								time.Sleep(time.Duration(s.itemRetryConfig.InitialInterval) * time.Millisecond) // リトライ間隔 (ミリ秒)
 							} else {
 								// リトライ不可または最大リトライ回数に達した場合
-								s.notifyItemWriteError(ctx, convertToInterfaceSlice(processedItemsChunk), writeErr)
+								s.notifyItemWriteError(ctx, processedItemsChunk, writeErr)
 								if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
 									// Note: OnSkipWrite takes a single item, but here we have a chunk.
 									// For now, we'll just notify with the first item or a generic message.
@@ -384,7 +384,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 									}
 									s.notifySkipWrite(ctx, firstItem, writeErr) // Notify with first item as a proxy
 									stepExecution.SkipWriteCount += len(processedItemsChunk) // Skip count by chunk size
-									logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
+									logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
 									writeErr = nil // エラーをクリアして続行
 								} else {
 									// スキップもできない場合はエラー
@@ -414,13 +414,13 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
 					readerEC, err := s.reader.GetExecutionContext(ctx) // ★ 修正: err を受け取る
 					if err != nil { // ★ 修正: err != nil でチェック
-						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗しました: %v", s.name, err)
+						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 						chunkAttemptError = true
 						break
 					}
 					writerEC, err := s.writer.GetExecutionContext(ctx) // ★ 修正: err を受け取る
 					if err != nil { // ★ 修正: err != nil でチェック
-						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗しました: %v", s.name, err)
+						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 						chunkAttemptError = true
 						break
 					}
@@ -429,7 +429,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 
 					// StepExecution を更新してチェックポイントを永続化
 					if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
-						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗しました: %v", s.name, err)
+						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗したよ: %v", s.name, err)
 						chunkAttemptError = true // StepExecution の永続化エラーもチャンクエラー
 						break
 					}
@@ -449,7 +449,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 
 				// Reader の終端に達した場合
 				if eofReached {
-					logger.Debugf("ステップ '%s' Reader からデータの終端に達しました。", s.name)
+					logger.Debugf("ステップ '%s' Reader からデータの終端に達したよ。", s.name)
 					break // インナーループを抜ける
 				}
 			} // インナーループ終了
@@ -463,10 +463,10 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 
 			// 回路遮断器のチェック
 			if consecutiveFailures >= stepRetryConfig.CircuitBreakerThreshold {
-				logger.Errorf("ステップ '%s' 回路遮断器がオープンしました。連続失敗回数 (%d) が閾値 (%d) を超えました。ステップを終了します。", s.name, consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
-				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えました", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
+				logger.Errorf("ステップ '%s' 回路遮断器がオープンしたよ。連続失敗回数 (%d) が閾値 (%d) を超えたよ。ステップを終了するよ。", s.name, consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
+				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-				return exception.NewBatchErrorf(s.name, "回路遮断器オープンによりステップ '%s' が失敗しました", s.name)
+				return exception.NewBatchErrorf(s.name, "回路遮断器オープンによりステップ '%s' が失敗したよ", s.name)
 			}
 
 			if retryAttempt < stepRetryConfig.MaxAttempts-1 {
@@ -477,7 +477,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					delay = time.Duration(stepRetryConfig.MaxInterval) * time.Millisecond
 				}
 
-				logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗しました。リトライ間隔: %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, delay)
+				logger.Warnf("ステップ '%s' チャンク処理試行 %d/%d が失敗したよ。リトライ間隔: %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, delay)
 				time.Sleep(delay)
 
 				// リトライ前に Reader の ExecutionContext をリセット
@@ -491,7 +491,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					if readerECVal, isEC := readerEC.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
 						s.reader.SetExecutionContext(ctx, readerECVal)
 					} else {
-						logger.Warnf("ステップ '%s': リトライ時の Reader の ExecutionContext が予期しない型です: %T", s.name, readerEC)
+						logger.Warnf("ステップ '%s': リトライ時の Reader の ExecutionContext が予期しない型だよ: %T", s.name, readerEC)
 						s.reader.SetExecutionContext(ctx, core.NewExecutionContext()) // 型が合わない場合は初期化
 					}
 				} else {
@@ -500,22 +500,22 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				s.writer.SetExecutionContext(ctx, core.NewExecutionContext()) // Writerは状態を持たないためクリア
 			} else {
 				// 最大リトライ回数に達した場合
-				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗しました。ステップを終了します。", s.name, stepRetryConfig.MaxAttempts)
-				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", stepRetryConfig.MaxAttempts))
+				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗したよ。ステップを終了するよ。", s.name, stepRetryConfig.MaxAttempts)
+				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", stepRetryConfig.MaxAttempts))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗しました", s.name)
+				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", s.name)
 			}
 		} else {
 			// この試行がエラーなく完了した場合
 			if err = tx.Commit(); err != nil {
-				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗しました: %v", s.name, err)
+				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, err)
 				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, true, false))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return err
 			}
 			stepExecution.CommitCount++
 			consecutiveFailures = 0 // 成功したので連続失敗回数をリセット
-			logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了しました。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d, 合計フィルタリング数: %d",
+			logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了したよ。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d, 合計フィルタリング数: %d",
 				s.name, chunkCount, totalReadCount, totalWriteCount, stepExecution.FilterCount)
 			stepExecution.ReadCount = totalReadCount
 			stepExecution.WriteCount = totalWriteCount
@@ -524,7 +524,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		}
 	} // リトライループ終了
 	// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
-	return exception.NewBatchErrorf(s.name, "ステップ '%s' が最大リトライ回数を超えて失敗しました", s.name)
+	return exception.NewBatchErrorf(s.name, "ステップ '%s' が最大リトライ回数を超えて失敗したよ", s.name)
 }
 
 // processSingleItem は Reader から1アイテム読み込み、Processor で処理します。
@@ -549,7 +549,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 		// リトライ可能な例外かチェック
 		if s.isRetryableException(readErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
 			s.notifyRetryRead(ctx, readErr)
-			logger.Warnf("ステップ '%s' アイテム読み込みエラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, readErr)
+			logger.Warnf("ステップ '%s' アイテム読み込みエラーがリトライされるよ (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, readErr)
 			time.Sleep(time.Duration(s.itemRetryConfig.InitialInterval) * time.Millisecond) // リトライ間隔 (ミリ秒)
 		} else {
 			// リトライ不可または最大リトライ回数に達した場合
@@ -557,7 +557,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 			if s.isSkippableException(readErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipReadCount < s.itemSkipConfig.SkipLimit {
 				s.notifySkipRead(ctx, readErr)
 				stepExecution.SkipReadCount++
-				logger.Warnf("ステップ '%s' アイテム読み込みエラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipReadCount, s.itemSkipConfig.SkipLimit, readErr)
+				logger.Warnf("ステップ '%s' アイテム読み込みエラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipReadCount, s.itemSkipConfig.SkipLimit, readErr)
 				return nil, false, true, nil // アイテムをスキップ (フィルタリングとして扱う)
 			}
 			// スキップもできない場合はエラーを返す
@@ -599,7 +599,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 			// リトライ可能な例外かチェック
 			if s.isRetryableException(processErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
 				s.notifyRetryProcess(ctx, readItem, processErr)
-				logger.Warnf("ステップ '%s' アイテム処理エラーがリトライされます (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, processErr)
+				logger.Warnf("ステップ '%s' アイテム処理エラーがリトライされるよ (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, processErr)
 				time.Sleep(time.Duration(s.itemRetryConfig.InitialInterval) * time.Millisecond) // リトライ間隔 (ミリ秒)
 			} else {
 				// リトライ不可または最大リトライ回数に達した場合
@@ -607,7 +607,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 				if s.isSkippableException(processErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipProcessCount < s.itemSkipConfig.SkipLimit {
 					s.notifySkipProcess(ctx, readItem, processErr)
 					stepExecution.SkipProcessCount++
-					logger.Warnf("ステップ '%s' アイテム処理エラーがスキップされました (スキップ数: %d/%d): %v", s.name, stepExecution.SkipProcessCount, s.itemSkipConfig.SkipLimit, processErr)
+					logger.Warnf("ステップ '%s' アイテム処理エラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipProcessCount, s.itemSkipConfig.SkipLimit, processErr)
 					return nil, false, true, nil // アイテムをスキップ (フィルタリングとして扱う)
 				}
 				// スキップもできない場合はエラーを返す
@@ -665,7 +665,7 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 			}
 		default:
 			// 未知の例外文字列はログに警告を出すか無視する
-			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。発生したエラーの型: %T", re, err)
+			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されているよ。errors.Is/As でのチェックはできないよ。発生したエラーの型: %T", re, err)
 		}
 	}
 	return false
@@ -704,7 +704,7 @@ func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []s
 				return true
 			}
 		default:
-			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されています。errors.Is/As でのチェックはできません。発生したエラーの型: %T", se, err)
+			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されているよ。errors.Is/As でのチェックはできないよ。発生したエラーの型: %T", se, err)
 		}
 	}
 	return false

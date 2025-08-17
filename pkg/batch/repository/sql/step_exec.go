@@ -1,4 +1,4 @@
-package repository
+package sql
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"sample/pkg/batch/database"
-	core "sample/pkg/batch/job/core"
-	exception "sample/pkg/batch/util/exception"
+	"sample/pkg/batch/database" // database パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	"sample/pkg/batch/repository/job" // job インターフェースをインポート
+	exception "sample/pkg/batch/util/exception" // exception パッケージをインポート
 	logger "sample/pkg/batch/util/logger"
 	serialization "sample/pkg/batch/util/serialization"
 )
@@ -16,21 +17,21 @@ import (
 // SQLStepExecutionRepository は StepExecution インターフェースの SQL データベース実装です。
 type SQLStepExecutionRepository struct {
 	dbConnection database.DBConnection
-	// JobExecutionRepository への参照を保持し、循環参照を解決するためにインターフェースとして持つ
-	jobExecutionRepo JobExecution
+	// JobExecutionRepository への参照を保持し、循環参照を解決するために job.JobExecution インターフェースとして持つ
+	jobExecutionRepo job.JobExecution
 }
 
 // NewSQLStepExecutionRepository は新しい SQLStepExecutionRepository のインスタンスを作成します。
 func NewSQLStepExecutionRepository(dbConn database.DBConnection) *SQLStepExecutionRepository {
-	return &SQLStepExecutionRepository{
+	return &SQLStepExecutionRepository{ // SQLStepExecutionRepository を返す
 		dbConnection: dbConn,
 	}
 }
 
 // SetJobExecutionRepository は JobExecutionRepository の参照を設定します。
 // 循環参照を解決するために、コンストラクタではなく別途設定する。
-func (r *SQLStepExecutionRepository) SetJobExecutionRepository(repo JobExecution) {
-	r.jobExecutionRepo = repo
+func (r *SQLStepExecutionRepository) SetJobExecutionRepository(repo job.JobExecution) {
+	r.jobExecutionRepo = repo // job.JobExecution インターフェースとして設定
 }
 
 // SaveStepExecution は新しい StepExecution をデータベースに保存します。
@@ -292,5 +293,4 @@ func (r *SQLStepExecutionRepository) FindStepExecutionsByJobExecutionID(ctx cont
 }
 
 // SQLStepExecutionRepository が StepExecution インターフェースを満たすことを確認
-var _ StepExecution = (*SQLStepExecutionRepository)(nil)
-
+var _ job.StepExecution = (*SQLStepExecutionRepository)(nil) // job.StepExecution インターフェースを満たすことを確認

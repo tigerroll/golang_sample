@@ -6,8 +6,8 @@ import (
 
 	component "sample/pkg/batch/job/component" // ★ 変更: factory の代わりに component をインポート
 	config "sample/pkg/batch/config"
-	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository"
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	step "sample/pkg/batch/step" // そのまま
 	stepListener "sample/pkg/batch/step/listener" // そのまま
 	processor "sample/pkg/batch/step/processor" // エイリアスを processor に変更
@@ -26,7 +26,7 @@ import (
 func ConvertJSLToCoreFlow(
 	jslFlow Flow,
 	componentBuilders map[string]component.ComponentBuilder, // ★ 変更: component.ComponentBuilder を参照
-	jobRepository repository.JobRepository,
+	jobRepository job.JobRepository, // job.JobRepository に変更
 	cfg *config.Config,
 	stepListenerBuilders map[string]any, // map[string]StepExecutionListenerBuilder
 	itemReadListenerBuilders map[string]any, // map[string]core.ItemReadListenerBuilder

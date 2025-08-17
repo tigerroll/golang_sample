@@ -1,3 +1,8 @@
+
+**2. `pkg/batch/initializer/initializer.go`**
+不要になった `repository` パッケージのインポートを削除しました。
+
+```go
 package initializer
 
 import (
@@ -23,16 +28,6 @@ import (
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
-
-// BatchInitializer はバッチアプリケーションの初期化処理を担当します。
-type BatchInitializer struct {
-	Config             *config.Config
-	JSLDefinitionBytes []byte // JSL定義のバイトスライス
-	JobRepository      job.JobRepository // job.JobRepository に変更
-	JobFactory         *factory.JobFactory // ポインタ型を維持
-	JobLauncher        batch_joblauncher.JobLauncher // JobLauncher を追加
-	JobOperator        batch_joboperator.JobOperator
-}
 
 // applyMigrations はマイグレーションを実行するヘルパー関数
 // この関数はアプリケーション固有のマイグレーションにのみ使用されます。

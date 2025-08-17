@@ -8,7 +8,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	logger "sample/pkg/batch/util/logger" // Keep logger
 )
 
@@ -29,7 +29,7 @@ type ExecutionContextReader struct {
 // NewExecutionContextReader は新しい ExecutionContextReader のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
 // properties から dataKey を設定します。
-func NewExecutionContextReader(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*ExecutionContextReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewExecutionContextReader(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*ExecutionContextReader, error) { // repo の型を job.JobRepository に変更
 	_ = cfg // 未使用の引数を無視
 	_ = repo // 未使用の引数を無視
 
@@ -56,6 +56,7 @@ func (r *ExecutionContextReader) Open(ctx context.Context, ec core.ExecutionCont
 		return ctx.Err()
 	default:
 	}
+	logger.Debugf("ExecutionContextReader.Open が呼び出されました。")
 	// SetExecutionContext と同様のロジックで状態を復元
 	return r.SetExecutionContext(ctx, ec)
 }
@@ -134,11 +135,12 @@ func (r *ExecutionContextReader) SetExecutionContext(ctx context.Context, ec cor
 	// data の復元 (ExecutionContextWriter が []any をそのまま保存していると仮定)
 	if rawData, ok := ec.Get("reader_context_data"); ok {
 		if loadedData, ok := rawData.([]any); ok {
-			r.data = loadedData
-			logger.Debugf("ExecutionContextReader: ExecutionContext から data を復元しました。アイテム数: %d", len(r.data))
+			r.data = loadedData // 既存データを内部ECにセット
+			logger.Debugf("ExecutionContextReader: ExecutionContext から data を復元しました。アイテム数: %d", len(loadedData))
 		} else {
-			logger.Warnf("ExecutionContextReader: ExecutionContext のデータ 'reader_context_data' の型が予期せぬものです: %T", rawData)
-			r.data = make([]any, 0) // 型が合わない場合は空のスライス
+			logger.Warnf("ExecutionContextReader: ExecutionContext の既存データ 'reader_context_data' の型が予期せぬものです: %T", rawData)
+			// 型が合わない場合は、新しい空のスライスで初期化
+			r.data = make([]any, 0)
 		}
 	} else {
 		r.data = nil // 見つからない場合はnil (次回 Read 時に JobExecution.ExecutionContext からロード)

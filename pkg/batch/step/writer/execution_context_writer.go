@@ -5,7 +5,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	logger "sample/pkg/batch/util/logger"
 	"sample/pkg/batch/database" // database パッケージをインポート
 )
@@ -22,7 +22,7 @@ type ExecutionContextWriter struct {
 // NewExecutionContextWriter は新しい ExecutionContextWriter のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
 // properties から dataKey を設定します。
-func NewExecutionContextWriter(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*ExecutionContextWriter, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewExecutionContextWriter(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*ExecutionContextWriter, error) { // repo の型を job.JobRepository に変更
 	_ = cfg // 未使用の引数を無視
 	_ = repo // 未使用の引数を無視
 
@@ -47,7 +47,7 @@ func (w *ExecutionContextWriter) Open(ctx context.Context, ec core.ExecutionCont
 		return ctx.Err()
 	default:
 	}
-	// SetExecutionContext と同様のロジックで状態を復元
+	logger.Debugf("ExecutionContextWriter.Open が呼び出されました。")
 	return w.SetExecutionContext(ctx, ec)
 }
 

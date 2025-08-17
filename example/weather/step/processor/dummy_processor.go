@@ -7,7 +7,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	repository "sample/pkg/batch/repository" // そのまま
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	processor "sample/pkg/batch/step/processor" // ItemProcessor インターフェースをインポート (エイリアスを processor に変更)
 	logger "sample/pkg/batch/util/logger"
 )
@@ -21,7 +21,7 @@ type DummyProcessor struct{
 
 // NewDummyProcessor は新しい DummyProcessor のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
-func NewDummyProcessor(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewDummyProcessor(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*DummyProcessor, error) { // repo の型を job.JobRepository に変更
 	_ = cfg        // 未使用の引数を無視
 	_ = repo       // 未使用の引数を無視
 	_ = properties
