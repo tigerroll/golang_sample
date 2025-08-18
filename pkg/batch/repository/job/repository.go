@@ -1,16 +1,15 @@
-package repository
+package job
 
 import (
 	"sample/pkg/batch/database" // database パッケージをインポート
 )
 
 // JobRepository はバッチ実行に関するメタデータを永続化・管理するためのインターフェースです。
-// Spring Batch の JobRepository に相当します。
-// 複数のより小さなリポジトリインターフェースを埋め込むことで、責務を分割します。
+// Spring Batch の JobRepository に相当します。複数のより小さなリポジトリインターフェースを埋め込むことで、責務を分割します。
 type JobRepository interface {
-	JobInstance
-	JobExecution
-	StepExecution
+	JobInstance // job.JobInstance インターフェースを埋め込む
+	JobExecution // job.JobExecution インターフェースを埋め込む
+	StepExecution // job.StepExecution インターフェースを埋め込む
 
 	// TODO: CheckpointData の永続化・復元に関するメソッドもここに追加
 

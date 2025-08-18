@@ -1,12 +1,13 @@
-package repository
+package sql
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 
-	"sample/pkg/batch/database"
-	core "sample/pkg/batch/job/core"
+	"sample/pkg/batch/database" // database パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	"sample/pkg/batch/repository/job" // job インターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 	serialization "sample/pkg/batch/util/serialization"
@@ -14,12 +15,12 @@ import (
 
 // SQLJobInstanceRepository は JobInstance インターフェースの SQL データベース実装です。
 type SQLJobInstanceRepository struct {
-	dbConnection database.DBConnection
+	dbConnection database.DBConnection // database.DBConnection を使用
 }
 
 // NewSQLJobInstanceRepository は新しい SQLJobInstanceRepository のインスタンスを作成します。
 func NewSQLJobInstanceRepository(dbConn database.DBConnection) *SQLJobInstanceRepository {
-	return &SQLJobInstanceRepository{
+	return &SQLJobInstanceRepository{ // SQLJobInstanceRepository を返す
 		dbConnection: dbConn,
 	}
 }
@@ -184,5 +185,4 @@ func (r *SQLJobInstanceRepository) GetJobNames(ctx context.Context) ([]string, e
 }
 
 // SQLJobInstanceRepository が JobInstance インターフェースを満たすことを確認
-var _ JobInstance = (*SQLJobInstanceRepository)(nil)
-
+var _ job.JobInstance = (*SQLJobInstanceRepository)(nil) // job.JobInstance インターフェースを満たすことを確認

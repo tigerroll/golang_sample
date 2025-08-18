@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/database"
+	"sample/pkg/batch/config" // config パッケージをインポート
+	"sample/pkg/batch/database" // database パッケージをインポート
+	"sample/pkg/batch/repository/job" // job インターフェースをインポート
+	"sample/pkg/batch/repository/sql" // sql 実装をインポート
 	"sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 
@@ -16,7 +18,7 @@ import (
 
 // NewJobRepository は JobRepository のインスタンスを作成します。
 // アプリケーションの設定を基にデータベース接続を確立します。
-func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, error) {
+func NewJobRepository(ctx context.Context, cfg config.Config) (job.JobRepository, error) { // 戻り値を job.JobRepository に変更
 	module := "repository_factory"
 	logger.Debugf("JobRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 
@@ -33,8 +35,8 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (JobRepository, er
 	}
 
 	// SQLJobRepository に DBConnection インターフェースを渡す
-	logger.Debugf("SQLJobRepository を生成しました。")
-	return NewSQLJobRepository(dbConn), nil // 新しい NewSQLJobRepository を呼び出す
+	logger.Debugf("SQLJobRepository の実装を生成しました。")
+	return sql.NewSQLJobRepository(dbConn), nil // sql.NewSQLJobRepository を呼び出す
 }
 
 // TODO: Job Repository が使用するデータベース接続を閉じるための関数や、

@@ -6,12 +6,12 @@ import (
 	component "sample/pkg/batch/job/component"
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
-	jsl "sample/pkg/batch/job/jsl"
+	jsl "sample/pkg/batch/job/jsl" // jsl パッケージをインポート
 	jobListener "sample/pkg/batch/job/listener"
 	stepListener "sample/pkg/batch/step/listener"
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
-	repository "sample/pkg/batch/repository"
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 )
 
 // StepExecutionListenerBuilder は StepExecutionListener を生成するための関数型です。
@@ -41,7 +41,7 @@ type JobListenerBuilder func(cfg *config.Config) (jobListener.JobExecutionListen
 // JobBuilder は、特定の Job を生成するための関数型です。
 // 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
 type JobBuilder func(
-	jobRepository repository.JobRepository,
+	jobRepository job.JobRepository,
 	cfg *config.Config,
 	listeners []jobListener.JobExecutionListener,
 	flow *core.FlowDefinition,
@@ -50,7 +50,7 @@ type JobBuilder func(
 // JobFactory は Job オブジェクトを生成するためのファクトリです。
 type JobFactory struct {
 	config            *config.Config
-	jobRepository     repository.JobRepository
+	jobRepository     job.JobRepository
 	componentBuilders map[string]component.ComponentBuilder
 	jobBuilders       map[string]JobBuilder
 	jobListenerBuilders map[string]JobListenerBuilder
@@ -64,7 +64,7 @@ type JobFactory struct {
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
 // JobRepository を引数に追加
-func NewJobFactory(cfg *config.Config, repo repository.JobRepository) *JobFactory {
+func NewJobFactory(cfg *config.Config, repo job.JobRepository) *JobFactory { // job.JobRepository を受け取る
 	jf := &JobFactory{
 		config:        cfg,
 		jobRepository: repo,

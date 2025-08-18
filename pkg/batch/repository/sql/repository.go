@@ -1,30 +1,30 @@
-package repository
+package sql
 
 import (
 	"sample/pkg/batch/database"
-	// core "sample/pkg/batch/job/core" // No longer directly used for types, but keep if needed for other reasons
+	"sample/pkg/batch/repository/job" // job インターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
 
 // SQLJobRepository は JobRepository インターフェースの SQL データベース実装です。
 // 各リポジトリの具体的な実装を埋め込み、委譲します。
-type SQLJobRepository struct {
+type SQLJobRepository struct { // SQLJobRepository を返す
 	dbConnection database.DBConnection // DBConnection インターフェースを追加
 
 	// より粒度の細かいインターフェースを埋め込む (JobInstance, JobExecution, StepExecution はこのパッケージ内で定義されたインターフェース名)
 	// これらのフィールドは、対応する具体的なリポジトリ実装のポインタを保持します。
-	*SQLJobInstanceRepository
-	*SQLJobExecutionRepository
-	*SQLStepExecutionRepository
+	*SQLJobInstanceRepository // SQLJobInstanceRepository を埋め込む
+	*SQLJobExecutionRepository // SQLJobExecutionRepository を埋め込む
+	*SQLStepExecutionRepository // SQLStepExecutionRepository を埋め込む
 }
 
 // NewSQLJobRepository は新しい SQLJobRepository のインスタンスを作成します。
 // 既に確立されたデータベース接続の抽象化を受け取ります。
 func NewSQLJobRepository(dbConn database.DBConnection) *SQLJobRepository {
-	instanceRepo := NewSQLJobInstanceRepository(dbConn)
-	stepRepo := NewSQLStepExecutionRepository(dbConn)
-	executionRepo := NewSQLJobExecutionRepository(dbConn)
+	instanceRepo := NewSQLJobInstanceRepository(dbConn) // sql.NewSQLJobInstanceRepository を呼び出す
+	stepRepo := NewSQLStepExecutionRepository(dbConn) // sql.NewSQLStepExecutionRepository を呼び出す
+	executionRepo := NewSQLJobExecutionRepository(dbConn) // sql.NewSQLJobExecutionRepository を呼び出す
 
 	// 循環参照の解決: 後から相互参照を設定
 	stepRepo.SetJobExecutionRepository(executionRepo)
@@ -56,7 +56,7 @@ func (r *SQLJobRepository) Close() error {
 }
 
 // SQLJobRepository が JobRepository インターフェースを満たすことを確認
-var _ JobRepository = (*SQLJobRepository)(nil)
+var _ job.JobRepository = (*SQLJobRepository)(nil) // job.JobRepository インターフェースを満たすことを確認
 
 // 以下は、JobRepository インターフェースのメソッドが、埋め込まれた構造体のメソッドによって
 // 自動的に満たされることを示すためのコメントです。

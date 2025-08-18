@@ -7,8 +7,8 @@ import (
 
 	"sample/pkg/batch/config"
 	"sample/pkg/batch/util/exception"
-	"sample/pkg/batch/util/logger"
-	batchRepo "sample/pkg/batch/repository" // 汎用リポジトリをインポート (エイリアスを batchRepo に変更)
+	"sample/pkg/batch/util/logger" // logger パッケージをインポート
+	batchRepo "sample/pkg/batch/repository/job" // 汎用リポジトリをインポート (エイリアスを batchRepo に変更)
 
 	"sample/pkg/batch/database" // database パッケージをインポート
 	weather_entity "sample/example/weather/domain/entity"

@@ -9,7 +9,7 @@ import (
 	logger "sample/pkg/batch/util/logger" // そのまま
 	writer "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート (エイリアスを writer に変更)
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
-	batchRepo "sample/pkg/batch/repository" // batchRepo をインポート
+	batchRepo "sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	"sample/pkg/batch/database" // database パッケージをインポート
 
 	weather_entity "sample/example/weather/domain/entity"
@@ -26,7 +26,7 @@ type WeatherItemWriter struct {
 // NewWeatherWriter は新しいWeatherItemWriterのインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取ります。
 // データベースリポジリはここで生成します。
-func NewWeatherWriter(cfg *config.Config, repo batchRepo.JobRepository, properties map[string]string) (*WeatherItemWriter, error) { // ★ 変更: シグネチャを component.ComponentBuilder に合わせる
+func NewWeatherWriter(cfg *config.Config, repo batchRepo.JobRepository, properties map[string]string) (*WeatherItemWriter, error) { // repo の型を job.JobRepository に変更
 	_ = properties // 現時点では properties は使用しないが、シグネチャを合わせるために受け取る
 
 	var weatherSpecificRepo appRepo.WeatherRepository

@@ -3,21 +3,25 @@ package reader_test // パッケージ名を 'reader_test' に変更
 import (
 	"context"
 	"encoding/json"
-	"errors" // errors パッケージを再インポート
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url" // net/url パッケージを再インポート
+	"net/url"
 	"testing"
 	"time"
 
 	weather_config "sample/example/weather/config"
 	weather_entity "sample/example/weather/domain/entity"
+	batch_config "sample/pkg/batch/config" // pkg/batch/config をインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	"sample/pkg/batch/database" // database パッケージをインポート (MockJobRepository のため)
 	weatherreader "sample/example/weather/step/reader" // プロダクションコードのパッケージをインポート
 	"sample/pkg/batch/util/exception"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // mockOpenMeteoResponse はテスト用のOpenMeteo APIのモックレスポンスを生成します。
@@ -115,11 +119,20 @@ func TestWeatherReader_ReadScenarios(t *testing.T) {
 			ts := httptest.NewServer(tt.handler)
 			defer ts.Close()
 
-			cfg := &weather_config.WeatherReaderConfig{
+			// NewWeatherReader のシグネチャに合わせて batch_config.Config を作成
+			batchCfg := batch_config.NewConfig()
+			batchCfg.Batch.APIEndpoint = ts.URL // モックサーバーのURLを使用
+			batchCfg.Batch.APIKey = "dummy-key"
+
+			// 旧 WeatherReaderConfig は不要になるが、テストケースの構造を維持するため残す
+			_ = &weather_config.WeatherReaderConfig{
 				APIEndpoint: ts.URL, // モックサーバーのURLを使用
 				APIKey:      "dummy-key",
 			}
-			reader := weatherreader.NewWeatherReader(cfg)
+			dummyJobRepo := &MockJobRepository{} // モックまたはnil
+			reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+			assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
+
 			ctx := context.Background()
 
 			readCount := 0
@@ -166,11 +179,18 @@ func TestWeatherReader_ExecutionContextPersistence(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := &weather_config.WeatherReaderConfig{
+	// NewWeatherReader のシグネチャに合わせて batch_config.Config を作成
+	batchCfg := batch_config.NewConfig()
+	batchCfg.Batch.APIEndpoint = ts.URL // モックサーバーのURLを使用
+	batchCfg.Batch.APIKey = "dummy-key"
+
+	_ = &weather_config.WeatherReaderConfig{ // cfg 変数は不要なので削除
 		APIEndpoint: ts.URL,
 		APIKey:      "dummy-key",
 	}
-	reader := weatherreader.NewWeatherReader(cfg)
+	dummyJobRepo := &MockJobRepository{} // モックまたはnil
+	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 	ctx := context.Background()
 
 	// 最初の5アイテムを読み込む
@@ -185,18 +205,19 @@ func TestWeatherReader_ExecutionContextPersistence(t *testing.T) {
 	assert.NotNil(t, ec)
 
 	// currentIndex が正しく保存されていることを確認 (ExecutionContext は map[string]interface{} なので直接アクセス)
-	idx, ok := ec["currentIndex"].(int)
+	idx, ok := ec.GetInt("currentIndex") // GetInt を使用
 	assert.True(t, ok, "currentIndex should be an int in EC")
 	assert.Equal(t, 5, idx, "Expected currentIndex to be 5 after reading 5 items")
 
 	// forecastData が保存されていることを確認
-	forecastJSON, ok := ec["forecastData"].(string)
+	forecastJSON, ok := ec.GetString("forecastData") // GetString を使用
 	assert.True(t, ok, "forecastData should be a string in EC")
 	assert.NotEmpty(t, forecastJSON, "forecastData should not be empty")
 
 	// 新しいReaderインスタンスを作成し、ExecutionContext を復元
-	newReader := weatherreader.NewWeatherReader(cfg)
-	err = newReader.SetExecutionContext(ctx, ec)
+	newReader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
+	err = newReader.Open(ctx, ec) // Open を呼び出す
 	assert.NoError(t, err)
 
 	// 復元されたReaderで残りのアイテムを読み込む
@@ -226,17 +247,24 @@ func TestWeatherReader_ContextCancellation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := &weather_config.WeatherReaderConfig{
+	// NewWeatherReader のシグネチャに合わせて batch_config.Config を作成
+	batchCfg := batch_config.NewConfig()
+	batchCfg.Batch.APIEndpoint = ts.URL // モックサーバーのURLを使用
+	batchCfg.Batch.APIKey = "dummy-key"
+
+	_ = &weather_config.WeatherReaderConfig{ // cfg 変数は不要なので削除
 		APIEndpoint: ts.URL,
 		APIKey:      "dummy-key",
 	}
-	reader := weatherreader.NewWeatherReader(cfg)
+	dummyJobRepo := &MockJobRepository{} // モックまたはnil
+	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // 短いタイムアウト
 	defer cancel()
 
 	// Read が Context のキャンセルによって中断されることを期待
-	_, err := reader.Read(ctx)
+	_, err = reader.Read(ctx)
 	assert.Error(t, err, "Expected an error due to context cancellation")
 
 	// Explicitly check the error chain using errors.As and errors.Is
@@ -250,3 +278,36 @@ func TestWeatherReader_ContextCancellation(t *testing.T) {
 
 	assert.ErrorIs(t, reader.Close(ctx), context.DeadlineExceeded, "Expected Close to return context.DeadlineExceeded when context is done")
 }
+
+// MockJobRepository は job.JobRepository インターフェースのダミー実装です。
+// このテストではリポジトリの永続化機能は使用しないため、メソッドは空で問題ありません。
+type MockJobRepository struct{}
+
+func (m *MockJobRepository) SaveJobInstance(ctx context.Context, jobInstance *core.JobInstance) error {
+	return nil
+}
+func (m *MockJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Context, jobName string, params core.JobParameters) (*core.JobInstance, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) FindJobInstanceByID(ctx context.Context, instanceID string) (*core.JobInstance, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) SaveJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
+	return nil
+}
+func (m *MockJobRepository) UpdateJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
+	return nil
+}
+func (m *MockJobRepository) FindJobExecutionByID(ctx context.Context, executionID string) (*core.JobExecution, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) Close() error { return nil }
+func (m *MockJobRepository) GetJobNames(ctx context.Context) ([]string, error) { return nil, nil }
+func (m *MockJobRepository) GetJobInstanceCount(ctx context.Context, jobName string) (int, error) { return 0, nil }
+func (m *MockJobRepository) FindLatestJobExecution(ctx context.Context, jobInstanceID string) (*core.JobExecution, error) { return nil, nil }
+func (m *MockJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, jobInstance *core.JobInstance) ([]*core.JobExecution, error) { return nil, nil }
+func (m *MockJobRepository) SaveStepExecution(ctx context.Context, stepExecution *core.StepExecution) error { return nil }
+func (m *MockJobRepository) UpdateStepExecution(ctx context.Context, stepExecution *core.StepExecution) error { return nil }
+func (m *MockJobRepository) FindStepExecutionByID(ctx context.Context, executionID string) (*core.StepExecution, error) { return nil, nil }
+func (m *MockJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Context, jobExecutionID string) ([]*core.StepExecution, error) { return nil, nil }
+func (m *MockJobRepository) GetDBConnection() database.DBConnection { return nil }

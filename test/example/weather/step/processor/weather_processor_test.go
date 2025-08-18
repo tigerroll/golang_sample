@@ -6,6 +6,9 @@ import (
 	"time"
 
 	weather_entity "sample/example/weather/domain/entity"
+	batch_config "sample/pkg/batch/config" // config パッケージをインポート
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	"sample/pkg/batch/database" // database パッケージをインポート (MockJobRepository のため)
 	weatherprocessor "sample/example/weather/step/processor" // プロダクションコードのパッケージをインポート
 	"sample/pkg/batch/util/exception"
 
@@ -80,7 +83,11 @@ func TestWeatherProcessor_ProcessScenarios(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			processor := weatherprocessor.NewWeatherProcessor()
+			// テスト用のダミーのConfigとJobRepositoryを作成
+			dummyConfig := batch_config.NewConfig()
+			dummyJobRepo := &MockJobRepository{} // モックまたはnil
+			processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, nil) // 引数を追加
+			assert.NoError(t, err, "NewWeatherProcessor should not return an error") // コンストラクタのエラーチェック
 			ctx := context.Background()
 
 			output, err := processor.Process(ctx, tt.input)
@@ -115,9 +122,12 @@ func TestWeatherProcessor_ProcessScenarios(t *testing.T) {
 	}
 }
 
-// TestWeatherProcessor_ContextCancellation は Context のキャンセルが正しく処理されるかテストします。
 func TestWeatherProcessor_ContextCancellation(t *testing.T) {
-	processor := weatherprocessor.NewWeatherProcessor()
+	// テスト用のダミーのConfigとJobRepositoryを作成
+	dummyConfig := batch_config.NewConfig()
+	dummyJobRepo := &MockJobRepository{} // モックまたはnil
+	processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, nil) // 引数を追加
+	assert.NoError(t, err, "NewWeatherProcessor should not return an error") // コンストラクタのエラーチェック
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 処理中にキャンセルをトリガー
@@ -147,3 +157,36 @@ func TestWeatherProcessor_ContextCancellation(t *testing.T) {
 	assert.Nil(t, output, "Expected nil output on context cancellation")
 	assert.Equal(t, context.Canceled, err, "Expected context.Canceled error")
 }
+
+// MockJobRepository は job.JobRepository インターフェースのダミー実装です。
+// このテストではリポジトリの永続化機能は使用しないため、メソッドは空で問題ありません。
+type MockJobRepository struct{}
+
+func (m *MockJobRepository) SaveJobInstance(ctx context.Context, jobInstance *core.JobInstance) error {
+	return nil
+}
+func (m *MockJobRepository) FindJobInstanceByJobNameAndParameters(ctx context.Context, jobName string, params core.JobParameters) (*core.JobInstance, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) FindJobInstanceByID(ctx context.Context, instanceID string) (*core.JobInstance, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) SaveJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
+	return nil
+}
+func (m *MockJobRepository) UpdateJobExecution(ctx context.Context, jobExecution *core.JobExecution) error {
+	return nil
+}
+func (m *MockJobRepository) FindJobExecutionByID(ctx context.Context, executionID string) (*core.JobExecution, error) {
+	return nil, nil
+}
+func (m *MockJobRepository) Close() error { return nil }
+func (m *MockJobRepository) GetJobNames(ctx context.Context) ([]string, error) { return nil, nil }
+func (m *MockJobRepository) GetJobInstanceCount(ctx context.Context, jobName string) (int, error) { return 0, nil }
+func (m *MockJobRepository) FindLatestJobExecution(ctx context.Context, jobInstanceID string) (*core.JobExecution, error) { return nil, nil }
+func (m *MockJobRepository) FindJobExecutionsByJobInstance(ctx context.Context, jobInstance *core.JobInstance) ([]*core.JobExecution, error) { return nil, nil }
+func (m *MockJobRepository) SaveStepExecution(ctx context.Context, stepExecution *core.StepExecution) error { return nil }
+func (m *MockJobRepository) UpdateStepExecution(ctx context.Context, stepExecution *core.StepExecution) error { return nil }
+func (m *MockJobRepository) FindStepExecutionByID(ctx context.Context, executionID string) (*core.StepExecution, error) { return nil, nil }
+func (m *MockJobRepository) FindStepExecutionsByJobExecutionID(ctx context.Context, jobExecutionID string) ([]*core.StepExecution, error) { return nil, nil }
+func (m *MockJobRepository) GetDBConnection() database.DBConnection { return nil }

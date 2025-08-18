@@ -6,7 +6,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	reader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート (エイリアスを reader に変更)
 	logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
 )
@@ -20,7 +20,7 @@ type DummyReader struct { // 構造体名は変更しない
 
 // NewDummyReader は新しい DummyReader のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
-func NewDummyReader(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyReader, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewDummyReader(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*DummyReader, error) { // repo の型を job.JobRepository に変更
 	_ = cfg        // 未使用の引数を無視
 	_ = repo
 	_ = properties

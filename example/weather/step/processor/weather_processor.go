@@ -7,7 +7,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
-	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	processor "sample/pkg/batch/step/processor" // ItemProcessor インターフェースをインポート (エイリアスを processor に変更)
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 
@@ -34,7 +34,7 @@ type WeatherProcessor struct {
 }
 
 // NewWeatherProcessor が ComponentBuilder のシグネチャに合わせるように修正
-func NewWeatherProcessor(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*WeatherProcessor, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewWeatherProcessor(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*WeatherProcessor, error) { // repo の型を job.JobRepository に変更
 	_ = cfg        // 未使用の引数を無視
 	_ = repo       // 未使用の引数を無視
 	_ = properties

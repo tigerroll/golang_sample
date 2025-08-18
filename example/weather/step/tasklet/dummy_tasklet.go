@@ -8,7 +8,7 @@ import (
 
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
-	repository "sample/pkg/batch/repository" // repository パッケージをインポート
+	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	step "sample/pkg/batch/step" // pkg/batch/step を参照
 	logger "sample/pkg/batch/util/logger"
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
@@ -24,7 +24,7 @@ type DummyTasklet struct {
 
 // NewDummyTasklet は新しい DummyTasklet のインスタンスを作成します。
 // ComponentBuilder のシグネチャに合わせ、cfg, repo, properties を受け取りますが、現時点では利用しません。
-func NewDummyTasklet(cfg *config.Config, repo repository.JobRepository, properties map[string]string) (*DummyTasklet, error) { // ★ 変更: シグネチャを factory.ComponentBuilder に合わせる
+func NewDummyTasklet(cfg *config.Config, repo job.JobRepository, properties map[string]string) (*DummyTasklet, error) { // repo の型を job.JobRepository に変更
 	_ = cfg        // 未使用の引数を無視
 	_ = repo
 	_ = properties
