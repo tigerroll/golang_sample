@@ -164,7 +164,7 @@ func TestWeatherWriter_WriteScenarios(t *testing.T) {
 			dummyConfig := batch_config.NewConfig()
 			dummyConfig.Database.Type = "postgres" // ★ 追加: データベースタイプを設定
 			dummyJobRepo := &MockJobRepository{} // モックまたはnil
-			writer, err := weatherwriter.NewWeatherWriter(dummyConfig, dummyJobRepo, nil) // 引数を追加
+			writer, err := weatherwriter.NewWeatherWriter(dummyConfig, dummyJobRepo, map[string]string{}) // 引数を追加
 			assert.NoError(t, err, "NewWeatherWriter should not return an error") // コンストラクタのエラーチェック
 			ctx := context.Background()
 			
@@ -201,7 +201,7 @@ func TestWeatherWriter_ContextCancellation(t *testing.T) {
 	dummyConfig := batch_config.NewConfig()
 	dummyConfig.Database.Type = "postgres" // ★ 追加: データベースタイプを設定
 	dummyJobRepo := &MockJobRepository{} // モックまたはnil
-	writer, err := weatherwriter.NewWeatherWriter(dummyConfig, dummyJobRepo, nil) // 引数を追加
+	writer, err := weatherwriter.NewWeatherWriter(dummyConfig, dummyJobRepo, map[string]string{}) // 引数を追加
 	assert.NoError(t, err, "NewWeatherWriter should not return an error") // コンストラクタのエラーチェック
 	// Context を作成し、すぐにキャンセルする
 	ctx, cancel := context.WithCancel(context.Background())

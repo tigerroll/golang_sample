@@ -86,7 +86,7 @@ func TestWeatherProcessor_ProcessScenarios(t *testing.T) {
 			// テスト用のダミーのConfigとJobRepositoryを作成
 			dummyConfig := batch_config.NewConfig()
 			dummyJobRepo := &MockJobRepository{} // モックまたはnil
-			processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, nil) // 引数を追加
+			processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, map[string]string{}) // 引数を追加
 			assert.NoError(t, err, "NewWeatherProcessor should not return an error") // コンストラクタのエラーチェック
 			ctx := context.Background()
 
@@ -126,7 +126,7 @@ func TestWeatherProcessor_ContextCancellation(t *testing.T) {
 	// テスト用のダミーのConfigとJobRepositoryを作成
 	dummyConfig := batch_config.NewConfig()
 	dummyJobRepo := &MockJobRepository{} // モックまたはnil
-	processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, nil) // 引数を追加
+	processor, err := weatherprocessor.NewWeatherProcessor(dummyConfig, dummyJobRepo, map[string]string{}) // 引数を追加
 	assert.NoError(t, err, "NewWeatherProcessor should not return an error") // コンストラクタのエラーチェック
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -155,7 +155,7 @@ func TestWeatherProcessor_ContextCancellation(t *testing.T) {
 	output, err := processor.Process(ctx, input)
 	assert.Error(t, err, "Expected an error due to context cancellation")
 	assert.Nil(t, output, "Expected nil output on context cancellation")
-	assert.Equal(t, context.Canceled, err, "Expected context.Canceled error")
+	assert.ErrorIs(t, err, context.Canceled, "Expected context.Canceled error") // errors.Is を使用
 }
 
 // MockJobRepository は job.JobRepository インターフェースのダミー実装です。

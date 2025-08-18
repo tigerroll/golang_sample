@@ -130,7 +130,7 @@ func TestWeatherReader_ReadScenarios(t *testing.T) {
 				APIKey:      "dummy-key",
 			}
 			dummyJobRepo := &MockJobRepository{} // モックまたはnil
-			reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+			reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, map[string]string{}) // 引数を追加
 			assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 
 			ctx := context.Background()
@@ -189,7 +189,7 @@ func TestWeatherReader_ExecutionContextPersistence(t *testing.T) {
 		APIKey:      "dummy-key",
 	}
 	dummyJobRepo := &MockJobRepository{} // モックまたはnil
-	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, map[string]string{}) // 引数を追加
 	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 	ctx := context.Background()
 
@@ -215,7 +215,7 @@ func TestWeatherReader_ExecutionContextPersistence(t *testing.T) {
 	assert.NotEmpty(t, forecastJSON, "forecastData should not be empty")
 
 	// 新しいReaderインスタンスを作成し、ExecutionContext を復元
-	newReader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	newReader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, map[string]string{}) // 引数を追加
 	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 	err = newReader.Open(ctx, ec) // Open を呼び出す
 	assert.NoError(t, err)
@@ -257,7 +257,7 @@ func TestWeatherReader_ContextCancellation(t *testing.T) {
 		APIKey:      "dummy-key",
 	}
 	dummyJobRepo := &MockJobRepository{} // モックまたはnil
-	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, nil) // 引数を追加
+	reader, err := weatherreader.NewWeatherReader(batchCfg, dummyJobRepo, map[string]string{}) // 引数を追加
 	assert.NoError(t, err, "NewWeatherReader should not return an error") // コンストラクタのエラーチェック
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // 短いタイムアウト
