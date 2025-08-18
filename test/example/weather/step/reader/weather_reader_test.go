@@ -21,7 +21,6 @@ import (
 	"sample/pkg/batch/util/exception"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 // mockOpenMeteoResponse はテスト用のOpenMeteo APIのモックレスポンスを生成します。
