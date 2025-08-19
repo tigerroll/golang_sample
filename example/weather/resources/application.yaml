@@ -2,9 +2,9 @@ database:
   type: "postgres"
   host: "postgres"
   port: 5432
-  database: "main"
-  user: "weather"
-  password: "wather"
+  database: "main" # 実際のDB名に合わせる
+  user: "weather" # 実際のユーザー名に合わせる
+  password: "weather" # 実際のパスワードに合わせる (タイプミスに注意)
   sslmode: "disable"
   # ★ 追加: アプリケーション固有のマイグレーションパス
   # 例: weather アプリケーションのマイグレーションファイルが 'example/weather/resources/migrations' にある場合

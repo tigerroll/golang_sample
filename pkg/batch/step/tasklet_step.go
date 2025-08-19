@@ -6,8 +6,7 @@ import (
 	"time"
 	
 	core "sample/pkg/batch/job/core"
-	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
-	stepListener "sample/pkg/batch/step/listener"
+	"sample/pkg/batch/repository/job"
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -15,21 +14,21 @@ import (
 // TaskletStep は Tasklet インターフェースをラップし、core.Step インターフェースを実装します。
 // JSR352のTaskletステップに相当します。
 type TaskletStep struct {
-	name          string
-	tasklet       Tasklet // Tasklet インターフェース
-	stepListeners []stepListener.StepExecutionListener // ステップリスナー
-	jobRepository job.JobRepository // job.JobRepository に変更
+	name          string                         // ステップ名
+	tasklet       core.Tasklet                   // core.Tasklet インターフェースを使用
+	stepListeners []core.StepExecutionListener   // core.StepExecutionListener を使用
+	jobRepository job.JobRepository              // job.JobRepository に変更
 }
 
 // TaskletStep が core.Step インターフェースを満たすことを確認します。
 var _ core.Step = (*TaskletStep)(nil)
 
 // NewTaskletStep は新しい TaskletStep のインスタンスを作成します。
-func NewTaskletStep( // NewTaskletStep を返す
-	name string, // ステップ名
-	tasklet Tasklet, // Tasklet インターフェース
-	jobRepository job.JobRepository, // job.JobRepository を受け取る
-	stepListeners []stepListener.StepExecutionListener, // ステップリスナー
+func NewTaskletStep(
+	name string,
+	tasklet core.Tasklet, // core.Tasklet を使用
+	jobRepository job.JobRepository,
+	stepListeners []core.StepExecutionListener, // core.StepExecutionListener を使用
 ) *TaskletStep { // TaskletStep を返す
 	return &TaskletStep{
 		name:          name,
@@ -50,14 +49,14 @@ func (s *TaskletStep) ID() string {
 }
 
 // notifyBeforeStep は登録されている StepExecutionListener の BeforeStep メソッドを呼び出します。
-func (s *TaskletStep) notifyBeforeStep(ctx context.Context, stepExecution *core.StepExecution) {
+func (s *TaskletStep) notifyBeforeStep(ctx context.Context, stepExecution *core.StepExecution) { // core.StepExecutionListener を使用
 	for _, l := range s.stepListeners {
 		l.BeforeStep(ctx, stepExecution)
 	}
 }
 
 // notifyAfterStep は登録されている StepExecutionListener の AfterStep メソッドを呼び出します。
-func (s *TaskletStep) notifyAfterStep(ctx context.Context, stepExecution *core.StepExecution) {
+func (s *TaskletStep) notifyAfterStep(ctx context.Context, stepExecution *core.StepExecution) { // core.StepExecutionListener を使用
 	for _, l := range s.stepListeners {
 		l.AfterStep(ctx, stepExecution)
 	}

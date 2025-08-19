@@ -143,4 +143,4 @@ func (w *ExecutionContextWriter) GetExecutionContext(ctx context.Context) (core.
 }
 
 // Writer インターフェースが実装されていることを確認
-var _ ItemWriter[any] = (*ExecutionContextWriter)(nil) // REMOVED: itemwriter.ItemWriter -> ItemWriter
+var _ core.ItemWriter[any] = (*ExecutionContextWriter)(nil) // REMOVED: itemwriter.ItemWriter -> ItemWriter

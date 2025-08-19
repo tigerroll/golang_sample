@@ -4,15 +4,11 @@ import (
 	"fmt"
 	"reflect"
 
-	component "sample/pkg/batch/job/component" // ★ 変更: factory の代わりに component をインポート
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
+	component "sample/pkg/batch/job/component"
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	step "sample/pkg/batch/step" // そのまま
-	stepListener "sample/pkg/batch/step/listener" // そのまま
-	processor "sample/pkg/batch/step/processor" // エイリアスを processor に変更
-	reader "sample/pkg/batch/step/reader"       // エイリアスを reader に変更
-	writer "sample/pkg/batch/step/writer"       // エイリアスを writer に変更
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
 	yaml "gopkg.in/yaml.v3"
@@ -79,7 +75,7 @@ func ConvertJSLToCoreFlow(
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("リーダー '%s' のビルドに失敗しました", jslStep.Reader.Ref), err, false, false)
 				}
-				r, isReader := readerInstance.(reader.ItemReader[any])
+				r, isReader := readerInstance.(core.ItemReader[any])
 				if !isReader {
 					return nil, exception.NewBatchErrorf(module, "リーダー '%s' が見つからないか、不正な型です (期待: ItemReader[any], 実際: %s)", jslStep.Reader.Ref, reflect.TypeOf(readerInstance))
 				}
@@ -92,7 +88,7 @@ func ConvertJSLToCoreFlow(
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("プロセッサ '%s' のビルドに失敗しました", jslStep.Processor.Ref), err, false, false)
 				}
-				p, isProcessor := processorInstance.(processor.ItemProcessor[any, any])
+				p, isProcessor := processorInstance.(core.ItemProcessor[any, any])
 				if !isProcessor {
 					return nil, exception.NewBatchErrorf(module, "プロセッサ '%s' が見つからないか、不正な型です (期待: ItemProcessor[any, any], 実際: %s)", jslStep.Processor.Ref, reflect.TypeOf(processorInstance))
 				}
@@ -105,21 +101,21 @@ func ConvertJSLToCoreFlow(
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("ライター '%s' のビルドに失敗しました", jslStep.Writer.Ref), err, false, false)
 				}
-				w, isWriter := writerInstance.(writer.ItemWriter[any])
+				w, isWriter := writerInstance.(core.ItemWriter[any])
 				if !isWriter {
 					return nil, exception.NewBatchErrorf(module, "ライター '%s' が見つからないか、不正な型です (期待: ItemWriter[any], 実際: %s)", jslStep.Writer.Ref, reflect.TypeOf(writerInstance))
 				}
 
 				// ステップレベルリスナーの構築
-				var stepExecListeners []stepListener.StepExecutionListener
+				var stepExecListeners []core.StepExecutionListener
 				for _, listenerRef := range jslStep.Listeners {
 					builderAny, found := stepListenerBuilders[listenerRef.Ref]
 					if !found {
 						return nil, exception.NewBatchErrorf(module, "StepExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
 					}
-					builder, ok := builderAny.(func(*config.Config) (stepListener.StepExecutionListener, error))
+					builder, ok := builderAny.(func(*config.Config) (core.StepExecutionListener, error))
 					if !ok {
-						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
 					}
 					listenerInstance, err := builder(cfg)
 					if err != nil {
@@ -180,15 +176,15 @@ func ConvertJSLToCoreFlow(
 					itemWriteListeners = append(itemWriteListeners, listenerInstance)
 				}
 
-				var skipListeners []stepListener.SkipListener
+				var skipListeners []core.SkipListener
 				for _, listenerRef := range jslStep.SkipListeners {
 					builderAny, found := skipListenerBuilders[listenerRef.Ref]
 					if !found {
 						return nil, exception.NewBatchErrorf(module, "SkipListener '%s' のビルダーが登録されていません", listenerRef.Ref)
 					}
-					builder, ok := builderAny.(func(*config.Config) (stepListener.SkipListener, error))
+					builder, ok := builderAny.(func(*config.Config) (core.SkipListener, error))
 					if !ok {
-						return nil, exception.NewBatchErrorf(module, "SkipListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.SkipListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+						return nil, exception.NewBatchErrorf(module, "SkipListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.SkipListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
 					}
 					listenerInstance, err := builder(cfg)
 					if err != nil {
@@ -197,15 +193,15 @@ func ConvertJSLToCoreFlow(
 					skipListeners = append(skipListeners, listenerInstance)
 				}
 
-				var retryItemListeners []stepListener.RetryItemListener
+				var retryItemListeners []core.RetryItemListener
 				for _, listenerRef := range jslStep.RetryItemListeners {
 					builderAny, found := retryItemListenerBuilders[listenerRef.Ref]
 					if !found {
 						return nil, exception.NewBatchErrorf(module, "RetryItemListener '%s' のビルダーが登録されていません", listenerRef.Ref)
 					}
-					builder, ok := builderAny.(func(*config.Config) (stepListener.RetryItemListener, error))
+					builder, ok := builderAny.(func(*config.Config) (core.RetryItemListener, error))
 					if !ok {
-						return nil, exception.NewBatchErrorf(module, "RetryItemListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.RetryItemListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+						return nil, exception.NewBatchErrorf(module, "RetryItemListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.RetryItemListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
 					}
 					listenerInstance, err := builder(cfg)
 					if err != nil {
@@ -243,21 +239,21 @@ func ConvertJSLToCoreFlow(
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("タスクレット '%s' のビルドに失敗しました", jslStep.Tasklet.Ref), err, false, false)
 				}
-				t, isTasklet := taskletInstance.(step.Tasklet) // step.Tasklet インターフェースに型アサーション
+				t, isTasklet := taskletInstance.(core.Tasklet) // step.Tasklet インターフェースに型アサーション
 				if !isTasklet {
-					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: step.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletInstance))
+					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: core.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletInstance))
 				}
 
 				// ステップレベルリスナーの構築 (チャンクステップと同じ)
-				var stepExecListeners []stepListener.StepExecutionListener
+				var stepExecListeners []core.StepExecutionListener
 				for _, listenerRef := range jslStep.Listeners {
 					builderAny, found := stepListenerBuilders[listenerRef.Ref]
 					if !found {
 						return nil, exception.NewBatchErrorf(module, "StepExecutionListener '%s' のビルダーが登録されていません", listenerRef.Ref)
 					}
-					builder, ok := builderAny.(func(*config.Config) (stepListener.StepExecutionListener, error))
+					builder, ok := builderAny.(func(*config.Config) (core.StepExecutionListener, error))
 					if !ok {
-						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (stepListener.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+						return nil, exception.NewBatchErrorf(module, "StepExecutionListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.StepExecutionListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
 					}
 					listenerInstance, err := builder(cfg)
 					if err != nil {

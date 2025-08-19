@@ -26,7 +26,7 @@ import (
 	// pkg/batch に残る汎用コンポーネントのインポート
 	executionContextReader "sample/pkg/batch/step/reader" // エイリアスを executionContextReader に変更
 	executionContextWriter "sample/pkg/batch/step/writer" // エイリアスを executionContextWriter に変更
-	steplistener "sample/pkg/batch/step/listener" // stepListener をインポート
+	steplistener "sample/pkg/batch/step/listener" // Concrete implementations are still here
 )
 
 // registerApplicationComponents はアプリケーション固有のコンポーネントとジョブを JobFactory に登録します。
@@ -72,18 +72,18 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	})
 
 	// Step-level listeners の登録
-	jobFactory.RegisterStepExecutionListenerBuilder("loggingStepListener", func(cfg *config.Config) (steplistener.StepExecutionListener, error) {
+	jobFactory.RegisterStepExecutionListenerBuilder("loggingStepListener", func(cfg *config.Config) (core.StepExecutionListener, error) {
 		return steplistener.NewLoggingListener(&cfg.System.Logging), nil
 	})
-	jobFactory.RegisterStepExecutionListenerBuilder("retryStepListener", func(cfg *config.Config) (steplistener.StepExecutionListener, error) {
+	jobFactory.RegisterStepExecutionListenerBuilder("retryStepListener", func(cfg *config.Config) (core.StepExecutionListener, error) {
 		return steplistener.NewRetryListener(&cfg.Batch.Retry), nil
 	})
 
 	// Item-level listeners の登録 (既存の実装のみ)
-	jobFactory.RegisterSkipListenerBuilder("loggingSkipListener", func(cfg *config.Config) (steplistener.SkipListener, error) {
+	jobFactory.RegisterSkipListenerBuilder("loggingSkipListener", func(cfg *config.Config) (core.SkipListener, error) {
 		return steplistener.NewLoggingSkipListener(), nil
 	})
-	jobFactory.RegisterRetryItemListenerBuilder("loggingRetryItemListener", func(cfg *config.Config) (steplistener.RetryItemListener, error) {
+	jobFactory.RegisterRetryItemListenerBuilder("loggingRetryItemListener", func(cfg *config.Config) (core.RetryItemListener, error) {
 		return steplistener.NewLoggingRetryItemListener(), nil
 	})
 	// 新しいアイテムレベルリスナーの登録

@@ -168,4 +168,4 @@ func (r *ExecutionContextReader) GetExecutionContext(ctx context.Context) (core.
 }
 
 // ExecutionContextReader が ItemReader[any] インターフェースを満たすことを確認
-var _ ItemReader[any] = (*ExecutionContextReader)(nil) // reader.ItemReader[any] から ItemReader[any] に変更
+var _ core.ItemReader[any] = (*ExecutionContextReader)(nil) // reader.ItemReader[any] から ItemReader[any] に変更
