@@ -1,4 +1,4 @@
-package weatherprocessor // パッケージ名を 'weatherprocessor' に変更
+package processor // パッケージ名を 'weatherprocessor' から 'processor' に変更
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
-	processor "sample/pkg/batch/step/processor" // ItemProcessor インターフェースをインポート (エイリアスを processor に変更)
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -71,4 +70,4 @@ func (p *DummyProcessor) GetExecutionContext(ctx context.Context) (core.Executio
 }
 
 // DummyProcessor が ItemProcessor[any, any] インターフェースを満たすことを確認
-var _ processor.ItemProcessor[any, any] = (*DummyProcessor)(nil) // processor.ItemProcessor[any, any] に変更
+var _ core.ItemProcessor[any, any] = (*DummyProcessor)(nil) // processor.ItemProcessor[any, any] に変更

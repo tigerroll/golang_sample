@@ -9,7 +9,6 @@ import (
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core"
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
-	step "sample/pkg/batch/step" // pkg/batch/step を参照
 	logger "sample/pkg/batch/util/logger"
 	"sample/pkg/batch/util/exception" // exception パッケージをインポート
 )
@@ -106,4 +105,4 @@ func (t *DummyTasklet) GetExecutionContext(ctx context.Context) (core.ExecutionC
 }
 
 // DummyTasklet が Tasklet インターフェースを満たすことを確認
-var _ step.Tasklet = (*DummyTasklet)(nil)
+var _ core.Tasklet = (*DummyTasklet)(nil)

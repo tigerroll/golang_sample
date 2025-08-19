@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"sample/pkg/batch/config" // config パッケージをインポート
-	"sample/pkg/batch/database" // database パッケージをインポート
+	"sample/pkg/batch/config"
+	"sample/pkg/batch/database/connector" // database/connector パッケージをインポート
 	"sample/pkg/batch/repository/job" // job インターフェースをインポート
 	"sample/pkg/batch/repository/sql" // sql 実装をインポート
 	"sample/pkg/batch/util/exception"
@@ -22,7 +22,7 @@ func NewJobRepository(ctx context.Context, cfg config.Config) (job.JobRepository
 	module := "repository_factory"
 	logger.Debugf("JobRepository の生成を開始します (Type: %s).", cfg.Database.Type)
 
-	dbConn, err := database.NewDBConnectionFromConfig(cfg.Database)
+	dbConn, err := connector.NewDBConnectionFromConfig(ctx, cfg.Database) // ctx を追加
 	if err != nil {
 		logger.Errorf("JobRepository 用のデータベース接続確立に失敗しました (Type: %s): %v", cfg.Database.Type, err)
 		return nil, exception.NewBatchError(module, fmt.Sprintf("JobRepository 用のデータベース接続確立に失敗しました (Type: %s)", cfg.Database.Type), err, false, false)

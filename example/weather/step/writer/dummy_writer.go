@@ -1,4 +1,4 @@
-package weatherwriter // パッケージ名を 'weatherwriter' に変更
+package writer // パッケージ名を 'weatherwriter' から 'writer' に変更
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
-	writer "sample/pkg/batch/step/writer" // ItemWriter インターフェースをインポート (エイリアスを writer に変更)
 	logger "sample/pkg/batch/util/logger"
 )
 
@@ -101,4 +100,4 @@ func (w *DummyWriter) GetExecutionContext(ctx context.Context) (core.ExecutionCo
 }
 
 // DummyWriter が ItemWriter[any] インターフェースを満たすことを確認
-var _ writer.ItemWriter[any] = (*DummyWriter)(nil) // writer.ItemWriter[any] に変更
+var _ core.ItemWriter[any] = (*DummyWriter)(nil) // writer.ItemWriter[any] に変更

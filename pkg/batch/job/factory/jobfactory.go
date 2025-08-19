@@ -1,21 +1,20 @@
 package factory
 
 import (
-	"fmt" // ★ 追加: fmt パッケージを再度インポート
+	"fmt"
 
 	component "sample/pkg/batch/job/component"
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	jsl "sample/pkg/batch/job/jsl" // jsl パッケージをインポート
 	jobListener "sample/pkg/batch/job/listener"
-	stepListener "sample/pkg/batch/step/listener"
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 )
 
 // StepExecutionListenerBuilder は StepExecutionListener を生成するための関数型です。
-type StepExecutionListenerBuilder func(cfg *config.Config) (stepListener.StepExecutionListener, error)
+type StepExecutionListenerBuilder func(cfg *config.Config) (core.StepExecutionListener, error)
 
 // ItemReadListenerBuilder は core.ItemReadListener を生成するための関数型です。
 type ItemReadListenerBuilder func(cfg *config.Config) (core.ItemReadListener, error)
@@ -26,12 +25,11 @@ type ItemProcessListenerBuilder func(cfg *config.Config) (core.ItemProcessListen
 // ItemWriteListenerBuilder は core.ItemWriteListener を生成するための関数型です。
 type ItemWriteListenerBuilder func(cfg *config.Config) (core.ItemWriteListener, error)
 
-// SkipListenerBuilder は stepListener.SkipListener を生成するための関数型です。
-type SkipListenerBuilder func(cfg *config.Config) (stepListener.SkipListener, error)
+// SkipListenerBuilder は SkipListener を生成するための関数型です。
+type SkipListenerBuilder func(cfg *config.Config) (core.SkipListener, error)
 
-// RetryItemListenerBuilder は stepListener.RetryItemListener を生成するための関数型です。
-type RetryItemListenerBuilder func(cfg *config.Config) (stepListener.RetryItemListener, error)
-
+// RetryItemListenerBuilder は RetryItemListener を生成するための関数型です。
+type RetryItemListenerBuilder func(cfg *config.Config) (core.RetryItemListener, error)
 
 
 // JobListenerBuilder は JobExecutionListener を生成するための関数型です。
@@ -159,7 +157,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// ConvertJSLToCoreFlow に渡すリスナービルダーマップ
 	stepListenerBuilders := make(map[string]any)
 	for k, v := range f.stepListenerBuilders {
-		stepListenerBuilders[k] = (func(*config.Config) (stepListener.StepExecutionListener, error))(v)
+		stepListenerBuilders[k] = (func(*config.Config) (core.StepExecutionListener, error))(v)
 	}
 	itemReadListenerBuilders := make(map[string]any)
 	for k, v := range f.itemReadListenerBuilders {
@@ -175,11 +173,11 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	}
 	skipListenerBuilders := make(map[string]any)
 	for k, v := range f.skipListenerBuilders {
-		skipListenerBuilders[k] = (func(*config.Config) (stepListener.SkipListener, error))(v)
+		skipListenerBuilders[k] = (func(*config.Config) (core.SkipListener, error))(v)
 	}
 	retryItemListenerBuilders := make(map[string]any)
 	for k, v := range f.retryItemListenerBuilders {
-		retryItemListenerBuilders[k] = (func(*config.Config) (stepListener.RetryItemListener, error))(v)
+		retryItemListenerBuilders[k] = (func(*config.Config) (core.RetryItemListener, error))(v)
 	}
 
 	// ConvertJSLToCoreFlow に componentBuilders を渡すように変更

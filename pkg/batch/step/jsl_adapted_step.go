@@ -12,11 +12,7 @@ import (
 
 	"sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
-	job "sample/pkg/batch/repository/job" // repository を job に変更
-	stepListener "sample/pkg/batch/step/listener"
-	itemprocessor "sample/pkg/batch/step/processor" // エイリアスを itemprocessor に変更
-	itemreader "sample/pkg/batch/step/reader"       // エイリアスを itemreader に変更
-	itemwriter "sample/pkg/batch/step/writer"       // エイリアスを itemwriter に変更
+	job "sample/pkg/batch/repository/job"
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
 )
@@ -28,21 +24,21 @@ import (
 // これらのフィールドは `any` 型引数を持つジェネリックインターフェースとして保持し、
 // 内部で適切な型アサーションを行います。
 type JSLAdaptedStep struct {
-	name                 string                            // ステップ名
-	reader               itemreader.ItemReader[any]            // ItemReader[O any]
-	processor            itemprocessor.ItemProcessor[any, any] // ItemProcessor[I, O any]
-	writer               itemwriter.ItemWriter[any]            // ItemWriter[I any]
+	name                 string                         // ステップ名
+	reader               core.ItemReader[any]           // core.ItemReader を使用
+	processor            core.ItemProcessor[any, any]   // core.ItemProcessor を使用
+	writer               core.ItemWriter[any]           // core.ItemWriter を使用
 	chunkSize            int
-	stepRetryConfig      *config.RetryConfig                // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
-	itemRetryConfig      config.ItemRetryConfig             // アイテムレベルのリトライ設定
-	itemSkipConfig       config.ItemSkipConfig              // アイテムレベルのスキップ設定
-	stepListeners        []stepListener.StepExecutionListener // ステップレベルのリスナー
-	itemReadListeners    []core.ItemReadListener            // アイテム読み込みリスナー
-	itemProcessListeners []core.ItemProcessListener         // アイテム処理リスナー
-	itemWriteListeners   []core.ItemWriteListener           // アイテム書き込みリスナー
-	skipListeners        []stepListener.SkipListener        // スキップリスナー
-	retryItemListeners   []stepListener.RetryItemListener   // アイテムリトライリスナー
-	jobRepository        job.JobRepository           // JobRepository を追加 (トランザクション管理のため)
+	stepRetryConfig      *config.RetryConfig            // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
+	itemRetryConfig      config.ItemRetryConfig         // アイテムレベルのリトライ設定
+	itemSkipConfig       config.ItemSkipConfig          // アイテムレベルのスキップ設定
+	stepListeners        []core.StepExecutionListener   // core.StepExecutionListener を使用
+	itemReadListeners    []core.ItemReadListener        // アイテム読み込みリスナー
+	itemProcessListeners []core.ItemProcessListener     // アイテム処理リスナー
+	itemWriteListeners   []core.ItemWriteListener       // アイテム書き込みリスナー
+	skipListeners        []core.SkipListener            // core.SkipListener を使用
+	retryItemListeners   []core.RetryItemListener       // core.ItemRetryListener を使用
+	jobRepository        job.JobRepository              // JobRepository を追加 (トランザクション管理のため)
 }
 
 // JSLAdaptedStep が core.Step インターフェースを満たすことを確認します。
@@ -51,22 +47,22 @@ var _ core.Step = (*JSLAdaptedStep)(nil)
 // NewJSLAdaptedStep は新しい JSLAdaptedStep のインスタンスを作成します。
 // ステップの依存関係と設定、および各種リスナーを受け取ります。
 // reader, processor, writer は any 型引数を持つジェネリックインターフェースとして受け取ります。
-func NewJSLAdaptedStep(
+func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 	name string,
-	reader itemreader.ItemReader[any], // ItemReader[any]
-	processor itemprocessor.ItemProcessor[any, any], // ItemProcessor[any, any]
-	writer itemwriter.ItemWriter[any], // ItemWriter[any]
+	reader core.ItemReader[any],
+	processor core.ItemProcessor[any, any],
+	writer core.ItemWriter[any],
 	chunkSize int,
 	stepRetryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
 	itemSkipConfig config.ItemSkipConfig,
 	jobRepository job.JobRepository, // JobRepository を追加
-	stepListeners []stepListener.StepExecutionListener, // ステップレベルリスナー
+	stepListeners []core.StepExecutionListener, // core.StepExecutionListener を使用
 	itemReadListeners []core.ItemReadListener, // アイテム読み込みリスナー
 	itemProcessListeners []core.ItemProcessListener, // アイテム処理リスナー
 	itemWriteListeners []core.ItemWriteListener, // アイテム書き込みリスナー
-	skipListeners []stepListener.SkipListener, // スキップリスナー
-	retryItemListeners []stepListener.RetryItemListener, // アイテムリトライリスナー
+	skipListeners []core.SkipListener, // core.SkipListener を使用
+	retryItemListeners []core.RetryItemListener, // core.ItemRetryListener を使用
 ) *JSLAdaptedStep {
 	return &JSLAdaptedStep{
 		name:                 name,
@@ -100,7 +96,7 @@ func (s *JSLAdaptedStep) ID() string {
 // RegisterListener はこのステップに StepExecutionListener を登録します。
 // NewJSLAdaptedStep でリスナーを受け取るように変更したため、このメソッドは不要になる可能性がありますが、
 // 実行時に動的にリスナーを追加するユースケースのために残しておくこともできます。
-func (s *JSLAdaptedStep) RegisterListener(l stepListener.StepExecutionListener) {
+func (s *JSLAdaptedStep) RegisterListener(l core.StepExecutionListener) { // core.StepExecutionListener を使用
 	s.stepListeners = append(s.stepListeners, l)
 }
 

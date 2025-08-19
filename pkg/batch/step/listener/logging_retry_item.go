@@ -2,15 +2,9 @@ package listener
 
 import (
 	"context"
+	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	"sample/pkg/batch/util/logger"
 )
-
-// RetryItemListener はアイテムレベルのリトライイベントを処理するためのインターフェースです。
-type RetryItemListener interface {
-	OnRetryRead(ctx context.Context, err error)
-	OnRetryProcess(ctx context.Context, item interface{}, err error)
-	OnRetryWrite(ctx context.Context, items []interface{}, err error)
-}
 
 // LoggingRetryItemListener はアイテムレベルのリトライイベントをログ出力する RetryItemListener の実装です。
 type LoggingRetryItemListener struct{}
@@ -36,4 +30,4 @@ func (l *LoggingRetryItemListener) OnRetryWrite(ctx context.Context, items []int
 }
 
 // LoggingRetryItemListener が RetryItemListener インターフェースを満たすことを確認
-var _ RetryItemListener = (*LoggingRetryItemListener)(nil)
+var _ core.RetryItemListener = (*LoggingRetryItemListener)(nil)

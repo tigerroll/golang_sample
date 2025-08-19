@@ -3,9 +3,6 @@ package database
 import (
 	"context"
 	"database/sql"
-
-	"sample/pkg/batch/config"
-	"sample/pkg/batch/database/connector" // 新しく追加
 )
 
 // Tx はデータベーストランザクションのインターフェースです。
@@ -108,15 +105,4 @@ func (a *sqlDBAdapter) QueryContext(ctx context.Context, query string, args ...a
 // QueryRowContext は sql.DB の QueryRowContext メソッドを呼び出します。
 func (a *sqlDBAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return a.db.QueryRowContext(ctx, query, args...) // 修正: args を渡す
-}
-
-// NewDBConnectionFromConfig は設定に基づいて適切なデータベース接続を確立します。
-// 登録されたコネクタの中から適切なものを選択して接続します。
-func NewDBConnectionFromConfig(cfg config.DatabaseConfig) (DBConnection, error) { // ★ 変更: 戻り値を DBConnection に
-	rawDB, err := connector.GetSQLDB(cfg) // connector パッケージの GetSQLDB を呼び出す
-	if err != nil {
-		return nil, err
-	}
-	// 取得した *sql.DB を DBConnection インターフェースに適合させる
-	return NewSQLDBAdapter(rawDB), nil // ★ 追加: アダプターでラップして返す
 }

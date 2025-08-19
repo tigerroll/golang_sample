@@ -10,7 +10,7 @@ import (
 // SQLJobRepository は JobRepository インターフェースの SQL データベース実装です。
 // 各リポジトリの具体的な実装を埋め込み、委譲します。
 type SQLJobRepository struct { // SQLJobRepository を返す
-	dbConnection database.DBConnection // DBConnection インターフェースを追加
+	DBConnection database.DBConnection // ★ 修正: データベース接続を保持するフィールド名を大文字で開始 (エクスポートするため)
 
 	// より粒度の細かいインターフェースを埋め込む (JobInstance, JobExecution, StepExecution はこのパッケージ内で定義されたインターフェース名)
 	// これらのフィールドは、対応する具体的なリポジトリ実装のポインタを保持します。
@@ -31,7 +31,7 @@ func NewSQLJobRepository(dbConn database.DBConnection) *SQLJobRepository {
 	executionRepo.SetStepExecutionRepository(stepRepo)
 
 	return &SQLJobRepository{
-		dbConnection:             dbConn,
+		DBConnection:             dbConn, // ★ 修正: フィールド名を大文字に変更
 		SQLJobInstanceRepository: instanceRepo,
 		SQLJobExecutionRepository: executionRepo,
 		SQLStepExecutionRepository: stepRepo,
@@ -40,13 +40,13 @@ func NewSQLJobRepository(dbConn database.DBConnection) *SQLJobRepository {
 
 // GetDBConnection は JobRepository インターフェースの実装です。
 func (r *SQLJobRepository) GetDBConnection() database.DBConnection {
-	return r.dbConnection
+	return r.DBConnection // ★ 修正: フィールド名を大文字に変更
 }
 
 // Close はデータベース接続を閉じます。
 func (r *SQLJobRepository) Close() error {
-	if r.dbConnection != nil {
-		err := r.dbConnection.Close()
+	if r.DBConnection != nil { // ★ 修正: フィールド名を大文字に変更
+		err := r.DBConnection.Close() // ★ 修正: フィールド名を大文字に変更
 		if err != nil {
 			return exception.NewBatchError("job_repository", "データベース接続を閉じるのに失敗しました", err, false, false)
 		}

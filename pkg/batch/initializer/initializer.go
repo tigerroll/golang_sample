@@ -3,9 +3,7 @@ package initializer
 import (
 	"context"
 	"fmt"
-	"os" // Keep os import for os.Getenv
 
-	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/go-sql-driver/mysql"
@@ -16,8 +14,8 @@ import (
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
 	jsl "sample/pkg/batch/job/jsl" // jsl パッケージをインポート
-	batch_joboperator "sample/pkg/batch/job/joboperator"
-	batch_database "sample/pkg/batch/database" // database パッケージをインポート
+	batch_joboperator "sample/pkg/batch/job/joboperator" // joboperator をインポート
+	batch_database_connector "sample/pkg/batch/database/connector" // database/connector パッケージをインポート
 	"sample/pkg/batch/repository" // ★ この行が重要です。repository パッケージを再度インポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
@@ -32,55 +30,6 @@ type BatchInitializer struct {
 	JobFactory         *factory.JobFactory // ポインタ型を維持
 	JobLauncher        batch_joblauncher.JobLauncher // JobLauncher を追加
 	JobOperator        batch_joboperator.JobOperator
-}
-
-// applyMigrations はマイグレーションを実行するヘルパー関数
-// この関数はアプリケーション固有のマイグレーションにのみ使用されます。
-func applyMigrations(databaseURL string, migrationPath string, dbDriverName string) error {
-	if migrationPath == "" {
-		logger.Infof("マイグレーションパスが指定されていません。スキップします。")
-		return nil
-	}
-
-	var migrateURL string
-	switch dbDriverName {
-	case "postgres", "redshift":
-		migrateURL = databaseURL // postgres://... の形式を想定。デフォルトの schema_migrations を使用。
-	case "mysql":
-		migrateURL = fmt.Sprintf("mysql://%s", databaseURL) // mysql://user:pass@tcp(host:port)/db の形式を想定。デフォルトの schema_migrations を使用。
-	default:
-		return fmt.Errorf("未対応のデータベースドライバです: %s", dbDriverName)
-	}
-
-	logger.Infof("マイグレーションを実行中: パス '%s'", migrationPath)
-	m, err := migrate.New(
-		fmt.Sprintf("file://%s", migrationPath),
-		migrateURL, // x-migrations-table を含まない URL を使用
-	)
-	if err != nil {
-		return exception.NewBatchError("initializer", fmt.Sprintf("マイグレーションインスタンスの作成に失敗しました: %s", migrationPath), err, false, false)
-	}
-
-	// 開発環境向け: 既存のマイグレーションを一度ダウンさせてからアップする (テーブルを再作成するため)
-	// 本番環境ではこのロジックは使用しないでください。
-	if os.Getenv("APP_ENV") == "development" {
-		if err := m.Down(); err != nil && err != migrate.ErrNoChange {
-			logger.Warnf("既存のマイグレーションのダウンに失敗しました (開発環境のみ): %v", err)
-		} else if err == nil {
-			logger.Debugf("既存のマイグレーションをダウンしました: %s", migrationPath)
-		}
-	}
-
-	if err = m.Up(); err != nil && err != migrate.ErrNoChange {
-		return exception.NewBatchError("initializer", fmt.Sprintf("マイグレーションの適用に失敗しました: %s", migrationPath), err, false, false)
-	}
-
-	if err == migrate.ErrNoChange {
-		logger.Infof("マイグレーションは不要です: %s", migrationPath)
-	} else {
-		logger.Infof("マイグレーションが正常に完了しました: %s", migrationPath)
-	}
-	return nil
 }
 
 // NewBatchInitializer は新しい BatchInitializer のインスタンスを作成します。
@@ -128,17 +77,23 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	// バッチフレームワークのマイグレーションを実行
 	// pkg/batch/resources/migrations/batch_framework にあるマイグレーションを適用
 	frameworkMigrationPath := "pkg/batch/resources/migrations/batch_framework"
-	logger.Infof("DEBUG_LOG: Initializer version 20250810_1500. Attempting framework migration from %s", frameworkMigrationPath)
-	// repository.RunMigrations は内部で接続を管理するため、別途DB接続は不要
-	if err := batch_database.RunMigrations(dbDriverName, dbDSN, frameworkMigrationPath); err != nil { // database.RunMigrations に変更
+	logger.Infof("データベースマイグレーションを開始します。DBタイプ: %s, マイグレーションパス: %s", dbDriverName, frameworkMigrationPath)
+	// ★ 変更: RunMigrations に migrationsTable 引数を追加
+	if err := batch_database_connector.RunMigrations(dbDriverName, dbDSN, frameworkMigrationPath, "batch_schema_migrations"); err != nil {
+		logger.Errorf("バッチフレームワークのデータベースマイグレーション中にエラーが発生しました: %v", err)
 		return nil, nil, exception.NewBatchError("initializer", "バッチフレームワークのマイグレーションに失敗しました", err, false, false)
 	}
+	logger.Infof("バッチフレームワークのマイグレーションが正常に完了しました。")
 
 	// アプリケーション固有のマイグレーションを実行 (設定されていれば)
 	if bi.Config.Database.AppMigrationPath != "" {
-		if err := applyMigrations(dbDSN, bi.Config.Database.AppMigrationPath, dbDriverName); err != nil {
+		logger.Infof("データベースマイグレーションを開始します。DBタイプ: %s, マイグレーションパス: %s", dbDriverName, bi.Config.Database.AppMigrationPath)
+		// ★ 変更: RunMigrations に migrationsTable 引数を追加
+		if err := batch_database_connector.RunMigrations(dbDriverName, dbDSN, bi.Config.Database.AppMigrationPath, "app_schema_migrations"); err != nil {
+			logger.Errorf("アプリケーション固有のデータベースマイグレーション中にエラーが発生しました: %v", err)
 			return nil, nil, exception.NewBatchError("initializer", "アプリケーションのマイグレーションに失敗しました", err, false, false)
 		}
+		logger.Infof("アプリケーション固有のマイグレーションが正常に完了しました。")
 	}
 
 	// Step 3: Job Repository の生成

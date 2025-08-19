@@ -1,4 +1,4 @@
-package weatherreader // パッケージ名を 'weatherreader' に変更
+package reader // パッケージ名を 'weatherreader' から 'reader' に変更
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	config "sample/pkg/batch/config" // config パッケージをインポート
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
-	reader "sample/pkg/batch/step/reader" // ItemReader インターフェースをインポート (エイリアスを reader に変更)
 	logger "sample/pkg/batch/util/logger" // logger パッケージをインポート
 )
 
@@ -95,4 +94,4 @@ func (r *DummyReader) GetExecutionContext(ctx context.Context) (core.ExecutionCo
 }
 
 // DummyReader が ItemReader[any] インターフェースを満たすことを確認
-var _ reader.ItemReader[any] = (*DummyReader)(nil) // reader.ItemReader[any] に変更
+var _ core.ItemReader[any] = (*DummyReader)(nil) // reader.ItemReader[any] に変更
