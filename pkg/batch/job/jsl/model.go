@@ -20,21 +20,21 @@ type Flow struct {
 // JSR352では、ステップはチャンク指向またはTasklet指向のいずれかです。
 // 両方を同時に持つことはできません。
 type Step struct {
-	ID          string       `yaml:"id"`
-	Description string       `yaml:"description,omitempty"`
-	Reader      ComponentRef `yaml:"reader,omitempty"`    // チャンク指向の場合
-	Processor   ComponentRef `yaml:"processor,omitempty"` // チャンク指向の場合
-	Writer      ComponentRef `yaml:"writer,omitempty"`    // チャンク指向の場合
-	Chunk       *Chunk       `yaml:"chunk,omitempty"`     // チャンク指向の場合のチャンク設定
-	Tasklet     ComponentRef `yaml:"tasklet,omitempty"`   // Tasklet指向の場合
-	Transitions []Transition `yaml:"transitions,omitempty"`
-	// Step-level listeners
-	Listeners          []ComponentRef `yaml:"listeners,omitempty"`
-	ItemReadListeners  []ComponentRef `yaml:"item-read-listeners,omitempty"`
-	ItemProcessListeners []ComponentRef `yaml:"item-process-listeners,omitempty"`
-	ItemWriteListeners []ComponentRef `yaml:"item-write-listeners,omitempty"`
-	SkipListeners      []ComponentRef `yaml:"skip-listeners,omitempty"`
-	RetryItemListeners []ComponentRef `yaml:"retry-item-listeners,omitempty"`
+	ID                        string                     `yaml:"id"`
+	Description               string                     `yaml:"description,omitempty"`
+	Reader                    ComponentRef               `yaml:"reader,omitempty"`    // チャンク指向の場合
+	Processor                 ComponentRef               `yaml:"processor,omitempty"` // チャンク指向の場合
+	Writer                    ComponentRef               `yaml:"writer,omitempty"`    // チャンク指向の場合
+	Chunk                     *Chunk                     `yaml:"chunk,omitempty"`     // チャンク指向の場合のチャンク設定
+	Tasklet                   ComponentRef               `yaml:"tasklet,omitempty"`   // Tasklet指向の場合
+	Transitions               []Transition               `yaml:"transitions,omitempty"`
+	Listeners                 []ComponentRef             `yaml:"listeners,omitempty"`
+	ItemReadListeners         []ComponentRef             `yaml:"item-read-listeners,omitempty"`
+	ItemProcessListeners      []ComponentRef             `yaml:"item-process-listeners,omitempty"`
+	ItemWriteListeners        []ComponentRef             `yaml:"item-write-listeners,omitempty"`
+	SkipListeners             []ComponentRef             `yaml:"skip-listeners,omitempty"`
+	RetryItemListeners        []ComponentRef             `yaml:"retry-item-listeners,omitempty"`
+	ExecutionContextPromotion *ExecutionContextPromotion `yaml:"execution-context-promotion,omitempty"` // ★ 追加
 	// Other step-level properties like listeners, properties, etc. can be added here.
 }
 
@@ -47,7 +47,7 @@ type ComponentRef struct {
 // Chunk defines chunk-oriented processing properties for a step.
 type Chunk struct {
 	ItemCount     int `yaml:"item-count"`
-	CommitInterval int `yaml:"commit-interval"` // JSR352のcommit-intervalに相当
+	CommitInterval int `yaml:"commit-interval"` // JSR352のcommit-intervalに相当。現在の実装では ItemCount と同じ意味で扱われます。
 	// Other chunk properties like skip-limit, etc. can be added.
 }
 
@@ -65,4 +65,11 @@ type Transition struct {
 	End  bool   `yaml:"end,omitempty"`  // If true, ends the job execution
 	Fail bool   `yaml:"fail,omitempty"` // If true, fails the job execution
 	Stop bool   `yaml:"stop,omitempty"` // If true, stops the job execution
+}
+
+// ExecutionContextPromotion は StepExecutionContext から JobExecutionContext へのプロモーション設定を定義します。
+// JSLで定義されるため、yamlタグを持ちます。
+type ExecutionContextPromotion struct {
+	Keys         []string          `yaml:"keys,omitempty"`          // プロモートするキーのリスト (例: "reader_context.currentIndex")
+	JobLevelKeys map[string]string `yaml:"job-level-keys,omitempty"` // プロモート先のジョブレベルのキー名を変更する場合のマップ
 }

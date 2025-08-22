@@ -14,10 +14,11 @@ import (
 // TaskletStep は Tasklet インターフェースをラップし、core.Step インターフェースを実装します。
 // JSR352のTaskletステップに相当します。
 type TaskletStep struct {
-	name          string                         // ステップ名
-	tasklet       core.Tasklet                   // core.Tasklet インターフェースを使用
-	stepListeners []core.StepExecutionListener   // core.StepExecutionListener を使用
-	jobRepository job.JobRepository              // job.JobRepository に変更
+	name                      string                         // ステップ名
+	tasklet                   core.Tasklet                   // core.Tasklet インターフェースを使用
+	stepListeners             []core.StepExecutionListener   // core.StepExecutionListener を使用
+	jobRepository             job.JobRepository              // job.JobRepository に変更
+	executionContextPromotion *core.ExecutionContextPromotion // ★ 追加: ExecutionContextPromotion の設定
 }
 
 // TaskletStep が core.Step インターフェースを満たすことを確認します。
@@ -29,12 +30,14 @@ func NewTaskletStep(
 	tasklet core.Tasklet, // core.Tasklet を使用
 	jobRepository job.JobRepository,
 	stepListeners []core.StepExecutionListener, // core.StepExecutionListener を使用
+	executionContextPromotion *core.ExecutionContextPromotion, // ★ 追加
 ) *TaskletStep { // TaskletStep を返す
 	return &TaskletStep{
-		name:          name,
-		tasklet:       tasklet,
-		jobRepository: jobRepository,
-		stepListeners: stepListeners,
+		name:                      name,
+		tasklet:                   tasklet,
+		jobRepository:             jobRepository,
+		stepListeners:             stepListeners,
+		executionContextPromotion: executionContextPromotion, // ★ 追加
 	}
 }
 
@@ -60,6 +63,29 @@ func (s *TaskletStep) notifyAfterStep(ctx context.Context, stepExecution *core.S
 	for _, l := range s.stepListeners {
 		l.AfterStep(ctx, stepExecution)
 	}
+}
+
+// promoteExecutionContext は StepExecutionContext の指定されたキーを JobExecutionContext にプロモートします。
+func (s *TaskletStep) promoteExecutionContext(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) {
+	if s.executionContextPromotion == nil || len(s.executionContextPromotion.Keys) == 0 {
+		logger.Debugf("Taskletステップ '%s': ExecutionContextPromotion の設定がないか、プロモートするキーが指定されていません。", s.name)
+		return
+	}
+
+	logger.Debugf("Taskletステップ '%s': ExecutionContext のプロモーションを開始します。", s.name)
+	for _, key := range s.executionContextPromotion.Keys {
+		if val, ok := stepExecution.ExecutionContext.GetNested(key); ok {
+			jobLevelKey := key
+			if mappedKey, found := s.executionContextPromotion.JobLevelKeys[key]; found {
+				jobLevelKey = mappedKey
+			}
+			jobExecution.ExecutionContext.PutNested(jobLevelKey, val)
+			logger.Debugf("Taskletステップ '%s': StepExecutionContext のキー '%s' を JobExecutionContext のキー '%s' にプロモートしました。", s.name, key, jobLevelKey)
+		} else {
+			logger.Warnf("Taskletステップ '%s': StepExecutionContext にプロモート対象のキー '%s' が見つかりませんでした。", s.name, key)
+		}
+	}
+	logger.Debugf("Taskletステップ '%s': ExecutionContext のプロモーションが完了しました。", s.name)
 }
 
 // Execute は TaskletStep の処理を実行します。core.Step インターフェースの実装です。
@@ -106,6 +132,9 @@ func (s *TaskletStep) Execute(ctx context.Context, jobExecution *core.JobExecuti
 
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
+
+		// ★ 追加: ExecutionContext のプロモーション
+		s.promoteExecutionContext(ctx, jobExecution, stepExecution)
 	}()
 
 	// Tasklet の Execute メソッドを呼び出す
