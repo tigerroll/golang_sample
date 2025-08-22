@@ -124,19 +124,21 @@ func (r *ExecutionContextReader) SetExecutionContext(ctx context.Context, ec cor
 	r.executionContext = ec // まず全体をコピー
 
 	// currentIndex の復元
-	if idx, ok := ec.GetInt("currentIndex"); ok {
+	// キー名を "reader_context_currentIndex" に統一
+	if idx, ok := ec.GetInt("reader_context_currentIndex"); ok {
 		r.currentIndex = idx
-		logger.Debugf("ExecutionContextReader: ExecutionContext から currentIndex を復元しました: %d", r.currentIndex)
+		logger.Debugf("ExecutionContextReader: ExecutionContext から reader_context_currentIndex を復元しました: %d", r.currentIndex)
 	} else {
 		r.currentIndex = 0 // 見つからない場合は初期値
-		logger.Debugf("ExecutionContextReader: ExecutionContext に currentIndex が見つかりませんでした。0 に初期化します。")
+		logger.Debugf("ExecutionContextReader: ExecutionContext に reader_context_currentIndex が見つかりませんでした。0 に初期化します。")
 	}
 
 	// data の復元 (ExecutionContextWriter が []any をそのまま保存していると仮定)
+	// キー名を "reader_context_data" に統一
 	if rawData, ok := ec.Get("reader_context_data"); ok {
 		if loadedData, ok := rawData.([]any); ok {
 			r.data = loadedData // 既存データを内部ECにセット
-			logger.Debugf("ExecutionContextReader: ExecutionContext から data を復元しました。アイテム数: %d", len(loadedData))
+			logger.Debugf("ExecutionContextReader: ExecutionContext から reader_context_data を復元しました。アイテム数: %d", len(loadedData))
 		} else {
 			logger.Warnf("ExecutionContextReader: ExecutionContext の既存データ 'reader_context_data' の型が予期せぬものです: %T", rawData)
 			// 型が合わない場合は、新しい空のスライスで初期化
@@ -144,7 +146,7 @@ func (r *ExecutionContextReader) SetExecutionContext(ctx context.Context, ec cor
 		}
 	} else {
 		r.data = nil // 見つからない場合はnil (次回 Read 時に JobExecution.ExecutionContext からロード)
-		logger.Debugf("ExecutionContextReader: ExecutionContext に data が見つかりませんでした。次回 Read 時にロードします。")
+		logger.Debugf("ExecutionContextReader: ExecutionContext に reader_context_data が見つかりませんでした。次回 Read 時にロードします。")
 	}
 
 	return nil
@@ -158,13 +160,12 @@ func (r *ExecutionContextReader) GetExecutionContext(ctx context.Context) (core.
 		return nil, ctx.Err()
 	default:
 	}
-	// 新しい ExecutionContext を作成し、現在の状態を保存
-	newEC := core.NewExecutionContext()
-	newEC.Put("reader_context_currentIndex", r.currentIndex)
-	newEC.Put("reader_context_data", r.data) // 現在のデータを保存
+	// 現在の内部状態を r.executionContext に保存
+	// キー名を "reader_context_currentIndex" と "reader_context_data" に統一
+	r.executionContext.Put("reader_context_currentIndex", r.currentIndex)
+	r.executionContext.Put("reader_context_data", r.data) // 現在のデータを保存
 
-	r.executionContext = newEC // 内部の ExecutionContext も更新
-	return newEC, nil
+	return r.executionContext, nil
 }
 
 // ExecutionContextReader が ItemReader[any] インターフェースを満たすことを確認

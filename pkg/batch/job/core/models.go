@@ -2,6 +2,10 @@ package core
 
 import (
 	"time"
+	// "reflect" // ★ 削除
+	// "github.com/google/uuid" // ★ 削除
+	// "sample/pkg/batch/util/exception" // ★ 削除
+	// logger "sample/pkg/batch/util/logger" // ★ 削除
 )
 
 // JobStatus はジョブ実行の状態を表します。
@@ -56,6 +60,7 @@ type JobInstance struct {
 	Parameters JobParameters
 	CreateTime time.Time
 	Version    int
+	ParametersHash string // ★ 追加: JobParameters のハッシュ値を保持
 }
 
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
@@ -121,4 +126,10 @@ type FlowDefinition struct {
 type TransitionRule struct {
 	From       string
 	Transition Transition
+}
+
+// ExecutionContextPromotion は StepExecutionContext から JobExecutionContext へのプロモーション設定を定義します。
+type ExecutionContextPromotion struct {
+	Keys         []string          `yaml:"keys,omitempty"`          // プロモートするキーのリスト (例: "reader_context.currentIndex")
+	JobLevelKeys map[string]string `yaml:"job-level-keys,omitempty"` // プロモート先のジョブレベルのキー名を変更する場合のマップ
 }
