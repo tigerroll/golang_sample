@@ -42,6 +42,7 @@ const (
 	ExitStatusCompleted ExitStatus = "COMPLETED"
 	ExitStatusFailed    ExitStatus = "FAILED"
 	ExitStatusStopped   ExitStatus = "STOPPED"
+	ExitStatusAbandoned ExitStatus = "ABANDONED" // ★ 追加
 	ExitStatusNoOp      ExitStatus = "NO_OP"
 )
 

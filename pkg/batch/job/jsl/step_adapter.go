@@ -210,6 +210,14 @@ func ConvertJSLToCoreFlow(
 					retryItemListeners = append(retryItemListeners, listenerInstance)
 				}
 
+				var coreECPromotion *core.ExecutionContextPromotion
+				if jslStep.ExecutionContextPromotion != nil { // ★ 追加
+					coreECPromotion = &core.ExecutionContextPromotion{
+						Keys:         jslStep.ExecutionContextPromotion.Keys,
+						JobLevelKeys: jslStep.ExecutionContextPromotion.JobLevelKeys,
+					}
+				}
+
 				coreStep = step.NewJSLAdaptedStep(
 					jslStep.ID, // name
 					r,
@@ -226,6 +234,7 @@ func ConvertJSLToCoreFlow(
 					itemWriteListeners,
 					skipListeners,
 					retryItemListeners,
+					coreECPromotion, // ★ 追加
 				)
 				logger.Debugf("チャンクステップ '%s' を構築しました。", id)
 
@@ -262,11 +271,20 @@ func ConvertJSLToCoreFlow(
 					stepExecListeners = append(stepExecListeners, listenerInstance)
 				}
 
+				var taskletECPromotion *core.ExecutionContextPromotion // ★ 追加
+				if jslStep.ExecutionContextPromotion != nil { // ★ 追加
+					taskletECPromotion = &core.ExecutionContextPromotion{
+						Keys:         jslStep.ExecutionContextPromotion.Keys,
+						JobLevelKeys: jslStep.ExecutionContextPromotion.JobLevelKeys,
+					}
+				}
+
 				coreStep = step.NewTaskletStep(
 					jslStep.ID, // name
 					t,
 					jobRepository, // JobRepository を渡す
 					stepExecListeners,
+					taskletECPromotion, // ★ 追加
 				)
 				logger.Debugf("タスクレットステップ '%s' を構築しました。", id)
 

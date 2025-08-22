@@ -2,11 +2,9 @@ package step
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
-	"math" // math パッケージを追加
-	"net"
+	"math"
 	"reflect"
 	"time"
 
@@ -24,21 +22,22 @@ import (
 // これらのフィールドは `any` 型引数を持つジェネリックインターフェースとして保持し、
 // 内部で適切な型アサーションを行います。
 type JSLAdaptedStep struct {
-	name                 string                         // ステップ名
-	reader               core.ItemReader[any]           // core.ItemReader を使用
-	processor            core.ItemProcessor[any, any]   // core.ItemProcessor を使用
-	writer               core.ItemWriter[any]           // core.ItemWriter を使用
-	chunkSize            int
-	stepRetryConfig      *config.RetryConfig            // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
-	itemRetryConfig      config.ItemRetryConfig         // アイテムレベルのリトライ設定
-	itemSkipConfig       config.ItemSkipConfig          // アイテムレベルのスキップ設定
-	stepListeners        []core.StepExecutionListener   // core.StepExecutionListener を使用
-	itemReadListeners    []core.ItemReadListener        // アイテム読み込みリスナー
-	itemProcessListeners []core.ItemProcessListener     // アイテム処理リスナー
-	itemWriteListeners   []core.ItemWriteListener       // アイテム書き込みリスナー
-	skipListeners        []core.SkipListener            // core.SkipListener を使用
-	retryItemListeners   []core.RetryItemListener       // core.ItemRetryListener を使用
-	jobRepository        job.JobRepository              // JobRepository を追加 (トランザクション管理のため)
+	name                      string                         // ステップ名
+	reader                    core.ItemReader[any]           // core.ItemReader を使用
+	processor                 core.ItemProcessor[any, any]   // core.ItemProcessor を使用
+	writer                    core.ItemWriter[any]           // core.ItemWriter を使用
+	chunkSize                 int
+	stepRetryConfig           *config.RetryConfig            // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
+	itemRetryConfig           config.ItemRetryConfig         // アイテムレベルのリトライ設定
+	itemSkipConfig            config.ItemSkipConfig          // アイテムレベルのスキップ設定
+	stepListeners             []core.StepExecutionListener   // core.StepExecutionListener を使用
+	itemReadListeners         []core.ItemReadListener        // アイテム読み込みリスナー
+	itemProcessListeners      []core.ItemProcessListener     // アイテム処理リスナー
+	itemWriteListeners        []core.ItemWriteListener       // アイテム書き込みリスナー
+	skipListeners             []core.SkipListener            // core.SkipListener を使用
+	retryItemListeners        []core.RetryItemListener       // core.ItemRetryListener を使用
+	jobRepository             job.JobRepository              // JobRepository を追加 (トランザクション管理のため)
+	executionContextPromotion *core.ExecutionContextPromotion // ★ 追加: ExecutionContextPromotion の設定
 }
 
 // JSLAdaptedStep が core.Step インターフェースを満たすことを確認します。
@@ -63,23 +62,25 @@ func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 	itemWriteListeners []core.ItemWriteListener, // アイテム書き込みリスナー
 	skipListeners []core.SkipListener, // core.SkipListener を使用
 	retryItemListeners []core.RetryItemListener, // core.ItemRetryListener を使用
+	executionContextPromotion *core.ExecutionContextPromotion, // ★ 追加
 ) *JSLAdaptedStep {
 	return &JSLAdaptedStep{
-		name:                 name,
-		reader:               reader,
-		processor:            processor,
-		writer:               writer,
-		chunkSize:            chunkSize,
-		stepRetryConfig:      stepRetryConfig,
-		itemRetryConfig:      itemRetryConfig,
-		itemSkipConfig:       itemSkipConfig,
-		stepListeners:        stepListeners,
-		itemReadListeners:    itemReadListeners,
-		itemProcessListeners: itemProcessListeners,
-		itemWriteListeners:   itemWriteListeners,
-		skipListeners:        skipListeners,
-		retryItemListeners:   retryItemListeners,
-		jobRepository:        jobRepository, // JobRepository を設定
+		name:                      name,
+		reader:                    reader,
+		processor:                 processor,
+		writer:                    writer,
+		chunkSize:                 chunkSize,
+		stepRetryConfig:           stepRetryConfig,
+		itemRetryConfig:           itemRetryConfig,
+		itemSkipConfig:            itemSkipConfig,
+		stepListeners:             stepListeners,
+		itemReadListeners:         itemReadListeners,
+		itemProcessListeners:      itemProcessListeners,
+		itemWriteListeners:        itemWriteListeners,
+		skipListeners:             skipListeners,
+		retryItemListeners:        retryItemListeners,
+		jobRepository:             jobRepository, // JobRepository を設定
+		executionContextPromotion: executionContextPromotion, // ★ 追加
 	}
 }
 
@@ -191,6 +192,29 @@ func (s *JSLAdaptedStep) notifyRetryWrite(ctx context.Context, items []interface
 	}
 }
 
+// promoteExecutionContext は StepExecutionContext の指定されたキーを JobExecutionContext にプロモートします。
+func (s *JSLAdaptedStep) promoteExecutionContext(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) {
+	if s.executionContextPromotion == nil || len(s.executionContextPromotion.Keys) == 0 {
+		logger.Debugf("ステップ '%s': ExecutionContextPromotion の設定がないか、プロモートするキーが指定されていません。", s.name)
+		return
+	}
+
+	logger.Debugf("ステップ '%s': ExecutionContext のプロモーションを開始します。", s.name)
+	for _, key := range s.executionContextPromotion.Keys {
+		if val, ok := stepExecution.ExecutionContext.GetNested(key); ok {
+			jobLevelKey := key
+			if mappedKey, found := s.executionContextPromotion.JobLevelKeys[key]; found {
+				jobLevelKey = mappedKey
+			}
+			jobExecution.ExecutionContext.PutNested(jobLevelKey, val)
+			logger.Debugf("ステップ '%s': StepExecutionContext のキー '%s' を JobExecutionContext のキー '%s' にプロモートしました。", s.name, key, jobLevelKey)
+		} else {
+			logger.Warnf("ステップ '%s': StepExecutionContext にプロモート対象のキー '%s' が見つかりませんでした。", s.name, key)
+		}
+	}
+	logger.Debugf("ステップ '%s': ExecutionContext のプロモーションが完了しました。", s.name)
+}
+
 // Execute はチャンク処理を実行します。core.Step インターフェースの実装です。
 // StepExecution のライフサイクル管理（開始/終了マーク、リスナー通知）をここで行います。
 func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
@@ -252,6 +276,9 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
+
+		// ★ 追加: ExecutionContext のプロモーション
+		s.promoteExecutionContext(ctx, jobExecution, stepExecution)
 	}()
 
 	logger.Infof("ステップ '%s' は汎用チャンク処理ステップとして実行されるよ。", s.name)
@@ -460,7 +487,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			// 回路遮断器のチェック
 			if consecutiveFailures >= stepRetryConfig.CircuitBreakerThreshold {
 				logger.Errorf("ステップ '%s' 回路遮断器がオープンしたよ。連続失敗回数 (%d) が閾値 (%d) を超えたよ。ステップを終了するよ。", s.name, consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
-				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
+				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return exception.NewBatchErrorf(s.name, "回路遮断器オープンによりステップ '%s' が失敗したよ", s.name)
 			}
@@ -497,7 +524,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			} else {
 				// 最大リトライ回数に達した場合
 				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗したよ。ステップを終了するよ。", s.name, stepRetryConfig.MaxAttempts)
-				stepExecution.MarkAsFailed(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", stepRetryConfig.MaxAttempts))
+				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", stepRetryConfig.MaxAttempts))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", s.name)
 			}
@@ -505,7 +532,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			// この試行がエラーなく完了した場合
 			if err = tx.Commit(); err != nil {
 				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, err)
-				stepExecution.MarkAsFailed(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, true, false))
+				stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, true, false))
 				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
 				return err
 			}
@@ -641,27 +668,9 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 
 	// 設定されたリトライ可能な例外をチェック
 	for _, re := range retryableExceptions {
-		switch re {
-		case "io.EOF":
-			if errors.Is(err, io.EOF) {
-				return true
-			}
-		case "net.OpError":
-			var netOpErr *net.OpError
-			if errors.As(err, &netOpErr) {
-				return true
-			}
-		case "context.DeadlineExceeded":
-			if errors.Is(err, context.DeadlineExceeded) {
-				return true
-			}
-		case "context.Canceled":
-			if errors.Is(err, context.Canceled) {
-				return true
-			}
-		default:
-			// 未知の例外文字列はログに警告を出すか無視する
-			logger.Warnf("isRetryableException: 未知のリトライ可能例外タイプ '%s' が設定されているよ。errors.Is/As でのチェックはできないよ。発生したエラーの型: %T", re, err)
+		// 完全一致または部分一致で型名をチェック
+		if exception.IsErrorOfType(err, re) {
+			return true
 		}
 	}
 	return false
@@ -680,27 +689,9 @@ func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []s
 
 	// 設定されたスキップ可能な例外をチェック
 	for _, se := range skippableExceptions {
-		switch se {
-		case "json.UnmarshalTypeError":
-			var unmarshalTypeErr *json.UnmarshalTypeError
-			if errors.As(err, &unmarshalTypeErr) {
-				return true
-			}
-		case "net.OpError":
-			var netOpErr *net.OpError
-			if errors.As(err, &netOpErr) {
-				return true
-			}
-		case "context.DeadlineExceeded":
-			if errors.Is(err, context.DeadlineExceeded) {
-				return true
-			}
-		case "context.Canceled":
-			if errors.Is(err, context.Canceled) {
-				return true
-			}
-		default:
-			logger.Warnf("isSkippableException: 未知のスキップ可能例外タイプ '%s' が設定されているよ。errors.Is/As でのチェックはできないよ。発生したエラーの型: %T", se, err)
+		// 完全一致または部分一致で型名をチェック
+		if exception.IsErrorOfType(err, se) {
+			return true
 		}
 	}
 	return false

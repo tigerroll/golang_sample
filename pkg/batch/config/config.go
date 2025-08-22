@@ -104,16 +104,24 @@ func NewConfig() *Config {
 			Logging:  LoggingConfig{Level: "INFO"},
 		},
 		Batch: BatchConfig{
-			JobName: "", // デフォルトの Job 名を空文字列に設定。アプリケーション側で設定するか、JSLからロードされることを期待。
-			ChunkSize: 10, // ★ デフォルトのチャンクサイズ
+			JobName:   "",    // デフォルトの Job 名を空文字列に設定。アプリケーション側で設定するか、JSLからロードされることを期待。
+			ChunkSize: 10,    // ★ デフォルトのチャンクサイズ
 			ItemRetry: ItemRetryConfig{ // デフォルトのアイテムリトライ設定
-				MaxAttempts: 3,
+				MaxAttempts:     3,
 				InitialInterval: 1000, // デフォルト値を設定 (例: 1000ms)
-				RetryableExceptions: []string{}, // デフォルトは空
+				RetryableExceptions: []string{ // ★ 変更: デフォルトのリトライ可能例外を追加
+					"*sample/pkg/batch/util/exception.TemporaryNetworkError",
+					"net.OpError",
+					"context.DeadlineExceeded",
+					"context.Canceled",
+				},
 			},
 			ItemSkip: ItemSkipConfig{ // デフォルトのアイテムスキップ設定
 				SkipLimit: 0, // デフォルトはスキップなし
-				SkippableExceptions: []string{}, // デフォルトは空
+				SkippableExceptions: []string{ // ★ 変更: デフォルトのスキップ可能例外を追加
+					"*sample/pkg/batch/util/exception.DataConversionError",
+					"json.UnmarshalTypeError",
+				},
 			},
 		},
 		Database: DatabaseConfig{ // ★ 追加: DatabaseConfig のデフォルト値を設定

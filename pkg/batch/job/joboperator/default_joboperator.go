@@ -3,7 +3,7 @@ package joboperator
 import (
 	"context"
 	"fmt"
-	// "time" // time パッケージは現在使用されていないため削除
+	"time" // time パッケージは現在使用されていないため削除
 
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	factory "sample/pkg/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
@@ -149,8 +149,37 @@ func (o *DefaultJobOperator) Stop(ctx context.Context, executionID string) error
 // JobOperator インターフェースの実装スタブです。
 func (o *DefaultJobOperator) Abandon(ctx context.Context, executionID string) error {
 	logger.Infof("JobOperator: Abandon メソッドが呼び出されたよ。Execution ID: %s", executionID)
-	// TODO: JobExecution を放棄状態に更新するロジックを実装
-	return exception.NewBatchErrorf("job_operator", "Abandon メソッドはまだ実装されていません")
+
+	// 1. JobExecution をロード
+	jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
+	if err != nil {
+		return exception.NewBatchError("job_operator", fmt.Sprintf("放棄処理エラー: JobExecution (ID: %s) のロードに失敗しました", executionID), err, false, false)
+	}
+	if jobExecution == nil {
+		return exception.NewBatchErrorf("job_operator", "放棄処理エラー: JobExecution (ID: %s) が見つかりませんでした", executionID)
+	}
+
+	// 2. JobExecution の状態を ABANDONED に更新
+	// 既に終了状態の場合は更新しない (JSR-352の仕様に準拠)
+	if jobExecution.Status.IsFinished() {
+		logger.Warnf("JobExecution (ID: %s) は既に終了状態 (%s) なので放棄できません。", executionID, jobExecution.Status)
+		return exception.NewBatchErrorf("job_operator", "放棄処理エラー: JobExecution (ID: %s) は既に終了状態です (%s)", executionID, jobExecution.Status)
+	}
+
+	jobExecution.Status = core.BatchStatusAbandoned
+	jobExecution.ExitStatus = core.ExitStatusAbandoned // ExitStatus も ABANDONED に設定
+	jobExecution.EndTime = time.Now() // 終了時刻を設定
+	jobExecution.LastUpdated = time.Now()
+	logger.Infof("JobExecution (ID: %s) の状態を ABANDONED に更新したよ。", executionID)
+
+	// 3. JobExecution を永続化
+	err = o.jobRepository.UpdateJobExecution(ctx, jobExecution)
+	if err != nil {
+		return exception.NewBatchError("job_operator", fmt.Sprintf("放棄処理エラー: JobExecution (ID: %s) の状態更新に失敗しました", executionID), err, false, false)
+	}
+
+	logger.Infof("JobExecution (ID: %s) を正常に放棄したよ。", executionID)
+	return nil
 }
 
 // GetJobExecution は指定された ID の JobExecution を取得します。
