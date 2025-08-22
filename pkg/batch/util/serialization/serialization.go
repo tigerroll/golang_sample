@@ -28,31 +28,23 @@ func MarshalExecutionContext(ctx core.ExecutionContext) ([]byte, error) {
 }
 
 // UnmarshalExecutionContext は JSON バイトスライスを ExecutionContext にデシリアライズします。
+// 既存の ExecutionContext が nil でない場合でも、新しいデータで上書きするように改善します。
 func UnmarshalExecutionContext(data []byte, ctx *core.ExecutionContext) error {
 	module := "serialization"
 	logger.Debugf("ExecutionContext のデシリアライズを開始します。データサイズ: %d バイト", len(data))
 
-	if len(data) == 0 || string(data) == "null" {
-		if *ctx == nil {
-			*ctx = core.NewExecutionContext()
-			logger.Debugf("ExecutionContext が nil または空データです。新しい空の ExecutionContext を作成しました。")
-		} else {
-			for k := range *ctx {
-				delete(*ctx, k)
-			}
-			logger.Debugf("ExecutionContext が空データです。既存の ExecutionContext をクリアしました。")
-		}
-		return nil
-	}
-
 	if *ctx == nil {
 		*ctx = core.NewExecutionContext()
-		logger.Debugf("ExecutionContext が nil です。デシリアライズ用に新しいマップを作成しました。")
 	} else {
+		// 既存のマップをクリア
 		for k := range *ctx {
 			delete(*ctx, k)
 		}
-		logger.Debugf("既存の ExecutionContext をデシリアライズ用にクリアしました。")
+	}
+
+	if len(data) == 0 || string(data) == "null" {
+		logger.Debugf("ExecutionContext が nil または空データです。空の ExecutionContext を作成/クリアしました。")
+		return nil
 	}
 
 	err := json.Unmarshal(data, ctx)

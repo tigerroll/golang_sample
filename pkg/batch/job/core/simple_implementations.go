@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,6 +102,77 @@ func (ec ExecutionContext) Copy() ExecutionContext {
 		newEC[k] = v
 	}
 	return newEC
+}
+
+// GetNested はドット区切りのキーを使用してネストされた値を取得します。
+// 例: "reader_context.currentIndex"
+func (ec ExecutionContext) GetNested(key string) (interface{}, bool) {
+	parts := strings.Split(key, ".")
+	var currentVal interface{} = ec // ★ 変更: currentVal を使用
+	var ok bool = true
+
+	for i, part := range parts {
+		if !ok {
+			return nil, false
+		}
+
+		// 現在の値がマップ型であることを確認
+		var currentMap map[string]interface{}
+		if m, isEC := currentVal.(ExecutionContext); isEC {
+			currentMap = m
+		} else if m, isMap := currentVal.(map[string]interface{}); isMap {
+			currentMap = m
+		} else {
+			return nil, false // ネストの途中でマップではない
+		}
+
+		currentVal, ok = currentMap[part] // ★ 変更: currentMap から直接取得
+		if !ok {
+			return nil, false
+		}
+
+		if i < len(parts)-1 { // 最後のパートでない場合、次の値がマップであることを期待
+			if _, isMap := currentVal.(ExecutionContext); !isMap {
+				if _, isMap := currentVal.(map[string]interface{}); !isMap {
+					return nil, false // ネストの途中でマップではない
+				}
+			}
+		}
+	}
+	return currentVal, ok
+}
+
+// PutNested はドット区切りのキーを使用してネストされた値を設定します。
+// 中間パスが存在しない場合は自動的に作成します。
+func (ec ExecutionContext) PutNested(key string, value interface{}) {
+	parts := strings.Split(key, ".")
+	currentMap := ec
+
+	for i, part := range parts {
+		if i == len(parts)-1 { // 最後のパート
+			currentMap.Put(part, value)
+		} else { // 中間パート
+			nextMapVal, ok := currentMap.Get(part)
+			if !ok {
+				// 中間マップが存在しない場合、新しいマップを作成
+				newMap := NewExecutionContext()
+				currentMap.Put(part, newMap)
+				currentMap = newMap
+			} else {
+				if nextMap, isMap := nextMapVal.(ExecutionContext); isMap {
+					currentMap = nextMap
+				} else if nextMap, isMap := nextMapVal.(map[string]interface{}); isMap {
+					currentMap = ExecutionContext(nextMap)
+				} else {
+					// 既存の値がマップではない場合、上書きして新しいマップを作成
+					newMap := NewExecutionContext()
+					currentMap.Put(part, newMap)
+					currentMap = newMap
+					logger.Warnf("ExecutionContext.PutNested: キー '%s' のパスに既存の非マップ値が存在したため上書きしました。", strings.Join(parts[:i+1], "."))
+				}
+			}
+		}
+	}
 }
 
 // NewJobParameters は新しい JobParameters のインスタンスを作成します。
@@ -221,7 +294,7 @@ func (je *JobExecution) MarkAsFailed(err error) {
 	je.EndTime = time.Now()
 	je.LastUpdated = time.Now()
 	if err != nil {
-		je.Failures = append(je.Failures, err)
+		je.AddFailureException(err) // AddFailureException を使用
 	}
 }
 
@@ -234,23 +307,16 @@ func (je *JobExecution) MarkAsStopped() {
 }
 
 // AddFailureException は JobExecution にエラー情報を追加します。
+// 重複するエラーの追加を避けるように改善します。
 func (je *JobExecution) AddFailureException(err error) {
 	if err == nil {
 		return
 	}
 
-	newBatchErr, isNewBatchErr := err.(*exception.BatchError)
-
+	// errors.Is を使用して、既存のエラーと新しいエラーが同じ根本原因を持つかチェック
 	for _, existingErr := range je.Failures {
-		existingBatchErr, isExistingBatchErr := existingErr.(*exception.BatchError)
-
-		if isNewBatchErr && isExistingBatchErr {
-			if newBatchErr.Module == existingBatchErr.Module && newBatchErr.Message == existingBatchErr.Message {
-				logger.Debugf("JobExecution (ID: %s) に重複する BatchError (Module: %s, Message: %s) の追加をスキップしました。", je.ID, newBatchErr.Module, newBatchErr.Message)
-				return
-			}
-		} else if existingErr.Error() == err.Error() {
-			logger.Debugf("JobExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", je.ID, err.Error())
+		if errors.Is(existingErr, err) {
+			logger.Debugf("JobExecution (ID: %s) に重複するエラー '%v' の追加をスキップしました。", je.ID, err)
 			return
 		}
 	}
@@ -303,28 +369,21 @@ func (se *StepExecution) MarkAsFailed(err error) {
 	se.EndTime = time.Now()
 	se.LastUpdated = time.Now()
 	if err != nil {
-		se.Failures = append(se.Failures, err)
+		se.AddFailureException(err) // AddFailureException を使用
 	}
 }
 
 // AddFailureException は StepExecution にエラー情報を追加します。
+// 重複するエラーの追加を避けるように改善します。
 func (se *StepExecution) AddFailureException(err error) {
 	if err == nil {
 		return
 	}
 
-	newBatchErr, isNewBatchErr := err.(*exception.BatchError)
-
+	// errors.Is を使用して、既存のエラーと新しいエラーが同じ根本原因を持つかチェック
 	for _, existingErr := range se.Failures {
-		existingBatchErr, isExistingBatchErr := existingErr.(*exception.BatchError)
-
-		if isNewBatchErr && isExistingBatchErr {
-			if newBatchErr.Module == existingBatchErr.Module && newBatchErr.Message == existingBatchErr.Message {
-				logger.Debugf("StepExecution (ID: %s) に重複する BatchError (Module: %s, Message: %s) の追加をスキップしました。", se.ID, newBatchErr.Module, newBatchErr.Message)
-				return
-			}
-		} else if existingErr.Error() == err.Error() {
-			logger.Debugf("StepExecution (ID: %s) に重複するエラー '%s' の追加をスキップしました。", se.ID, err.Error())
+		if errors.Is(existingErr, err) {
+			logger.Debugf("StepExecution (ID: %s) に重複するエラー '%v' の追加をスキップしました。", se.ID, err)
 			return
 		}
 	}

@@ -39,18 +39,37 @@ func NewBatchError(module, message string, originalErr error, isRetryable, isSki
 }
 
 // NewBatchErrorf はフォーマット文字列を使用して新しい BatchError のインスタンスを作成します。
-// isRetryable と isSkippable フラグを追加
+// isRetryable と isSkippable フラグを追加できるように変更します。
+// 最後の引数が bool 型であれば isRetryable, その前の引数が bool 型であれば isSkippable として扱います。
+// 例: NewBatchErrorf("module", "message %s", "arg", true, false) -> isRetryable=true, isSkippable=false
+// 例: NewBatchErrorf("module", "message %s", "arg", true) -> isRetryable=true, isSkippable=false (isSkippableはデフォルト値)
+// 例: NewBatchErrorf("module", "message %s", "arg", false, true, someError) -> isRetryable=false, isSkippable=true, originalErr=someError
 func NewBatchErrorf(module, format string, a ...interface{}) *BatchError {
-	// 最後の引数が error 型であれば OriginalErr として扱う
 	var originalErr error
-	if len(a) > 0 {
-		if err, ok := a[len(a)-1].(error); ok {
+	isRetryable := false
+	isSkippable := false
+	args := make([]interface{}, 0, len(a))
+
+	// 後ろから引数をチェックし、bool値とerror値を抽出
+	for i := len(a) - 1; i >= 0; i-- {
+		if err, ok := a[i].(error); ok && originalErr == nil {
 			originalErr = err
-			a = a[:len(a)-1] // OriginalErr をメッセージから除外
+		} else if b, ok := a[i].(bool); ok {
+			if i == len(a)-1 { // 最後の引数がboolならisRetryable
+				isRetryable = b
+			} else if i == len(a)-2 && (reflect.TypeOf(a[len(a)-1]).Kind() != reflect.Bool) { // 最後から2番目の引数がboolで、最後の引数がboolでないならisSkippable
+				isSkippable = b
+			} else if i == len(a)-2 && (reflect.TypeOf(a[len(a)-1]).Kind() == reflect.Bool) { // 最後から2番目の引数がboolで、最後の引数もboolならisSkippable
+				isSkippable = b
+			} else {
+				args = append([]interface{}{a[i]}, args...) // それ以外のboolはメッセージの一部
+			}
+		} else {
+			args = append([]interface{}{a[i]}, args...)
 		}
 	}
 
-	message := fmt.Sprintf(format, a...)
+	message := fmt.Sprintf(format, args...)
 
 	// スタックトレースをキャプチャ (デバッグ用途)
 	buf := make([]byte, 2048)
@@ -61,8 +80,8 @@ func NewBatchErrorf(module, format string, a ...interface{}) *BatchError {
 		Module:      module,
 		Message:     message,
 		OriginalErr: originalErr,
-		isRetryable: false, // デフォルトは false
-		isSkippable: false, // デフォルトは false
+		isRetryable: isRetryable,
+		isSkippable: isSkippable,
 		StackTrace:  stackTrace,
 	}
 }
