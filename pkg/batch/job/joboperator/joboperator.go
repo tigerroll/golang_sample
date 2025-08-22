@@ -15,11 +15,9 @@ type JobOperator interface {
   Restart(ctx context.Context, executionID string) (*core.JobExecution, error)
 
   // Stop は指定された JobExecution を停止します。
-  // TODO: 実装
   Stop(ctx context.Context, executionID string) error
 
   // Abandon は指定された JobExecution を放棄します。
-  // TODO: 実装
   Abandon(ctx context.Context, executionID string) error
 
   // GetJobExecution は指定された ID の JobExecution を取得します。

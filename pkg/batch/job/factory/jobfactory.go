@@ -36,6 +36,9 @@ type RetryItemListenerBuilder func(cfg *config.Config) (core.RetryItemListener, 
 // 依存関係 (config など) を受け取り、生成されたリスナーとエラーを返します。
 type JobListenerBuilder func(cfg *config.Config) (jobListener.JobExecutionListener, error)
 
+// JobParametersIncrementerBuilder は JobParametersIncrementer を生成するための関数型です。
+type JobParametersIncrementerBuilder func(cfg *config.Config, properties map[string]string) (core.JobParametersIncrementer, error) // ★ 追加
+
 // JobBuilder は、特定の Job を生成するための関数型です。
 // 依存関係 (jobRepository, config, listeners, flow) を受け取り、生成された core.Job インターフェースとエラーを返します。
 type JobBuilder func(
@@ -58,6 +61,7 @@ type JobFactory struct {
 	itemWriteListenerBuilders map[string]ItemWriteListenerBuilder
 	skipListenerBuilders map[string]SkipListenerBuilder
 	retryItemListenerBuilders map[string]RetryItemListenerBuilder
+	jobParametersIncrementerBuilders map[string]JobParametersIncrementerBuilder // ★ 追加
 }
 
 // NewJobFactory は新しい JobFactory のインスタンスを作成します。
@@ -75,6 +79,7 @@ func NewJobFactory(cfg *config.Config, repo job.JobRepository) *JobFactory { // 
 		itemWriteListenerBuilders: make(map[string]ItemWriteListenerBuilder),
 		skipListenerBuilders: make(map[string]SkipListenerBuilder),
 		retryItemListenerBuilders: make(map[string]RetryItemListenerBuilder),
+		jobParametersIncrementerBuilders: make(map[string]JobParametersIncrementerBuilder), // ★ 追加
 	}
 	return jf
 }
@@ -133,6 +138,12 @@ func (f *JobFactory) RegisterSkipListenerBuilder(name string, builder SkipListen
 func (f *JobFactory) RegisterRetryItemListenerBuilder(name string, builder RetryItemListenerBuilder) {
 	f.retryItemListenerBuilders[name] = builder
 	logger.Debugf("JobFactory: RetryItemListener ビルダー '%s' を登録しました。", name)
+}
+
+// RegisterJobParametersIncrementerBuilder は、指定された名前で JobParametersIncrementer ビルド関数を登録します。
+func (f *JobFactory) RegisterJobParametersIncrementerBuilder(name string, builder JobParametersIncrementerBuilder) { // ★ 追加
+	f.jobParametersIncrementerBuilders[name] = builder
+	logger.Debugf("JobFactory: JobParametersIncrementer ビルダー '%s' を登録しました。", name)
 }
 
 // CreateJob は指定されたジョブ名の core.Job オブジェクトを作成します。
@@ -229,4 +240,25 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	logger.Debugf("Job '%s' created and configured successfully from JSL definition.", jobName)
 
 	return jobInstance, nil
+}
+
+// GetJobParametersIncrementer は指定されたジョブの JobParametersIncrementer を構築して返します。
+func (f *JobFactory) GetJobParametersIncrementer(jobName string) core.JobParametersIncrementer { // ★ 追加
+	jslJob, ok := jsl.GetJobDefinition(jobName)
+	if !ok || jslJob.Incrementer.Ref == "" {
+		return nil
+	}
+
+	builder, found := f.jobParametersIncrementerBuilders[jslJob.Incrementer.Ref]
+	if !found {
+		logger.Warnf("JobFactory: JobParametersIncrementer '%s' のビルダーが登録されていません。", jslJob.Incrementer.Ref)
+		return nil
+	}
+
+	incrementer, err := builder(f.config, jslJob.Incrementer.Properties)
+	if err != nil {
+		logger.Errorf("JobFactory: JobParametersIncrementer '%s' のビルドに失敗しました: %v", jslJob.Incrementer.Ref, err)
+		return nil
+	}
+	return incrementer
 }

@@ -4,10 +4,12 @@ CREATE TABLE IF NOT EXISTS job_instances (
     job_name VARCHAR(255) NOT NULL,
     job_parameters JSONB, -- PostgreSQL/Redshift specific, use JSON for MySQL
     create_time TIMESTAMP NOT NULL,
-    version INTEGER NOT NULL
+    version INTEGER NOT NULL,
+    parameters_hash VARCHAR(64) NOT NULL DEFAULT '' -- ★ 追加: JobParameters のハッシュ値
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_instances_job_name ON job_instances (job_name);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_job_instances_job_name_params_hash ON job_instances (job_name, parameters_hash); -- ★ 追加: ユニークインデックス
 
 CREATE TABLE IF NOT EXISTS job_executions (
     id VARCHAR(36) PRIMARY KEY,

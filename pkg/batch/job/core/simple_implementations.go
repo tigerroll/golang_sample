@@ -2,6 +2,9 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -71,8 +74,14 @@ func (ec ExecutionContext) GetInt(key string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	i, ok := val.(int)
-	return i, ok
+	// JSON unmarshal された数値は float64 になることがあるため、両方考慮
+	if i, ok := val.(int); ok {
+		return i, true
+	}
+	if f, ok := val.(float64); ok {
+		return int(f), true
+	}
+	return 0, false
 }
 
 // GetBool は指定されたキーの値をboolとして取得します。
@@ -108,7 +117,7 @@ func (ec ExecutionContext) Copy() ExecutionContext {
 // 例: "reader_context.currentIndex"
 func (ec ExecutionContext) GetNested(key string) (interface{}, bool) {
 	parts := strings.Split(key, ".")
-	var currentVal interface{} = ec // ★ 変更: currentVal を使用
+	var currentVal interface{} = ec
 	var ok bool = true
 
 	for i, part := range parts {
@@ -126,7 +135,7 @@ func (ec ExecutionContext) GetNested(key string) (interface{}, bool) {
 			return nil, false // ネストの途中でマップではない
 		}
 
-		currentVal, ok = currentMap[part] // ★ 変更: currentMap から直接取得
+		currentVal, ok = currentMap[part]
 		if !ok {
 			return nil, false
 		}
@@ -212,8 +221,14 @@ func (jp JobParameters) GetInt(key string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	i, ok := val.(int)
-	return i, ok
+	// JSON unmarshal された数値は float64 になることがあるため、両方考慮
+	if i, ok := val.(int); ok {
+		return i, true
+	}
+	if f, ok := val.(float64); ok {
+		return int(f), true
+	}
+	return 0, false
 }
 
 // GetBool は指定されたキーの値をboolとして取得します。
@@ -241,15 +256,39 @@ func (jp JobParameters) Equal(other JobParameters) bool {
 	return reflect.DeepEqual(jp.Params, other.Params)
 }
 
+// Hash は JobParameters のハッシュ値を計算します。
+// パラメータの順序に依存しないように、JSON文字列に変換してからハッシュ化します。
+func (jp JobParameters) Hash() (string, error) {
+	// map[string]interface{} を JSON にマーシャルする際、キーの順序は保証されないため、
+	// 安定したハッシュを得るためには、ソートされたキーを持つ構造体などに変換してからマーシャルするか、
+	// 独自の正規化ロジックを実装する必要があります。
+	// ここではシンプルに、json.Marshal がデフォルトで提供する順序に依存します。
+	// 厳密な順序保証が必要な場合は、別途ソートロジックを追加してください。
+	jsonBytes, err := json.Marshal(jp.Params)
+	if err != nil {
+		return "", exception.NewBatchError("job_parameters", "JobParameters のハッシュ計算のためのJSONマーシャルに失敗しました", err, false, false)
+	}
+
+	hasher := sha256.New()
+	hasher.Write(jsonBytes)
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
 // NewJobInstance は新しい JobInstance のインスタンスを作成します。
 func NewJobInstance(jobName string, params JobParameters) *JobInstance {
 	now := time.Now()
+	hash, err := params.Hash()
+	if err != nil {
+		logger.Errorf("JobParameters のハッシュ計算に失敗しました: %v", err)
+		hash = "" // エラー時は空文字列
+	}
 	return &JobInstance{
-		ID:         uuid.New().String(),
-		JobName:    jobName,
-		Parameters: params,
-		CreateTime: now,
-		Version:    0,
+		ID:             uuid.New().String(),
+		JobName:        jobName,
+		Parameters:     params,
+		CreateTime:     now,
+		Version:        0,
+		ParametersHash: hash,
 	}
 }
 
@@ -270,18 +309,54 @@ func NewJobExecution(jobInstanceID string, jobName string, params JobParameters)
 		StepExecutions:   make([]*StepExecution, 0),
 		ExecutionContext: NewExecutionContext(),
 		CurrentStepName:  "",
+		CancelFunc:       nil,
 	}
+}
+
+// isValidJobTransition は JobExecution の状態遷移が有効かどうかをチェックします。
+func isValidJobTransition(current, next JobStatus) bool {
+	switch current {
+	case BatchStatusStarting:
+		return next == BatchStatusStarted || next == BatchStatusFailed || next == BatchStatusStopped || next == BatchStatusAbandoned
+	case BatchStatusStarted:
+		return next == BatchStatusStopping || next == BatchStatusCompleted || next == BatchStatusFailed || next == BatchStatusAbandoned
+	case BatchStatusStopping:
+		return next == BatchStatusStopped || next == BatchStatusStoppingFailed || next == BatchStatusFailed || next == BatchStatusAbandoned
+	case BatchStatusStopped:
+		return next == BatchStatusStarting // Restart のみ
+	case BatchStatusCompleted, BatchStatusFailed, BatchStatusAbandoned, BatchStatusStoppingFailed:
+		return false // 終了状態からは直接遷移しない (Restart は新しい JobExecution を作成するため)
+	default:
+		return false
+	}
+}
+
+// TransitionTo は JobExecution の状態を安全に遷移させます。
+func (je *JobExecution) TransitionTo(newStatus JobStatus) error {
+	if !isValidJobTransition(je.Status, newStatus) {
+		return fmt.Errorf("JobExecution (ID: %s): 不正な状態遷移: %s -> %s", je.ID, je.Status, newStatus)
+	}
+	je.Status = newStatus
+	je.LastUpdated = time.Now()
+	return nil
 }
 
 // MarkAsStarted は JobExecution の状態を実行中に更新します。
 func (je *JobExecution) MarkAsStarted() {
-	je.Status = BatchStatusStarted
+	if err := je.TransitionTo(BatchStatusStarted); err != nil {
+		logger.Warnf("JobExecution (ID: %s) の状態を STARTED に更新できませんでした: %v", je.ID, err)
+		// エラーを無視して強制的に設定するか、エラーを返すか選択
+		je.Status = BatchStatusStarted // 強制的に設定
+	}
 	je.LastUpdated = time.Now()
 }
 
 // MarkAsCompleted は JobExecution の状態を完了に更新します。
 func (je *JobExecution) MarkAsCompleted() {
-	je.Status = BatchStatusCompleted
+	if err := je.TransitionTo(BatchStatusCompleted); err != nil {
+		logger.Warnf("JobExecution (ID: %s) の状態を COMPLETED に更新できませんでした: %v", je.ID, err)
+		je.Status = BatchStatusCompleted // 強制的に設定
+	}
 	je.ExitStatus = ExitStatusCompleted
 	je.EndTime = time.Now()
 	je.LastUpdated = time.Now()
@@ -289,7 +364,10 @@ func (je *JobExecution) MarkAsCompleted() {
 
 // MarkAsFailed は JobExecution の状態を失敗に更新し、エラー情報を追加します。
 func (je *JobExecution) MarkAsFailed(err error) {
-	je.Status = BatchStatusFailed
+	if err := je.TransitionTo(BatchStatusFailed); err != nil {
+		logger.Warnf("JobExecution (ID: %s) の状態を FAILED に更新できませんでした: %v", je.ID, err)
+		je.Status = BatchStatusFailed // 強制的に設定
+	}
 	je.ExitStatus = ExitStatusFailed
 	je.EndTime = time.Now()
 	je.LastUpdated = time.Now()
@@ -300,7 +378,10 @@ func (je *JobExecution) MarkAsFailed(err error) {
 
 // MarkAsStopped は JobExecution の状態を停止に更新します。
 func (je *JobExecution) MarkAsStopped() {
-	je.Status = BatchStatusStopped
+	if err := je.TransitionTo(BatchStatusStopped); err != nil {
+		logger.Warnf("JobExecution (ID: %s) の状態を STOPPED に更新できませんでした: %v", je.ID, err)
+		je.Status = BatchStatusStopped // 強制的に設定
+	}
 	je.ExitStatus = ExitStatusStopped
 	je.EndTime = time.Now()
 	je.LastUpdated = time.Now()
@@ -348,15 +429,45 @@ func NewStepExecution(id string, jobExecution *JobExecution, stepName string) *S
 	return se
 }
 
+// isValidStepTransition は StepExecution の状態遷移が有効かどうかをチェックします。
+func isValidStepTransition(current, next JobStatus) bool {
+	switch current {
+	case BatchStatusStarting:
+		return next == BatchStatusStarted || next == BatchStatusFailed || next == BatchStatusStopped || next == BatchStatusAbandoned
+	case BatchStatusStarted:
+		return next == BatchStatusCompleted || next == BatchStatusFailed || next == BatchStatusStopped || next == BatchStatusAbandoned
+	case BatchStatusCompleted, BatchStatusFailed, BatchStatusStopped, BatchStatusAbandoned:
+		return false // 終了状態からは直接遷移しない
+	default:
+		return false
+	}
+}
+
+// TransitionTo は StepExecution の状態を安全に遷移させます。
+func (se *StepExecution) TransitionTo(newStatus JobStatus) error {
+	if !isValidStepTransition(se.Status, newStatus) {
+		return fmt.Errorf("StepExecution (ID: %s): 不正な状態遷移: %s -> %s", se.ID, se.Status, newStatus)
+	}
+	se.Status = newStatus
+	se.LastUpdated = time.Now()
+	return nil
+}
+
 // MarkAsStarted は StepExecution の状態を実行中に更新します。
 func (se *StepExecution) MarkAsStarted() {
-	se.Status = BatchStatusStarted
+	if err := se.TransitionTo(BatchStatusStarted); err != nil {
+		logger.Warnf("StepExecution (ID: %s) の状態を STARTED に更新できませんでした: %v", se.ID, err)
+		se.Status = BatchStatusStarted // 強制的に設定
+	}
 	se.LastUpdated = time.Now()
 }
 
 // MarkAsCompleted は StepExecution の状態を完了に更新します。
 func (se *StepExecution) MarkAsCompleted() {
-	se.Status = BatchStatusCompleted
+	if err := se.TransitionTo(BatchStatusCompleted); err != nil {
+		logger.Warnf("StepExecution (ID: %s) の状態を COMPLETED に更新できませんでした: %v", se.ID, err)
+		se.Status = BatchStatusCompleted // 強制的に設定
+	}
 	se.ExitStatus = ExitStatusCompleted
 	se.EndTime = time.Now()
 	se.LastUpdated = time.Now()
@@ -364,13 +475,27 @@ func (se *StepExecution) MarkAsCompleted() {
 
 // MarkAsFailed は StepExecution の状態を失敗に更新し、エラー情報を追加します。
 func (se *StepExecution) MarkAsFailed(err error) {
-	se.Status = BatchStatusFailed
+	if err := se.TransitionTo(BatchStatusFailed); err != nil {
+		logger.Warnf("StepExecution (ID: %s) の状態を FAILED に更新できませんでした: %v", se.ID, err)
+		se.Status = BatchStatusFailed // 強制的に設定
+	}
 	se.ExitStatus = ExitStatusFailed
 	se.EndTime = time.Now()
 	se.LastUpdated = time.Now()
 	if err != nil {
 		se.AddFailureException(err) // AddFailureException を使用
 	}
+}
+
+// MarkAsStopped は StepExecution の状態を停止に更新します。
+func (se *StepExecution) MarkAsStopped() { // ★ 追加
+	if err := se.TransitionTo(BatchStatusStopped); err != nil {
+		logger.Warnf("StepExecution (ID: %s) の状態を STOPPED に更新できませんでした: %v", se.ID, err)
+		se.Status = BatchStatusStopped // 強制的に設定
+	}
+	se.ExitStatus = ExitStatusStopped
+	se.EndTime = time.Now()
+	se.LastUpdated = time.Now()
 }
 
 // AddFailureException は StepExecution にエラー情報を追加します。

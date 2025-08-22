@@ -7,6 +7,7 @@ type Job struct {
 	Description string      `yaml:"description,omitempty"`
 	Flow        Flow        `yaml:"flow"` // A job must have a flow
 	Listeners   []ComponentRef `yaml:"listeners,omitempty"` // Job-level listeners
+	Incrementer ComponentRef `yaml:"incrementer,omitempty"` // ★ 追加: JobParametersIncrementer の参照
 	// Other job-level properties like listeners, properties, etc. can be added here.
 }
 
@@ -47,7 +48,7 @@ type ComponentRef struct {
 // Chunk defines chunk-oriented processing properties for a step.
 type Chunk struct {
 	ItemCount     int `yaml:"item-count"`
-	CommitInterval int `yaml:"commit-interval"` // JSR352のcommit-intervalに相当。現在の実装では ItemCount と同じ意味で扱われます。
+	CommitInterval int `yaml:"commit-interval"` // JSR352のcommit-intervalに相当。現在の実装では ItemCount と同じ意味で扱われます。時間ベースのコミットを実装する場合は、このフィールドを活用できます。
 	// Other chunk properties like skip-limit, etc. can be added.
 }
 

@@ -3,6 +3,7 @@ package joblauncher
 import (
 	"context"
 	"fmt" // fmt パッケージをインポート (エラーメッセージで使用)
+	"sync" // ★ 追加
 
 	core "sample/pkg/batch/job/core"
 	factory "sample/pkg/batch/job/factory" // factory パッケージをインポート
@@ -17,6 +18,9 @@ import (
 type SimpleJobLauncher struct { // SimpleJobLauncher を返す
 	jobRepository job.JobRepository // job.JobRepository を依存として追加
 	jobFactory    factory.JobFactory     // JobFactory を依存として追加
+	// 実行中のジョブのキャンセル関数を保持するマップ
+	activeJobCancellations map[string]context.CancelFunc // ★ 追加
+	mu                     sync.Mutex                    // ★ 追加: マップ保護のためのミューテックス
 }
 
 // NewSimpleJobLauncher は新しい SimpleJobLauncher のインスタンスを作成します。
@@ -25,7 +29,35 @@ func NewSimpleJobLauncher(jobRepository job.JobRepository, jobFactory factory.Jo
 	return &SimpleJobLauncher{
 		jobRepository: jobRepository, // JobRepository を初期化
 		jobFactory:    jobFactory,    // JobFactory を初期化
+		activeJobCancellations: make(map[string]context.CancelFunc), // ★ 追加
 	}
+}
+
+// RegisterCancelFunc は実行中のジョブのキャンセル関数を登録します。
+func (l *SimpleJobLauncher) RegisterCancelFunc(executionID string, cancelFunc context.CancelFunc) { // ★ 追加
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.activeJobCancellations[executionID] = cancelFunc
+	logger.Debugf("JobExecution (ID: %s) の CancelFunc を登録しました。", executionID)
+}
+
+// UnregisterCancelFunc は実行中のジョブのキャンセル関数を登録解除します。
+func (l *SimpleJobLauncher) UnregisterCancelFunc(executionID string) { // ★ 追加
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if cancelFunc, ok := l.activeJobCancellations[executionID]; ok {
+		cancelFunc() // 念のためキャンセルを呼び出す
+		delete(l.activeJobCancellations, executionID)
+		logger.Debugf("JobExecution (ID: %s) の CancelFunc を登録解除しました。", executionID)
+	}
+}
+
+// GetCancelFunc は指定された JobExecution ID のキャンセル関数を取得します。
+func (l *SimpleJobLauncher) GetCancelFunc(executionID string) (context.CancelFunc, bool) { // ★ 追加
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cancelFunc, ok := l.activeJobCancellations[executionID]
+	return cancelFunc, ok
 }
 
 // Launch は指定された Job を JobParameters とともに起動し、JobExecution を管理します。
@@ -34,22 +66,39 @@ func NewSimpleJobLauncher(jobRepository job.JobRepository, jobFactory factory.Jo
 func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params core.JobParameters) (*core.JobExecution, error) { // ★ 修正: jobName を直接受け取る
 	logger.Infof("JobLauncher を使用して Job '%s' を起動するよ。", jobName)
 
-	// Step 1: JobInstance の取得または作成
+	// Step 1: JobFactory を使用して Job オブジェクトを取得 (JobParametersIncrementer の取得のため、先にJobを取得)
+	batchJob, err := l.jobFactory.CreateJob(jobName)
+	if err != nil {
+		logger.Errorf("Job '%s' の作成に失敗しました: %v", jobName, err)
+		return nil, exception.NewBatchError("job_launcher", fmt.Sprintf("Job '%s' の作成に失敗しました", jobName), err, false, false)
+	}
+
+	// Step 2: JobParameters のバリデーション
+	if err := batchJob.ValidateParameters(params); err != nil { // ★ 追加
+		logger.Errorf("Job '%s': JobParameters のバリデーションに失敗しました: %v", jobName, err)
+		return nil, exception.NewBatchError("job_launcher", "JobParameters のバリデーションエラー", err, false, false)
+	}
+
+	// Step 3: JobInstance の取得または作成
 	// ジョブ名とパラメータに一致する既存の JobInstance を検索します。
 	jobInstance, err := l.jobRepository.FindJobInstanceByJobNameAndParameters(ctx, jobName, params)
 	if err != nil {
-		// 検索エラーが発生した場合
 		logger.Errorf("JobInstance (JobName: %s, Parameters: %+v) の検索に失敗しました: %v", jobName, params, err)
 		return nil, exception.NewBatchError("job_launcher", "起動処理エラー: JobInstance の検索に失敗しました", err, false, false)
 	}
 
 	if jobInstance == nil {
-		// 既存の JobInstance が見つからない場合、新しい JobInstance を作成し永続化します。
+		// 既存の JobInstance が見つからない場合、JobParametersIncrementer を使用して新しいパラメータを生成
+		if incrementer := l.jobFactory.GetJobParametersIncrementer(jobName); incrementer != nil { // ★ 追加
+			params = incrementer.GetNext(params)
+			logger.Infof("JobParametersIncrementer を使用して新しい JobParameters を生成しました: %+v", params.Params)
+		}
+
+		// 新しい JobInstance を作成し永続化します。
 		logger.Debugf("JobInstance (JobName: %s, Parameters: %+v) が見つかりませんでした。新しい JobInstance を作成します。", jobName, params)
 		jobInstance = core.NewJobInstance(jobName, params) // 新しい JobInstance を作成
 		err = l.jobRepository.SaveJobInstance(ctx, jobInstance)
 		if err != nil {
-			// JobInstance の保存に失敗した場合
 			logger.Errorf("新しい JobInstance (ID: %s) の保存に失敗しました: %v", jobInstance.ID, err)
 			return nil, exception.NewBatchError("job_launcher", "起動処理エラー: 新しい JobInstance の保存に失敗しました", err, false, false)
 		}
@@ -60,89 +109,57 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params c
 		//       存在する場合、その JobExecution をロードして再開処理を行う。
 	}
 
-	// Step 2: JobExecution の作成 (まだ永続化されていない状態)
-	// JobInstance の ID を渡して JobExecution を作成します。
+	// Step 4: JobExecution の作成 (まだ永続化されていない状態)
 	jobExecution := core.NewJobExecution(jobInstance.ID, jobName, params) // JobInstance.ID を追加
 	// NewJobExecution 時点では Status は JobStatusStarting です
 
+	// Context with CancelFunc を作成し、JobExecution に設定
+	jobCtx, cancel := context.WithCancel(ctx) // ★ 追加
+	jobExecution.CancelFunc = cancel          // ★ 追加
+	l.RegisterCancelFunc(jobExecution.ID, cancel) // ★ 追加: CancelFunc を登録
+
 	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) の起動処理を始めるよ。", jobName, jobExecution.ID, jobInstance.ID)
 
-	// Step 3: JobExecution を JobRepository に保存 (Initial Save)
-	// JobExecution の作成直後に永続化します。ステータスは STARTING です。
-	err = l.jobRepository.SaveJobExecution(ctx, jobExecution)
+	// Step 5: JobExecution を JobRepository に保存 (Initial Save)
+	err = l.jobRepository.SaveJobExecution(jobCtx, jobExecution) // ★ 変更: jobCtx を渡す
 	if err != nil {
-		// 保存に失敗した場合は、ジョブ実行を開始せずにエラーを返します。
+		l.UnregisterCancelFunc(jobExecution.ID) // ★ 追加: エラー時は登録解除
 		logger.Errorf("JobExecution (ID: %s) の初期永続化に失敗しました: %v", jobExecution.ID, err)
 		return jobExecution, exception.NewBatchError("job_launcher", "起動処理エラー: JobExecution の初期保存に失敗しました", err, false, false)
 	}
 	logger.Debugf("JobExecution (ID: %s) を JobRepository に初期保存しました。", jobExecution.ID)
 
-	// Step 4: JobExecution の状態を Started に更新し、永続化
+	// Step 6: JobExecution の状態を Started に更新し、永続化
 	jobExecution.MarkAsStarted() // StartTime, LastUpdated, Status を更新
 
-	// Job 実行前処理の通知 (JobLauncher の責務として移動)
-	// Job が JobExecutionListener を持つ場合、ここで通知
-	// TODO: Job インターフェースに GetJobListeners() []JobExecutionListener を追加するか、
-	//       JobLauncher が JobFactory などからリスナーリストを取得する仕組みが必要
-	//       今回はシンプルに WeatherJob にリスナーを登録したままにし、Job.Run 内で通知する（後で修正）
-	// job.notifyBeforeJob(ctx, jobExecution) // これは Job.Run に残す
-
-	err = l.jobRepository.UpdateJobExecution(ctx, jobExecution)
+	err = l.jobRepository.UpdateJobExecution(jobCtx, jobExecution) // ★ 変更: jobCtx を渡す
 	if err != nil {
-		// 更新に失敗した場合、ジョブ実行を開始したものの、状態を正しく記録できなかったことになります。
-		// これは深刻な問題ですが、ジョブ自体は実行を開始したとみなします。
-		// エラーを記録し、ジョブ実行自体は進めますが、最終的な JobExecution を返す際にエラー情報を含めるべきです。
 		logger.Errorf("JobExecution (ID: %s) の Started 状態への更新に失敗しました: %v", jobExecution.ID, err)
-		// JobExecution に永続化エラーを追加することも検討
 		jobExecution.AddFailureException(exception.NewBatchError("job_launcher", "JobExecution 状態更新エラー (Started)", err, false, false))
-		// エラーはログ出力に留め、ジョブの Run 処理に進みます。
 	} else {
 		logger.Debugf("JobExecution (ID: %s) を JobRepository で Started に更新しました。", jobExecution.ID)
 	}
 
-	// Step 5: JobFactory を使用して Job オブジェクトを取得
-	batchJob, err := l.jobFactory.CreateJob(jobName) // ★ 修正: jobFactory を使用して Job を作成
-	if err != nil {
-		// Job オブジェクトの作成に失敗した場合
-		logger.Errorf("Job '%s' の作成に失敗しました: %v", jobName, err)
-		// JobExecution を FAILED としてマークし、永続化
-		jobExecution.MarkAsFailed(exception.NewBatchError("job_launcher", "Job オブジェクトの作成に失敗しました", err, false, false))
-		// エラー発生時の JobExecution の最終状態を JobRepository で更新
-		updateErr := l.jobRepository.UpdateJobExecution(ctx, jobExecution)
-		if updateErr != nil {
-			logger.Errorf("JobExecution (ID: %s) の最終状態更新に失敗しました (Job作成エラー後): %v", jobExecution.ID, updateErr)
-			jobExecution.AddFailureException(exception.NewBatchError("job_launcher", "JobExecution 最終状態更新エラー (Job作成エラー後)", updateErr, false, false))
-		}
-		return jobExecution, exception.NewBatchError("job_launcher", fmt.Sprintf("Job '%s' の作成に失敗しました", jobName), err, false, false)
-	}
-
 	logger.Infof("Job '%s' (Execution ID: %s, Job Instance ID: %s) を実行するよ。", jobName, jobExecution.ID, jobInstance.ID)
 
-	// Step 6: core.Job の Run メソッドを実行し、JobExecution と JobParameters を渡す
-	runErr := batchJob.Run(ctx, jobExecution, params) // ★ 修正: batchJob を使用
+	// Step 7: core.Job の Run メソッドを実行し、JobExecution と JobParameters を渡す
+	runErr := batchJob.Run(jobCtx, jobExecution, params) // ★ 変更: jobCtx を渡す
 
-	// Step 7: ジョブ実行完了後の JobExecution の状態を永続化
-	// Run メソッド内で JobExecution の最終状態 (Completed or Failed) は既に設定されています。
-	// ここではその最終状態を JobRepository に保存します。
-	updateErr := l.jobRepository.UpdateJobExecution(ctx, jobExecution)
+	// Step 8: ジョブ実行完了後の JobExecution の状態を永続化
+	updateErr := l.jobRepository.UpdateJobExecution(jobCtx, jobExecution) // ★ 変更: jobCtx を渡す
 	if updateErr != nil {
-		// 最終状態の永続化に失敗した場合
 		logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", jobExecution.ID, updateErr)
-		// このエラーを JobExecution に追加
 		jobExecution.AddFailureException(exception.NewBatchError("job_launcher", "JobExecution 最終状態更新エラー", updateErr, false, false))
-		// もし Run メソッドが成功していたとしても、永続化エラーがあれば JobLauncher レベルではエラーとみなす
 		if runErr == nil {
 			runErr = exception.NewBatchError("job_launcher", "JobExecution 最終状態の永続化に失敗しました", updateErr, false, false)
 		} else {
-			// Run エラーと永続化エラーをラップすることも検討
 			runErr = exception.NewBatchError("job_launcher", fmt.Sprintf("Job実行エラー (%v), 永続化エラー (%v)", runErr, updateErr), runErr, false, false)
 		}
 	} else {
 		logger.Debugf("JobExecution (ID: %s) を JobRepository で最終状態 (%s) に更新しました。", jobExecution.ID, jobExecution.Status)
 	}
 
-	// JobLauncher の Launch メソッドは、起動処理自体のエラーを返すインターフェース定義ですが、
-	// ここではジョブ自体の実行エラー (runErr) と最終状態の永続化エラー (updateErr) を含めて返します。
-	// JobExecution オブジェクトは常に返します。
+	l.UnregisterCancelFunc(jobExecution.ID) // ★ 追加: 実行完了後に CancelFunc を登録解除
+
 	return jobExecution, runErr
 }
