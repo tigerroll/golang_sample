@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"sample/pkg/batch/database" // ItemWriter のために追加
+	"sample/pkg/batch/database"
 )
 
 // FlowElement はフロー内の要素（StepまたはDecision）の共通インターフェースです。
@@ -15,7 +15,7 @@ type Job interface {
 	Run(ctx context.Context, jobExecution *JobExecution, jobParameters JobParameters) error
 	JobName() string
 	GetFlow() *FlowDefinition
-	ValidateParameters(params JobParameters) error // ★ 追加: JobParameters のバリデーション
+	ValidateParameters(params JobParameters) error
 }
 
 // Step はジョブ内で実行される単一のステップのインターフェースです。
@@ -92,13 +92,13 @@ type StepExecutionListener interface {
 }
 
 // ChunkListener はチャンク処理イベントを処理するためのインターフェースです。
-type ChunkListener interface { // ★ 追加
+type ChunkListener interface {
 	BeforeChunk(ctx context.Context, stepExecution *StepExecution)
 	AfterChunk(ctx context.Context, stepExecution *StepExecution)
 }
 
 // JobExecutionListener はジョブ実行イベントを処理するためのインターフェースです。
-type JobExecutionListener interface { // ★ 追加: job_execution_listener.go から移動
+type JobExecutionListener interface {
 	// BeforeJob はジョブの実行が開始される直前に呼び出されます。
 	BeforeJob(ctx context.Context, jobExecution *JobExecution)
 	// AfterJob はジョブの実行が完了した後に呼び出されます。成功・失敗に関わらず呼び出されます。
@@ -121,7 +121,7 @@ type ItemProcessListener interface {
 // ItemWriteListener はアイテム書き込みイベントを処理するためのインターフェースです。
 type ItemWriteListener interface {
 	OnWriteError(ctx context.Context, items []interface{}, err error) // 書き込みエラー時に呼び出されます
-	OnSkipInWrite(ctx context.Context, item interface{}, err error) // 書き込み中にスキップされたアイテムに対して呼び出されます
+	OnSkipInWrite(ctx context.Context, items []interface{}, err error) // 書き込み中にスキップされたアイテムに対して呼び出されます (変更: items []interface{} を受け取る)
 }
 
 // ItemListener は全てのアイテムレベルリスナーインターフェースをまとめたものです。
@@ -136,12 +136,12 @@ type Decision interface {
 }
 
 // Split は複数のステップを並列実行するためのフロー要素のインターフェースです。
-type Split interface { // ★ 追加
+type Split interface {
 	Steps() []Step
 	ID() string // FlowElement インターフェースの実装
 }
 
 // JobParametersIncrementer は JobParameters を自動的にインクリメントするためのインターフェースです。
-type JobParametersIncrementer interface { // ★ 追加
+type JobParametersIncrementer interface {
 	GetNext(params JobParameters) JobParameters
 }

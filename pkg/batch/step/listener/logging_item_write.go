@@ -20,8 +20,9 @@ func (l *LoggingItemWriteListener) OnWriteError(ctx context.Context, items []int
 }
 
 // OnSkipInWrite は書き込み中にスキップされたアイテムに対して呼び出されます。
-func (l *LoggingItemWriteListener) OnSkipInWrite(ctx context.Context, item interface{}, err error) {
-	logger.Warnf("アイテムの書き込み中にスキップされました (アイテム: %+v): %v", item, err)
+// core.ItemWriteListener インターフェースに合わせてシグネチャを修正しました。
+func (l *LoggingItemWriteListener) OnSkipInWrite(ctx context.Context, items []interface{}, err error) {
+	logger.Warnf("アイテムの書き込み中にスキップされました (アイテム数: %d): %v", len(items), err)
 }
 
 // LoggingItemWriteListener が core.ItemWriteListener インターフェースを満たすことを確認

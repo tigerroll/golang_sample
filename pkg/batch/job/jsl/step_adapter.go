@@ -7,6 +7,7 @@ import (
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	component "sample/pkg/batch/job/component"
+	database "sample/pkg/batch/database" // ★ 追加: database パッケージをインポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	step "sample/pkg/batch/step" // そのまま
 	logger "sample/pkg/batch/util/logger"
@@ -39,6 +40,9 @@ func ConvertJSLToCoreFlow(
 	if _, ok := jslFlow.Elements[jslFlow.StartElement]; !ok {
 		return nil, exception.NewBatchError(module, fmt.Sprintf("フローの 'start-element' '%s' が 'elements' に見つかりません", jslFlow.StartElement), nil, false, false)
 	}
+
+	// ★ 追加: TransactionManager の初期化
+	txManager := database.NewTransactionManager(jobRepository.GetDBConnection())
 
 	// First pass: Build all steps and decisions
 	// This is necessary because Split elements might reference steps that appear later in the JSL.
@@ -251,6 +255,7 @@ func ConvertJSLToCoreFlow(
 					retryItemListeners,
 					chunkListeners, // ★ 追加
 					coreECPromotion, // ★ 追加
+					txManager, // ★ 追加: TransactionManager を渡す
 				)
 				logger.Debugf("チャンクステップ '%s' を構築しました。", id)
 
