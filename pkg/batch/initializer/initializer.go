@@ -115,15 +115,17 @@ func (bi *BatchInitializer) Initialize(ctx context.Context) (batch_joblauncher.J
 	bi.JobFactory = jobFactory
 	logger.Debugf("JobFactory を Job Repository と共に作成しました。")
 
-	// Step 6: JobOperator の生成
-	jobOperator := batch_joboperator.NewDefaultJobOperator(bi.JobRepository, *bi.JobFactory)
-	bi.JobOperator = jobOperator
-	logger.Infof("DefaultJobOperator を生成しました。")
-
-	// Step 7: JobLauncher の生成
-	jobLauncher := batch_joblauncher.NewSimpleJobLauncher(bi.JobRepository, *bi.JobFactory)
-	bi.JobLauncher = jobLauncher
+	// Step 6: JobLauncher の生成
+	// JobOperator に JobLauncher を設定するため、SimpleJobLauncher のポインタを保持
+	simpleJobLauncher := batch_joblauncher.NewSimpleJobLauncher(bi.JobRepository, *bi.JobFactory) // ★ 変更
+	bi.JobLauncher = simpleJobLauncher // ★ 変更
 	logger.Infof("SimpleJobLauncher を生成しました。")
+
+	// Step 7: JobOperator の生成
+	defaultJobOperator := batch_joboperator.NewDefaultJobOperator(bi.JobRepository, *bi.JobFactory) // ★ 変更
+	defaultJobOperator.SetJobLauncher(simpleJobLauncher) // ★ 追加: JobLauncher を設定
+	bi.JobOperator = defaultJobOperator // ★ 変更
+	logger.Infof("DefaultJobOperator を生成しました。")
 
 	return bi.JobLauncher, bi.JobOperator, nil // ★ 変更: *factory.JobFactory を削除
 }

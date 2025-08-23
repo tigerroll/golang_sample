@@ -34,8 +34,8 @@ func (r *SQLJobInstanceRepository) SaveJobInstance(ctx context.Context, jobInsta
 	paramsJSON := string(paramsJSONBytes)
 
 	query := ` 
-    INSERT INTO job_instances (id, job_name, job_parameters, create_time, version)
-    VALUES ($1, $2, $3, $4, $5);
+    INSERT INTO job_instances (id, job_name, job_parameters, create_time, version, parameters_hash)
+    VALUES ($1, $2, $3, $4, $5, $6);
   `
 	_, err = r.dbConnection.ExecContext(
 		ctx,
@@ -45,6 +45,7 @@ func (r *SQLJobInstanceRepository) SaveJobInstance(ctx context.Context, jobInsta
 		paramsJSON,
 		jobInstance.CreateTime,
 		jobInstance.Version,
+		jobInstance.ParametersHash, // ★ 追加
 	)
 	if err != nil {
 		return exception.NewBatchError("job_repository", fmt.Sprintf("JobInstance (ID: %s) の保存に失敗しました", jobInstance.ID), err, false, false)
@@ -56,21 +57,23 @@ func (r *SQLJobInstanceRepository) SaveJobInstance(ctx context.Context, jobInsta
 
 // FindJobInstanceByJobNameAndParameters は指定されたジョブ名とパラメータに一致する JobInstance をデータベースから検索します。
 func (r *SQLJobInstanceRepository) FindJobInstanceByJobNameAndParameters(ctx context.Context, jobName string, params core.JobParameters) (*core.JobInstance, error) {
-	paramsJSONBytes, err := serialization.MarshalJobParameters(params)
+	// パラメータのハッシュを計算
+	paramsHash, err := params.Hash() // ★ 変更
 	if err != nil {
-		return nil, exception.NewBatchError("job_repository", "検索用 JobParameters のシリアライズに失敗しました", err, false, false)
+		// ★ 修正: exception.NewBatchError の引数順序を修正
+		return nil, exception.NewBatchError("job_repository", "検索用 JobParameters のハッシュ計算に失敗しました", err, false, false)
 	}
-	paramsJSON := string(paramsJSONBytes)
 
 	query := `
-    SELECT id, job_name, job_parameters, create_time, version
+    SELECT id, job_name, job_parameters, create_time, version, parameters_hash
     FROM job_instances
-    WHERE job_name = $1 AND job_parameters @> $2;
+    WHERE job_name = $1 AND parameters_hash = $2;
     `
-	row := r.dbConnection.QueryRowContext(ctx, query, jobName, paramsJSON)
+	row := r.dbConnection.QueryRowContext(ctx, query, jobName, paramsHash) // ★ 変更: parameters_hash で検索
 
 	jobInstance := &core.JobInstance{}
 	var paramsJSONFromDB sql.NullString
+	var parametersHashFromDB sql.NullString // ★ 追加
 
 	err = row.Scan(
 		&jobInstance.ID,
@@ -78,6 +81,7 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByJobNameAndParameters(ctx con
 		&paramsJSONFromDB,
 		&jobInstance.CreateTime,
 		&jobInstance.Version,
+		&parametersHashFromDB, // ★ 追加
 	)
 
 	if err != nil {
@@ -96,6 +100,12 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByJobNameAndParameters(ctx con
 		jobInstance.Parameters = core.NewJobParameters()
 	}
 
+	if parametersHashFromDB.Valid { // ★ 追加
+		jobInstance.ParametersHash = parametersHashFromDB.String
+	} else {
+		jobInstance.ParametersHash = ""
+	}
+
 	logger.Debugf("JobInstance (ID: %s, JobName: %s) をデータベースから取得しました。", jobInstance.ID, jobInstance.JobName)
 
 	return jobInstance, nil
@@ -104,7 +114,7 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByJobNameAndParameters(ctx con
 // FindJobInstanceByID は指定された ID の JobInstance をデータベースから取得します。
 func (r *SQLJobInstanceRepository) FindJobInstanceByID(ctx context.Context, instanceID string) (*core.JobInstance, error) {
 	query := `
-    SELECT id, job_name, job_parameters, create_time, version
+    SELECT id, job_name, job_parameters, create_time, version, parameters_hash
     FROM job_instances
     WHERE id = $1;
   `
@@ -112,6 +122,7 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByID(ctx context.Context, inst
 
 	jobInstance := &core.JobInstance{}
 	var paramsJSONFromDB sql.NullString
+	var parametersHashFromDB sql.NullString // ★ 追加
 
 	err := row.Scan(
 		&jobInstance.ID,
@@ -119,6 +130,7 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByID(ctx context.Context, inst
 		&paramsJSONFromDB,
 		&jobInstance.CreateTime,
 		&jobInstance.Version,
+		&parametersHashFromDB, // ★ 追加
 	)
 
 	if err != nil {
@@ -135,6 +147,12 @@ func (r *SQLJobInstanceRepository) FindJobInstanceByID(ctx context.Context, inst
 		}
 	} else {
 		jobInstance.Parameters = core.NewJobParameters()
+	}
+
+	if parametersHashFromDB.Valid { // ★ 追加
+		jobInstance.ParametersHash = parametersHashFromDB.String
+	} else {
+		jobInstance.ParametersHash = ""
 	}
 
 	logger.Debugf("JobInstance (ID: %s) をデータベースから取得しました。", instanceID)

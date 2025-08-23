@@ -1,11 +1,8 @@
 package core
 
 import (
+	"context"
 	"time"
-	// "reflect" // ★ 削除
-	// "github.com/google/uuid" // ★ 削除
-	// "sample/pkg/batch/util/exception" // ★ 削除
-	// logger "sample/pkg/batch/util/logger" // ★ 削除
 )
 
 // JobStatus はジョブ実行の状態を表します。
@@ -42,7 +39,7 @@ const (
 	ExitStatusCompleted ExitStatus = "COMPLETED"
 	ExitStatusFailed    ExitStatus = "FAILED"
 	ExitStatusStopped   ExitStatus = "STOPPED"
-	ExitStatusAbandoned ExitStatus = "ABANDONED" // ★ 追加
+	ExitStatusAbandoned ExitStatus = "ABANDONED"
 	ExitStatusNoOp      ExitStatus = "NO_OP"
 )
 
@@ -61,7 +58,7 @@ type JobInstance struct {
 	Parameters JobParameters
 	CreateTime time.Time
 	Version    int
-	ParametersHash string // ★ 追加: JobParameters のハッシュ値を保持
+	ParametersHash string
 }
 
 // JobExecution はジョブの単一の実行インスタンスを表す構造体です。
@@ -82,6 +79,7 @@ type JobExecution struct {
 	StepExecutions   []*StepExecution
 	ExecutionContext ExecutionContext
 	CurrentStepName  string
+	CancelFunc       context.CancelFunc
 }
 
 // StepExecution はステップの単一の実行インスタンスを表す構造体です。
@@ -131,6 +129,6 @@ type TransitionRule struct {
 
 // ExecutionContextPromotion は StepExecutionContext から JobExecutionContext へのプロモーション設定を定義します。
 type ExecutionContextPromotion struct {
-	Keys         []string          `yaml:"keys,omitempty"`          // プロモートするキーのリスト (例: "reader_context.currentIndex")
-	JobLevelKeys map[string]string `yaml:"job-level-keys,omitempty"` // プロモート先のジョブレベルのキー名を変更する場合のマップ
+	Keys         []string          `yaml:"keys,omitempty"`
+	JobLevelKeys map[string]string `yaml:"job-level-keys,omitempty"`
 }

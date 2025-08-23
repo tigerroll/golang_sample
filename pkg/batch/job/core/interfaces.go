@@ -15,6 +15,7 @@ type Job interface {
 	Run(ctx context.Context, jobExecution *JobExecution, jobParameters JobParameters) error
 	JobName() string
 	GetFlow() *FlowDefinition
+	ValidateParameters(params JobParameters) error // ★ 追加: JobParameters のバリデーション
 }
 
 // Step はジョブ内で実行される単一のステップのインターフェースです。
@@ -118,4 +119,9 @@ type Decision interface {
 	Decide(ctx context.Context, jobExecution *JobExecution, jobParameters JobParameters) (ExitStatus, error)
 	DecisionName() string
 	ID() string // FlowElement インターフェースの実装
+}
+
+// JobParametersIncrementer は JobParameters を自動的にインクリメントするためのインターフェースです。
+type JobParametersIncrementer interface { // ★ 追加
+	GetNext(params JobParameters) JobParameters
 }

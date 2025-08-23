@@ -7,6 +7,7 @@ import (
 
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	factory "sample/pkg/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
+	joblauncher "sample/pkg/batch/job/joblauncher" // ★ 追加: JobLauncher をインポート
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception" // exception パッケージをインポート
 	logger "sample/pkg/batch/util/logger"
@@ -17,6 +18,7 @@ import (
 type DefaultJobOperator struct {
 	jobRepository job.JobRepository // job.JobRepository に変更
 	jobFactory    factory.JobFactory // JobFactory を依存として追加 (ジョブオブジェクト生成のため)
+	jobLauncher   *joblauncher.SimpleJobLauncher // ★ 追加: JobLauncher への参照
 }
 
 // DefaultJobOperator が JobOperator インターフェースを満たすことを確認します。
@@ -28,7 +30,14 @@ func NewDefaultJobOperator(jobRepository job.JobRepository, jobFactory factory.J
 	return &DefaultJobOperator{
 		jobRepository: jobRepository,
 		jobFactory:    jobFactory, // JobFactory を初期化
+		// jobLauncher は後から SetJobLauncher で設定されることを想定
 	}
+}
+
+// SetJobLauncher は JobLauncher の参照を設定します。
+// 循環参照を避けるため、コンストラクタではなく別途設定します。
+func (o *DefaultJobOperator) SetJobLauncher(launcher *joblauncher.SimpleJobLauncher) { // ★ 追加
+	o.jobLauncher = launcher
 }
 
 // Restart は指定された JobExecution を再開します。
@@ -138,11 +147,51 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
 }
 
 // Stop は指定された JobExecution を停止します。
-// JobOperator インターフェースの実装スタブです。
-func (o *DefaultJobOperator) Stop(ctx context.Context, executionID string) error {
+// JobOperator インターフェースの実装です。
+func (o *DefaultJobOperator) Stop(ctx context.Context, executionID string) error { // ★ 変更
 	logger.Infof("JobOperator: Stop メソッドが呼び出されたよ。Execution ID: %s", executionID)
-	// TODO: 実行中のジョブに停止を通知するロジックを実装
-	return exception.NewBatchErrorf("job_operator", "Stop メソッドはまだ実装されていません")
+
+	if o.jobLauncher == nil {
+		return exception.NewBatchErrorf("job_operator", "JobLauncher が設定されていません。Stop 機能を実行できません。")
+	}
+
+	// 1. JobExecution をロード
+	jobExecution, err := o.jobRepository.FindJobExecutionByID(ctx, executionID)
+	if err != nil {
+		return exception.NewBatchError("job_operator", fmt.Sprintf("停止処理エラー: JobExecution (ID: %s) のロードに失敗しました", executionID), err, false, false)
+	}
+	if jobExecution == nil {
+		return exception.NewBatchErrorf("job_operator", "停止処理エラー: JobExecution (ID: %s) が見つかりませんでした", executionID)
+	}
+
+	// 2. 既に終了状態の場合は停止しない
+	if jobExecution.Status.IsFinished() {
+		logger.Warnf("JobExecution (ID: %s) は既に終了状態 (%s) なので停止できません。", executionID, jobExecution.Status)
+		return exception.NewBatchErrorf("job_operator", "停止処理エラー: JobExecution (ID: %s) は既に終了状態です (%s)", executionID, jobExecution.Status)
+	}
+
+	// 3. JobExecution の状態を STOPPING に更新
+	if err := jobExecution.TransitionTo(core.BatchStatusStopping); err != nil { // ★ 変更
+		logger.Warnf("JobExecution (ID: %s) の状態を STOPPING に更新できませんでした: %v", executionID, err)
+		// 強制的に設定し、処理を続行
+		jobExecution.Status = core.BatchStatusStopping
+	}
+	if err := o.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
+		logger.Errorf("停止処理エラー: JobExecution (ID: %s) の状態更新 (STOPPING) に失敗しました: %v", executionID, err)
+		return exception.NewBatchError("job_operator", fmt.Sprintf("停止処理エラー: JobExecution (ID: %s) の状態更新に失敗しました", executionID), err, false, false)
+	}
+	logger.Infof("JobExecution (ID: %s) の状態を STOPPING に更新したよ。", executionID)
+
+	// 4. JobLauncher に登録された CancelFunc を呼び出す
+	cancelFunc, ok := o.jobLauncher.GetCancelFunc(executionID)
+	if !ok {
+		logger.Warnf("JobExecution (ID: %s) に対応する CancelFunc が見つかりませんでした。ジョブは既に終了しているか、JobLauncher に登録されていません。", executionID)
+		return exception.NewBatchErrorf("job_operator", "停止処理エラー: JobExecution (ID: %s) の CancelFunc が見つかりません", executionID)
+	}
+	cancelFunc() // Context をキャンセルしてジョブ実行を中断
+
+	logger.Infof("JobExecution (ID: %s) の停止シグナルを送信したよ。", executionID)
+	return nil
 }
 
 // Abandon は指定された JobExecution を放棄します。
@@ -166,7 +215,11 @@ func (o *DefaultJobOperator) Abandon(ctx context.Context, executionID string) er
 		return exception.NewBatchErrorf("job_operator", "放棄処理エラー: JobExecution (ID: %s) は既に終了状態です (%s)", executionID, jobExecution.Status)
 	}
 
-	jobExecution.Status = core.BatchStatusAbandoned
+	// TransitionTo を使用して状態遷移を厳密化
+	if err := jobExecution.TransitionTo(core.BatchStatusAbandoned); err != nil { // ★ 変更
+		logger.Warnf("JobExecution (ID: %s) の状態を ABANDONED に更新できませんでした: %v", executionID, err)
+		jobExecution.Status = core.BatchStatusAbandoned // 強制的に設定
+	}
 	jobExecution.ExitStatus = core.ExitStatusAbandoned // ExitStatus も ABANDONED に設定
 	jobExecution.EndTime = time.Now() // 終了時刻を設定
 	jobExecution.LastUpdated = time.Now()
@@ -176,6 +229,11 @@ func (o *DefaultJobOperator) Abandon(ctx context.Context, executionID string) er
 	err = o.jobRepository.UpdateJobExecution(ctx, jobExecution)
 	if err != nil {
 		return exception.NewBatchError("job_operator", fmt.Sprintf("放棄処理エラー: JobExecution (ID: %s) の状態更新に失敗しました", executionID), err, false, false)
+	}
+
+	// JobLauncher に登録された CancelFunc があれば登録解除
+	if o.jobLauncher != nil { // ★ 追加
+		o.jobLauncher.UnregisterCancelFunc(executionID)
 	}
 
 	logger.Infof("JobExecution (ID: %s) を正常に放棄したよ。", executionID)

@@ -224,6 +224,7 @@ func ConvertJSLToCoreFlow(
 					p,
 					w,
 					jslStep.Chunk.ItemCount, // chunkSize
+					jslStep.Chunk.CommitInterval, // ★ 追加
 					&cfg.Batch.Retry, // stepRetryConfig
 					cfg.Batch.ItemRetry, // itemRetryCfg
 					cfg.Batch.ItemSkip,  // itemSkipCfg
