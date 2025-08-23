@@ -323,9 +323,11 @@ func ConvertJSLToCoreFlow(
 				if len(jslDecision.Transitions) == 0 {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' に遷移ルールが定義されていません", id), nil, false, false)
 				}
-				coreDecision := core.NewSimpleDecision(jslDecision.ID)
+				// core.NewConditionalDecision を使用し、プロパティを設定
+				coreDecision := core.NewConditionalDecision(jslDecision.ID)
+				coreDecision.SetProperties(jslDecision.Properties) // JSLから読み込んだプロパティを設定
 				builtElements[id] = coreDecision
-				logger.Debugf("フロー要素 '%s' (Decision) を一時的に構築しました。", id)
+				logger.Debugf("フロー要素 '%s' (ConditionalDecision) を一時的に構築しました。", id)
 
 			} else {
 				// Try to unmarshal as Split

@@ -133,6 +133,8 @@ type Decision interface {
 	Decide(ctx context.Context, jobExecution *JobExecution, jobParameters JobParameters) (ExitStatus, error)
 	DecisionName() string
 	ID() string // FlowElement インターフェースの実装
+	// SetProperties は JSL から注入されるプロパティを設定します。
+	SetProperties(properties map[string]string)
 }
 
 // Split は複数のステップを並列実行するためのフロー要素のインターフェースです。

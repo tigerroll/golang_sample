@@ -62,16 +62,59 @@ flow:
         - ref: loggingRetryItemListener
       transitions:
         - on: COMPLETED
-          to: dummyTaskletStep # 新しい Tasklet ステップへ遷移
+          to: prepareDecisionDataStep # ★ 変更: 新しいステップへ遷移
         - on: FAILED
           fail: true # ジョブ全体を失敗として終了
-    dummyTaskletStep: # 例として Tasklet ステップを追加
+    prepareDecisionDataStep: # ★ 追加: ExecutionContext に値を書き込む Tasklet ステップ
+      id: prepareDecisionDataStep
+      tasklet:
+        ref: executionContextWriterTasklet
+        properties:
+          key: "decision.condition"
+          value: "true" # ここを "false" に変更すると、Decision の別のパスをテストできます
+      execution-context-promotion: # StepExecutionContext の値を JobExecutionContext にプロモート
+        keys:
+          - "decision.condition"
+      listeners:
+        - ref: loggingStepListener
+      transitions:
+        - on: COMPLETED
+          to: checkConditionDecision # ★ 新しい Decision へ遷移
+        - on: FAILED
+          fail: true
+    checkConditionDecision: # ★ 追加: ConditionalDecision 要素
+      id: checkConditionDecision
+      properties:
+        conditionKey: "decision.condition" # ExecutionContext から取得するキー
+        expectedValue: "true"             # この値と一致すれば COMPLETED
+        defaultStatus: "FAILED"           # 一致しない場合やキーが見つからない場合のデフォルトステータス
+      transitions:
+        - on: COMPLETED # decision.condition が "true" の場合
+          to: dummyTaskletStep # 既存の dummyTaskletStep へ
+        - on: FAILED # decision.condition が "true" でない場合、またはキーが見つからない場合
+          to: anotherDummyTaskletStep # 別のパスへ
+    dummyTaskletStep: # 例として Tasklet ステップを追加 (既存)
       id: dummyTaskletStep
       tasklet:
         ref: dummyTasklet # JobFactory で登録されているダミーコンポーネント名
+        properties:
+          message: "Condition was TRUE! Executing dummyTaskletStep."
       listeners: # ステップレベルリスナー (TaskletStep も StepExecutionListener を持つ)
         - ref: loggingStepListener
         - ref: retryStepListener
+      transitions:
+        - on: COMPLETED
+          end: true
+        - on: FAILED
+          fail: true
+    anotherDummyTaskletStep: # ★ 追加: Decision の別のパスを示す Tasklet ステップ
+      id: anotherDummyTaskletStep
+      tasklet:
+        ref: dummyTasklet
+        properties:
+          message: "Condition was FALSE or not found! Executing anotherDummyTaskletStep."
+      listeners:
+        - ref: loggingStepListener
       transitions:
         - on: COMPLETED
           end: true
