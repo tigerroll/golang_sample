@@ -29,12 +29,13 @@ type Step struct {
 	Chunk                     *Chunk                     `yaml:"chunk,omitempty"`     // チャンク指向の場合のチャンク設定
 	Tasklet                   ComponentRef               `yaml:"tasklet,omitempty"`   // Tasklet指向の場合
 	Transitions               []Transition               `yaml:"transitions,omitempty"`
-	Listeners                 []ComponentRef             `yaml:"listeners,omitempty"`
+	Listeners                 []ComponentRef             `yaml:"listeners,omitempty"` // StepExecutionListener
 	ItemReadListeners         []ComponentRef             `yaml:"item-read-listeners,omitempty"`
 	ItemProcessListeners      []ComponentRef             `yaml:"item-process-listeners,omitempty"`
 	ItemWriteListeners        []ComponentRef             `yaml:"item-write-listeners,omitempty"`
 	SkipListeners             []ComponentRef             `yaml:"skip-listeners,omitempty"`
 	RetryItemListeners        []ComponentRef             `yaml:"retry-item-listeners,omitempty"`
+	ChunkListeners            []ComponentRef             `yaml:"chunk-listeners,omitempty"` // ★ 追加: ChunkListeners
 	ExecutionContextPromotion *ExecutionContextPromotion `yaml:"execution-context-promotion,omitempty"` // ★ 追加
 	// Other step-level properties like listeners, properties, etc. can be added here.
 }
@@ -57,6 +58,14 @@ type Decision struct {
 	ID          string       `yaml:"id"`
 	Description string       `yaml:"description,omitempty"`
 	Transitions []Transition `yaml:"transitions"` // Transitions based on decision outcome
+}
+
+// Split represents a parallel execution of multiple steps.
+type Split struct { // ★ 追加: Split struct
+	ID          string       `yaml:"id"`
+	Description string       `yaml:"description,omitempty"`
+	Steps       []string     `yaml:"steps"` // IDs of steps to run in parallel
+	Transitions []Transition `yaml:"transitions,omitempty"`
 }
 
 // Transition defines the next element to execute based on an exit status.

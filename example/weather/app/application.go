@@ -6,7 +6,7 @@ import (
 
 	config "sample/pkg/batch/config"
 	factory "sample/pkg/batch/job/factory"
-	joblistener "sample/pkg/batch/job/listener" // エイリアスを joblistener に変更
+	joblistener "sample/pkg/batch/job/listener" // Moved to core
 	joboperator "sample/pkg/batch/job/joboperator"
 	initializer "sample/pkg/batch/initializer"
 	joblauncher "sample/pkg/batch/job/joblauncher" // joblauncher パッケージをインポート
@@ -15,6 +15,7 @@ import (
 	godotenv "github.com/joho/godotenv" // godotenv をインポート
 	logger "sample/pkg/batch/util/logger"
 	core "sample/pkg/batch/job/core"
+	incrementer "sample/pkg/batch/job/incrementer" // incrementer パッケージをインポート
 
 	// weather 関連のパッケージをインポート
 	appJob "sample/example/weather/job"
@@ -97,9 +98,30 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 		return steplistener.NewLoggingItemWriteListener(), nil
 	})
 
+	// Chunk-level listeners の登録
+	jobFactory.RegisterChunkListenerBuilder("loggingChunkListener", func(cfg *config.Config) (core.ChunkListener, error) { // ★ 追加
+		return steplistener.NewLoggingChunkListener(), nil
+	})
+
 	// JobExecutionListener の登録
-	jobFactory.RegisterJobListenerBuilder("loggingJobListener", func(cfg *config.Config) (joblistener.JobExecutionListener, error) {
-		return joblistener.NewLoggingJobListener(&cfg.System.Logging), nil
+	jobFactory.RegisterJobListenerBuilder("loggingJobListener", func(cfg *config.Config) (core.JobExecutionListener, error) { // ★ 変更: core.JobExecutionListener を使用
+		return joblistener.NewLoggingJobListener(&cfg.System.Logging), nil // ★ 変更: joblistener.NewLoggingJobListener を使用
+	})
+
+	// JobParametersIncrementer の登録
+	jobFactory.RegisterJobParametersIncrementerBuilder("runIdIncrementer", func(cfg *config.Config, properties map[string]string) (core.JobParametersIncrementer, error) {
+		name := "run.id" // デフォルト値
+		if propName, ok := properties["name"]; ok {
+			name = propName
+		}
+		return incrementer.NewRunIDIncrementer(name), nil
+	})
+	jobFactory.RegisterJobParametersIncrementerBuilder("timestampIncrementer", func(cfg *config.Config, properties map[string]string) (core.JobParametersIncrementer, error) {
+		name := "timestamp" // デフォルト値
+		if propName, ok := properties["name"]; ok {
+			name = propName
+		}
+		return incrementer.NewTimestampIncrementer(name), nil
 	})
 
 	logger.Debugf("全てのアプリケーションコンポーネントビルダーを登録しました。")
@@ -108,7 +130,7 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 	jobFactory.RegisterJobBuilder("weather", func(
 		jobRepository job.JobRepository, // エイリアスを削除し、デフォルトの repository を使用
 		cfg *config.Config,
-		listeners []joblistener.JobExecutionListener, // エイリアスを joblistener に変更
+		listeners []core.JobExecutionListener, // ★ 変更: core.JobExecutionListener を使用
 		flow *core.FlowDefinition,
 	) (core.Job, error) {
 		return appJob.NewWeatherJob(jobRepository, cfg, listeners, flow), nil

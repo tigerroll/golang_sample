@@ -31,6 +31,22 @@ func (s JobStatus) IsFinished() bool {
 	}
 }
 
+// ToExitStatus は JobStatus を対応する ExitStatus に変換します。
+func (s JobStatus) ToExitStatus() ExitStatus { // ★ 追加
+	switch s {
+	case BatchStatusCompleted:
+		return ExitStatusCompleted
+	case BatchStatusFailed:
+		return ExitStatusFailed
+	case BatchStatusStopped:
+		return ExitStatusStopped
+	case BatchStatusAbandoned:
+		return ExitStatusAbandoned
+	default:
+		return ExitStatusUnknown
+	}
+}
+
 // ExitStatus はジョブ/ステップの終了時の詳細なステータスを表します。
 type ExitStatus string
 
@@ -131,4 +147,29 @@ type TransitionRule struct {
 type ExecutionContextPromotion struct {
 	Keys         []string          `yaml:"keys,omitempty"`
 	JobLevelKeys map[string]string `yaml:"job-level-keys,omitempty"`
+}
+
+// concreteSplit は Split インターフェースの具体的な実装です。
+type concreteSplit struct {
+	id    string
+	steps []Step
+}
+
+// NewConcreteSplit は新しい concreteSplit インスタンスを作成し、Split インターフェースとして返します。
+// この関数は Split インターフェースを返すため、呼び出し側は具体的な実装に依存しません。
+func NewConcreteSplit(id string, steps []Step) Split {
+	return &concreteSplit{
+		id:    id,
+		steps: steps,
+	}
+}
+
+// ID は concreteSplit のIDを返します。Split インターフェースを実装します。
+func (s *concreteSplit) ID() string {
+	return s.id
+}
+
+// Steps は concreteSplit に含まれるステップのリストを返します。Split インターフェースを実装します。
+func (s *concreteSplit) Steps() []Step {
+	return s.steps
 }

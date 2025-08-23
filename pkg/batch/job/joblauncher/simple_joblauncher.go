@@ -151,7 +151,7 @@ func (l *SimpleJobLauncher) Launch(ctx context.Context, jobName string, params c
 		logger.Errorf("JobExecution (ID: %s) の最終状態の更新に失敗しました: %v", jobExecution.ID, updateErr)
 		jobExecution.AddFailureException(exception.NewBatchError("job_launcher", "JobExecution 最終状態更新エラー", updateErr, false, false))
 		if runErr == nil {
-			runErr = exception.NewBatchError("job_launcher", "JobExecution 最終状態の永続化に失敗しました", updateErr, false, false)
+			runErr = exception.NewBatchError("job_launcher", fmt.Sprintf("Job実行エラー (%v), 永続化エラー (%v)", runErr, updateErr), runErr, false, false)
 		} else {
 			runErr = exception.NewBatchError("job_launcher", fmt.Sprintf("Job実行エラー (%v), 永続化エラー (%v)", runErr, updateErr), runErr, false, false)
 		}

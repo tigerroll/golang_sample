@@ -53,4 +53,4 @@ func (l *LoggingJobListener) AfterJob(ctx context.Context, jobExecution *core.Jo
 }
 
 // LoggingJobListener が JobExecutionListener インターフェースを満たすことを確認
-var _ JobExecutionListener = (*LoggingJobListener)(nil)
+var _ core.JobExecutionListener = (*LoggingJobListener)(nil)
