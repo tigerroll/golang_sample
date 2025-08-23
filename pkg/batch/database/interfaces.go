@@ -106,3 +106,35 @@ func (a *sqlDBAdapter) QueryContext(ctx context.Context, query string, args ...a
 func (a *sqlDBAdapter) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return a.db.QueryRowContext(ctx, query, args...) // 修正: args を渡す
 }
+
+// TransactionManager はトランザクションの開始、コミット、ロールバックを管理するインターフェースです。
+type TransactionManager interface {
+	Begin(ctx context.Context, opts *sql.TxOptions) (Tx, error)
+	Commit(tx Tx) error
+	Rollback(tx Tx) error
+}
+
+// dbTransactionManager は DBConnection を使用してトランザクションを管理する実装です。
+type dbTransactionManager struct {
+	db DBConnection
+}
+
+// NewTransactionManager は新しい dbTransactionManager のインスタンスを作成します。
+func NewTransactionManager(db DBConnection) TransactionManager {
+	return &dbTransactionManager{db: db}
+}
+
+// Begin は新しいトランザクションを開始します。
+func (tm *dbTransactionManager) Begin(ctx context.Context, opts *sql.TxOptions) (Tx, error) {
+	return tm.db.BeginTx(ctx, opts)
+}
+
+// Commit は指定されたトランザクションをコミットします。
+func (tm *dbTransactionManager) Commit(tx Tx) error {
+	return tx.Commit()
+}
+
+// Rollback は指定されたトランザクションをロールバックします。
+func (tm *dbTransactionManager) Rollback(tx Tx) error {
+	return tx.Rollback()
+}

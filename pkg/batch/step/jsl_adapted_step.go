@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sample/pkg/batch/config"
+	"sample/pkg/batch/database"
 	core "sample/pkg/batch/job/core"
 	job "sample/pkg/batch/repository/job"
 	exception "sample/pkg/batch/util/exception"
@@ -22,24 +23,25 @@ import (
 // これらのフィールドは `any` 型引数を持つジェネリックインターフェースとして保持し、
 // 内部で適切な型アサーションを行います。
 type JSLAdaptedStep struct {
-	name                      string                         // ステップ名
-	reader                    core.ItemReader[any]           // core.ItemReader を使用
-	processor                 core.ItemProcessor[any, any]   // core.ItemProcessor を使用
-	writer                    core.ItemWriter[any]           // core.ItemWriter を使用
+	name                      string
+	reader                    core.ItemReader[any]
+	processor                 core.ItemProcessor[any, any]
+	writer                    core.ItemWriter[any]
 	chunkSize                 int
-	commitInterval            int                            // ★ 追加: CommitInterval を保持
-	stepRetryConfig           *config.RetryConfig            // ステップレベルのリトライ設定 (チャンク処理全体のリトライ)
-	itemRetryConfig           config.ItemRetryConfig         // アイテムレベルのリトライ設定
-	itemSkipConfig            config.ItemSkipConfig          // アイテムレベルのスキップ設定
-	stepListeners             []core.StepExecutionListener   // core.StepExecutionListener を使用
-	itemReadListeners         []core.ItemReadListener        // アイテム読み込みリスナー
-	itemProcessListeners      []core.ItemProcessListener     // アイテム処理リスナー
-	itemWriteListeners        []core.ItemWriteListener       // アイテム書き込みリスナー
-	skipListeners             []core.SkipListener            // core.SkipListener を使用
-	retryItemListeners        []core.RetryItemListener       // core.ItemRetryListener を使用
-	chunkListeners            []core.ChunkListener           // ★ 追加: ChunkListener
-	jobRepository             job.JobRepository              // JobRepository を追加 (トランザクション管理のため)
-	executionContextPromotion *core.ExecutionContextPromotion // ★ 追加: ExecutionContextPromotion の設定
+	commitInterval            int
+	stepRetryConfig           *config.RetryConfig
+	itemRetryConfig           config.ItemRetryConfig
+	itemSkipConfig            config.ItemSkipConfig
+	stepListeners             []core.StepExecutionListener
+	itemReadListeners         []core.ItemReadListener
+	itemProcessListeners      []core.ItemProcessListener
+	itemWriteListeners        []core.ItemWriteListener
+	skipListeners             []core.SkipListener
+	retryItemListeners        []core.RetryItemListener
+	chunkListeners            []core.ChunkListener
+	jobRepository             job.JobRepository
+	executionContextPromotion *core.ExecutionContextPromotion
+	txManager                 database.TransactionManager
 }
 
 // JSLAdaptedStep が core.Step インターフェースを満たすことを確認します。
@@ -48,25 +50,26 @@ var _ core.Step = (*JSLAdaptedStep)(nil)
 // NewJSLAdaptedStep は新しい JSLAdaptedStep のインスタンスを作成します。
 // ステップの依存関係と設定、および各種リスナーを受け取ります。
 // reader, processor, writer は any 型引数を持つジェネリックインターフェースとして受け取ります。
-func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
+func NewJSLAdaptedStep(
 	name string,
 	reader core.ItemReader[any],
 	processor core.ItemProcessor[any, any],
 	writer core.ItemWriter[any],
 	chunkSize int,
-	commitInterval int, // ★ 追加
+	commitInterval int,
 	stepRetryConfig *config.RetryConfig,
 	itemRetryConfig config.ItemRetryConfig,
 	itemSkipConfig config.ItemSkipConfig,
-	jobRepository job.JobRepository, // JobRepository を追加
-	stepListeners []core.StepExecutionListener, // core.StepExecutionListener を使用
-	itemReadListeners []core.ItemReadListener, // アイテム読み込みリスナー
-	itemProcessListeners []core.ItemProcessListener, // アイテム処理リスナー
-	itemWriteListeners []core.ItemWriteListener, // アイテム書き込みリスナー
-	skipListeners []core.SkipListener, // core.SkipListener を使用
-	retryItemListeners []core.RetryItemListener, // core.ItemRetryListener を使用
-	chunkListeners []core.ChunkListener, // ★ 追加
-	executionContextPromotion *core.ExecutionContextPromotion, // ★ 追加
+	jobRepository job.JobRepository,
+	stepListeners []core.StepExecutionListener,
+	itemReadListeners []core.ItemReadListener,
+	itemProcessListeners []core.ItemProcessListener,
+	itemWriteListeners []core.ItemWriteListener,
+	skipListeners []core.SkipListener,
+	retryItemListeners []core.RetryItemListener,
+	chunkListeners []core.ChunkListener,
+	executionContextPromotion *core.ExecutionContextPromotion,
+	txManager database.TransactionManager,
 ) *JSLAdaptedStep {
 	return &JSLAdaptedStep{
 		name:                      name,
@@ -74,7 +77,7 @@ func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 		processor:                 processor,
 		writer:                    writer,
 		chunkSize:                 chunkSize,
-		commitInterval:            commitInterval, // ★ 追加
+		commitInterval:            commitInterval,
 		stepRetryConfig:           stepRetryConfig,
 		itemRetryConfig:           itemRetryConfig,
 		itemSkipConfig:            itemSkipConfig,
@@ -84,9 +87,10 @@ func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 		itemWriteListeners:        itemWriteListeners,
 		skipListeners:             skipListeners,
 		retryItemListeners:        retryItemListeners,
-		chunkListeners:            chunkListeners, // ★ 追加
-		jobRepository:             jobRepository, // JobRepository を設定
-		executionContextPromotion: executionContextPromotion, // ★ 追加
+		chunkListeners:            chunkListeners,
+		jobRepository:             jobRepository,
+		executionContextPromotion: executionContextPromotion,
+		txManager:                 txManager,
 	}
 }
 
@@ -103,7 +107,7 @@ func (s *JSLAdaptedStep) ID() string {
 // RegisterListener はこのステップに StepExecutionListener を登録します。
 // NewJSLAdaptedStep でリスナーを受け取るように変更したため、このメソッドは不要になる可能性がありますが、
 // 実行時に動的にリスナーを追加するユースケースのために残しておくこともできます。
-func (s *JSLAdaptedStep) RegisterListener(l core.StepExecutionListener) { // core.StepExecutionListener を使用
+func (s *JSLAdaptedStep) RegisterListener(l core.StepExecutionListener) {
 	s.stepListeners = append(s.stepListeners, l)
 }
 
@@ -122,14 +126,14 @@ func (s *JSLAdaptedStep) notifyAfterStep(ctx context.Context, stepExecution *cor
 }
 
 // notifyBeforeChunk は登録されている ChunkListener の BeforeChunk メソッドを呼び出します。
-func (s *JSLAdaptedStep) notifyBeforeChunk(ctx context.Context, stepExecution *core.StepExecution) { // ★ 追加
+func (s *JSLAdaptedStep) notifyBeforeChunk(ctx context.Context, stepExecution *core.StepExecution) {
 	for _, l := range s.chunkListeners {
 		l.BeforeChunk(ctx, stepExecution)
 	}
 }
 
 // notifyAfterChunk は登録されている ChunkListener の AfterChunk メソッドを呼び出します。
-func (s *JSLAdaptedStep) notifyAfterChunk(ctx context.Context, stepExecution *core.StepExecution) { // ★ 追加
+func (s *JSLAdaptedStep) notifyAfterChunk(ctx context.Context, stepExecution *core.StepExecution) {
 	for _, l := range s.chunkListeners {
 		l.AfterChunk(ctx, stepExecution)
 	}
@@ -164,9 +168,10 @@ func (s *JSLAdaptedStep) notifyItemWriteError(ctx context.Context, items []inter
 }
 
 // notifySkipInWrite は登録されている ItemWriteListener の OnSkipInWrite メソッドを呼び出します。
-func (s *JSLAdaptedStep) notifySkipInWrite(ctx context.Context, item interface{}, err error) {
+// 変更: items []interface{} を受け取るように変更
+func (s *JSLAdaptedStep) notifySkipInWrite(ctx context.Context, items []interface{}, err error) {
 	for _, l := range s.itemWriteListeners {
-		l.OnSkipInWrite(ctx, item, err)
+		l.OnSkipInWrite(ctx, items, err)
 	}
 }
 
@@ -242,7 +247,7 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 	// StepExecution の開始時刻を設定し、状態をマーク
 	// TransitionTo を使用して状態遷移を厳密化
-	if err := stepExecution.TransitionTo(core.BatchStatusStarted); err != nil { // ★ 変更
+	if err := stepExecution.TransitionTo(core.BatchStatusStarted); err != nil {
 		logger.Errorf("ステップ '%s': StepExecution の状態を STARTED に更新できませんでした: %v", s.name, err)
 		stepExecution.AddFailureException(err)
 		stepExecution.MarkAsFailed(err) // 強制的に失敗状態に
@@ -297,13 +302,14 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			// Writer の ExecutionContext 全体を "writer_context" キーで保存
 			stepExecution.ExecutionContext.Put("writer_context", ec)
 		} else {
-			logger.Errorf("ステップ '%s': Writer のクローズに失敗したよ: %v", s.name, err)
+			// 修正: ログメッセージをより正確に
+			logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 		}
 
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
 
-		// ★ 追加: ExecutionContext のプロモーション
+		// ExecutionContext のプロモーション
 		s.promoteExecutionContext(ctx, jobExecution, stepExecution)
 	}()
 
@@ -319,7 +325,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 	chunkSize := s.chunkSize
 
 	// CommitInterval が ItemCount と異なる場合、ログを出す (現状は ItemCount と同じ意味で扱われるため)
-	if s.commitInterval > 0 && s.commitInterval != s.chunkSize { // ★ 追加
+	if s.commitInterval > 0 && s.commitInterval != s.chunkSize {
 		logger.Warnf("ステップ '%s': Chunk.CommitInterval (%d) が Chunk.ItemCount (%d) と異なりますが、現在の実装では ItemCount が優先されます。", s.name, s.commitInterval, s.chunkSize)
 	}
 
@@ -338,10 +344,10 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		eofReached := false
 
 		// チャンク開始前処理の通知
-		s.notifyBeforeChunk(ctx, stepExecution) // ★ 追加
+		s.notifyBeforeChunk(ctx, stepExecution)
 
 		// トランザクションを開始 (JobRepository から DBConnection を取得)
-		tx, err := s.jobRepository.GetDBConnection().BeginTx(ctx, nil) // ★ 変更
+		tx, err := s.txManager.Begin(ctx, nil)
 		if err != nil {
 			logger.Errorf("ステップ '%s': トランザクションの開始に失敗したよ: %v", s.name, err)
 			stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
@@ -351,16 +357,43 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			// defer のロールバックは不要、ループの最後にロールバックされる
 		}
 
+		// defer のトランザクション処理を修正
+		// defer はループの各イテレーションで実行されるため、tx と chunkAttemptError のポインタを渡す
+		// これにより、各チャンク試行の終わりにトランザクションが適切にコミットまたはロールバックされる
+		defer func(currentTx database.Tx, chunkFailed *bool) {
+			if currentTx == nil { // トランザクションが開始できなかった場合は何もしない
+				return
+			}
+			if *chunkFailed {
+				if rbErr := s.txManager.Rollback(currentTx); rbErr != nil {
+					logger.Errorf("ステップ '%s': トランザクションのロールバック中にエラーが発生したよ: %v", s.name, rbErr)
+				} else {
+					logger.Debugf("ステップ '%s': トランザクションをロールバックしました。", s.name)
+				}
+				stepExecution.RollbackCount++ // ロールバックカウントをインクリメント
+			} else {
+				if cmErr := s.txManager.Commit(currentTx); cmErr != nil {
+					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, cmErr)
+					stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクションコミットエラー", cmErr, true, false))
+					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+					*chunkFailed = true // コミット失敗もチャンクエラーとして扱う
+				} else {
+					logger.Debugf("ステップ '%s': トランザクションをコミットしました。", s.name)
+				}
+				stepExecution.CommitCount++ // コミットカウントをインクリメント
+			}
+		}(tx, &chunkAttemptError)
+
 		if !chunkAttemptError { // トランザクション開始に成功した場合のみ、チャンク処理を続行
 			// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
 			for {
 				select {
 				case <-ctx.Done():
 					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断するよ: %v", s.name, ctx.Err())
-					stepExecution.MarkAsStopped() // ★ 修正
+					stepExecution.MarkAsStopped()
 					jobExecution.AddFailureException(ctx.Err())
-					tx.Rollback()
-					s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
+					// defer がロールバックを処理するため、ここでは明示的なロールバックは不要
+					s.notifyAfterChunk(ctx, stepExecution)
 					return ctx.Err()
 				default:
 				}
@@ -420,19 +453,19 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 						// Writer のリトライ/スキップロジックをここに実装
 						for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
 							// Context キャンセルチェック
-							select { // ★ 追加
+							select {
 							case <-ctx.Done():
 								logger.Warnf("Context がキャンセルされたため、ステップ '%s' のアイテム書き込みを中断するよ: %v", s.name, ctx.Err())
-								stepExecution.MarkAsStopped() // ★ 修正
+								stepExecution.MarkAsStopped()
 								jobExecution.AddFailureException(ctx.Err())
-								tx.Rollback()
-								s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
+								// defer がロールバックを処理するため、ここでは明示的なロールバックは不要
+								s.notifyAfterChunk(ctx, stepExecution)
 								return ctx.Err()
 							default:
 							}
 
 							// Writer.Write にトランザクションを渡すように変更
-							writeErr = s.writer.Write(ctx, tx, processedItemsChunk) // ★ tx を渡す
+							writeErr = s.writer.Write(ctx, tx, processedItemsChunk)
 							if writeErr == nil {
 								break // 成功
 							}
@@ -446,13 +479,8 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 								// リトライ不可または最大リトライ回数に達した場合
 								s.notifyItemWriteError(ctx, processedItemsChunk, writeErr)
 								if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-									// Note: OnSkipWrite takes a single item, but here we have a chunk.
-									// For now, we'll just notify with the first item or a generic message.
-									var firstItem any = nil
-									if len(processedItemsChunk) > 0 {
-										firstItem = processedItemsChunk[0]
-									}
-									s.notifySkipWrite(ctx, firstItem, writeErr) // Notify with first item as a proxy
+									// 変更: notifySkipInWrite に processedItemsChunk 全体を渡す
+									s.notifySkipInWrite(ctx, processedItemsChunk, writeErr)
 									stepExecution.SkipWriteCount += len(processedItemsChunk) // Skip count by chunk size
 									logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
 									writeErr = nil // エラーをクリアして続行
@@ -482,14 +510,14 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					}
 
 					// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
-					readerEC, err := s.reader.GetExecutionContext(ctx) // ★ 修正: err を受け取る
-					if err != nil { // ★ 修正: err != nil でチェック
+					readerEC, err := s.reader.GetExecutionContext(ctx)
+					if err != nil {
 						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 						chunkAttemptError = true
 						break
 					}
-					writerEC, err := s.writer.GetExecutionContext(ctx); // ★ 修正: err を受け取る
-					if err != nil { // ★ 修正: err != nil でチェック
+					writerEC, err := s.writer.GetExecutionContext(ctx)
+					if err != nil {
 						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 						chunkAttemptError = true
 						break
@@ -503,7 +531,6 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 						chunkAttemptError = true // StepExecution の永続化エラーもチャンクエラー
 						break
 					}
-					stepExecution.CommitCount++ // コミットカウントをインクリメント
 
 					chunkCount++ // チャンク処理成功
 					// チャンクをリセット
@@ -526,18 +553,16 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		} // トランザクション開始成功チェック終了
 
 		// チャンク終了後処理の通知 (エラーの有無に関わらず)
-		s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
+		s.notifyAfterChunk(ctx, stepExecution)
 
 		if chunkAttemptError {
-			tx.Rollback() // エラーが発生した場合はロールバック
-			stepExecution.RollbackCount++ // ロールバックカウントをインクリメント
 			consecutiveFailures++ // 連続失敗回数をインクリメント
 
 			// 回路遮断器のチェック
 			if consecutiveFailures >= stepRetryConfig.CircuitBreakerThreshold {
 				logger.Errorf("ステップ '%s' 回路遮断器がオープンしたよ。連続失敗回数 (%d) が閾値 (%d) を超えたよ。ステップを終了するよ。", s.name, consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
 				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
-				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+				jobExecution.AddFailureException(stepExecution.Failures[len(jobExecution.Failures)-1])
 				return exception.NewBatchErrorf(s.name, "回路遮断器オープンによりステップ '%s' が失敗したよ", s.name)
 			}
 
@@ -560,7 +585,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
 				// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 				if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context"); ok {
-					if readerECVal, isEC := readerEC.(core.ExecutionContext); isEC { // ★ 修正: 型アサーションを安全に行う
+					if readerECVal, isEC := readerEC.(core.ExecutionContext); isEC {
 						s.reader.SetExecutionContext(ctx, readerECVal)
 					} else {
 						logger.Warnf("ステップ '%s': リトライ時の Reader の ExecutionContext が予期しない型だよ: %T", s.name, readerEC)
@@ -574,18 +599,11 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				// 最大リトライ回数に達した場合
 				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗したよ。ステップを終了するよ。", s.name, stepRetryConfig.MaxAttempts)
 				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", stepRetryConfig.MaxAttempts))
-				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+				jobExecution.AddFailureException(stepExecution.Failures[len(jobExecution.Failures)-1])
 				return exception.NewBatchErrorf(s.name, "チャンク処理が最大リトライ回数 (%d) 失敗したよ", s.name)
 			}
 		} else {
 			// この試行がエラーなく完了した場合
-			if err = tx.Commit(); err != nil {
-				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, err)
-				stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクションコミットエラー", err, true, false))
-				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-				return err
-			}
-			stepExecution.CommitCount++
 			consecutiveFailures = 0 // 成功したので連続失敗回数をリセット
 			logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了したよ。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d, 合計フィルタリング数: %d",
 				s.name, chunkCount, totalReadCount, totalWriteCount, stepExecution.FilterCount)
@@ -614,7 +632,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	var readErr error
 	for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
 		// Context キャンセルチェック
-		select { // ★ 追加
+		select {
 		case <-ctx.Done():
 			return nil, false, false, ctx.Err()
 		default:
@@ -671,7 +689,7 @@ func (s *JSLAdaptedStep) processSingleItem(ctx context.Context, stepExecution *c
 	} else {
 		for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
 			// Context キャンセルチェック
-			select { // ★ 追加
+			select {
 			case <-ctx.Done():
 				return nil, false, false, ctx.Err()
 			default:
@@ -725,7 +743,7 @@ func (s *JSLAdaptedStep) isRetryableException(err error, retryableExceptions []s
 		return false
 	}
 	// Context キャンセルはリトライ可能ではない
-	if errors.Is(err, context.Canceled) { // ★ 追加
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	// BatchError の IsRetryable フラグを優先
@@ -750,7 +768,7 @@ func (s *JSLAdaptedStep) isSkippableException(err error, skippableExceptions []s
 		return false
 	}
 	// Context キャンセルはスキップ可能ではない
-	if errors.Is(err, context.Canceled) { // ★ 追加
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	// BatchError の IsSkippable フラグを優先

@@ -178,7 +178,7 @@ func setupApplication(ctx context.Context, envFilePath string, embeddedConfig, e
 }
 
 // executeJob は指定されたジョブを実行し、その結果に基づいて終了コードを返します。
-func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appConfig *config.Config) int { // ★ jobOperator を jobLauncher に変更
+func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, jobFactory *factory.JobFactory, appConfig *config.Config) int { // ★ jobOperator を jobLauncher に変更, jobFactory を追加
 	jobName := appConfig.Batch.JobName
 	if jobName == "" {
 		logger.Errorf("設定ファイルにジョブ名が指定されていません。")
@@ -191,6 +191,15 @@ func executeJob(ctx context.Context, jobLauncher joblauncher.JobLauncher, appCon
 	jobParams.Put("input.file", "/path/to/input.csv") // 例としてパラメータを設定
 	jobParams.Put("output.dir", "/path/to/output")    // 例としてパラメータを設定
 	jobParams.Put("process.date", time.Now().Format("2006-01-02")) // 例としてパラメータを設定
+
+	// JobParametersIncrementer を使用してパラメータを更新
+	if incrementer := jobFactory.GetJobParametersIncrementer(jobName); incrementer != nil {
+		logger.Debugf("JobParametersIncrementer を使用して JobParameters を更新するよ。")
+		jobParams = incrementer.GetNext(jobParams)
+		logger.Debugf("更新後の JobParameters: %+v", jobParams.Params)
+	} else {
+		logger.Debugf("JobParametersIncrementer は設定されていないよ。")
+	}
 
 	// JobOperator を使用してジョブを起動
 	jobExecution, startErr := jobLauncher.Launch(ctx, jobName, jobParams) // ★ JobLauncher.Launch を呼び出す
@@ -234,7 +243,7 @@ func RunApplication(ctx context.Context, envFilePath string, embeddedConfig, emb
 		}
 	}()
 
-	return executeJob(ctx, jobLauncher, batchInitializer.Config) // ★ jobOperator を jobLauncher に変更
+	return executeJob(ctx, jobLauncher, batchInitializer.JobFactory, batchInitializer.Config) // ★ jobOperator を jobLauncher に変更, JobFactory を渡す
 }
 
 // handleApplicationError はアプリケーションのエラーを処理し、適切な終了コードを返します。

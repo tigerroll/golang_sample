@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync" // ★ 追加
 	"time"
 
 	"github.com/google/uuid"
@@ -228,6 +229,80 @@ func (j *WeatherJob) Run(ctx context.Context, jobExecution *core.JobExecution, j
 				}
 			} else {
 				logger.Infof("ジョブ '%s': デシジョン '%s' が完了したよ。結果: %s", j.JobName(), decisionName, decisionResult)
+			}
+
+		case core.Split: // ★ 追加: Split 要素の処理
+			splitName := elem.ID()
+			logger.Infof("ジョブ '%s': Split '%s' を並列実行するよ。", j.JobName(), splitName)
+
+			var wg sync.WaitGroup
+			splitErrors := make(chan error, len(elem.Steps()))
+			splitExitStatuses := make(chan core.ExitStatus, len(elem.Steps()))
+
+			for _, splitStep := range elem.Steps() {
+				wg.Add(1)
+				go func(s core.Step) {
+					defer wg.Done()
+					stepName := s.StepName()
+					// Split内のステップはそれぞれ独立したStepExecutionを持つ
+					stepExecutionID := uuid.New().String()
+					splitStepExecution := core.NewStepExecution(stepExecutionID, jobExecution, stepName)
+					jobExecution.AddStepExecution(splitStepExecution) // JobExecutionにStepExecutionを追加
+
+					if err := j.jobRepository.SaveStepExecution(ctx, splitStepExecution); err != nil {
+						logger.Errorf("ジョブ '%s': Split内のStepExecution (ID: %s) の保存に失敗したよ: %v", j.JobName(), splitStepExecution.ID, err)
+						splitErrors <- exception.NewBatchError(j.JobName(), fmt.Sprintf("Splitステップ '%s' のStepExecution保存エラー", stepName), err, false, false)
+						splitExitStatuses <- core.ExitStatusFailed
+						return
+					}
+					logger.Infof("ジョブ '%s': Split内の新しい StepExecution (ID: %s) を作成したよ。", j.JobName(), splitStepExecution.ID)
+
+					err := s.Execute(ctx, jobExecution, splitStepExecution)
+					if err != nil {
+						logger.Errorf("ジョブ '%s': Split内のステップ '%s' の実行中にエラーが発生したよ: %v", j.JobName(), stepName, err)
+						splitErrors <- err
+					} else {
+						logger.Infof("ジョブ '%s': Split内のステップ '%s' が正常に完了したよ。ExitStatus: %s", j.JobName(), stepName, splitStepExecution.ExitStatus)
+					}
+					splitExitStatuses <- splitStepExecution.ExitStatus
+
+					// StepExecution の最終状態を更新
+					if err := j.jobRepository.UpdateStepExecution(ctx, splitStepExecution); err != nil {
+						logger.Errorf("ジョブ '%s': Split内のStepExecution (ID: %s) の最終状態の更新に失敗したよ: %v", j.JobName(), splitStepExecution.ID, err)
+						// このエラーは致命的ではないが、ログに残す
+					}
+				}(splitStep)
+			}
+
+			wg.Wait()
+			close(splitErrors)
+			close(splitExitStatuses)
+
+			// Split全体のExitStatusとエラーを集約
+			allStepsCompleted := true
+			var firstSplitError error
+			for err := range splitErrors {
+				if err != nil {
+					if firstSplitError == nil {
+						firstSplitError = err // 最初のエラーを記録
+					}
+					allStepsCompleted = false
+					jobExecution.AddFailureException(err) // JobExecutionにエラーを追加
+				}
+			}
+
+			if firstSplitError != nil {
+				elementErr = firstSplitError
+				elementExitStatus = core.ExitStatusFailed
+				jobExecution.MarkAsFailed(firstSplitError)
+				logger.Errorf("ジョブ '%s': Split '%s' の実行中にエラーが発生したよ。", j.JobName(), splitName)
+			} else if allStepsCompleted {
+				elementExitStatus = core.ExitStatusCompleted
+				logger.Infof("ジョブ '%s': Split '%s' が正常に完了したよ。", j.JobName(), splitName)
+			} else {
+				// エラーはあったが、致命的ではない場合（例：スキップされたアイテムなど）
+				elementExitStatus = core.ExitStatusCompleted // または別の適切なステータス
+				logger.Warnf("ジョブ '%s': Split '%s' は一部エラーがあったが、完了したよ。", j.JobName(), splitName)
 			}
 
 		default:
