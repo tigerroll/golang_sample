@@ -2,12 +2,12 @@ package jsl
 
 // Job represents the top-level structure of a JSL file.
 type Job struct {
-	ID          string      `yaml:"id"`
-	Name        string      `yaml:"name"`
-	Description string      `yaml:"description,omitempty"`
-	Flow        Flow        `yaml:"flow"` // A job must have a flow
+	ID          string         `yaml:"id"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description,omitempty"`
+	Flow        Flow           `yaml:"flow"` // A job must have a flow
 	Listeners   []ComponentRef `yaml:"listeners,omitempty"` // Job-level listeners
-	Incrementer ComponentRef `yaml:"incrementer,omitempty"` // ★ 追加: JobParametersIncrementer の参照
+	Incrementer ComponentRef   `yaml:"incrementer,omitempty"` // ★ 追加: JobParametersIncrementer の参照
 	// Other job-level properties like listeners, properties, etc. can be added here.
 }
 
@@ -55,9 +55,10 @@ type Chunk struct {
 
 // Decision represents a conditional branching point in the flow.
 type Decision struct {
-	ID          string       `yaml:"id"`
-	Description string       `yaml:"description,omitempty"`
-	Transitions []Transition `yaml:"transitions"` // Transitions based on decision outcome
+	ID          string            `yaml:"id"`
+	Description string            `yaml:"description,omitempty"`
+	Properties  map[string]string `yaml:"properties,omitempty"` // ★ 追加: JSLから注入されるプロパティ
+	Transitions []Transition      `yaml:"transitions"`          // Transitions based on decision outcome
 }
 
 // Split represents a parallel execution of multiple steps.

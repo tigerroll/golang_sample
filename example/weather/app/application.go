@@ -71,6 +71,10 @@ func registerApplicationComponents(jobFactory *factory.JobFactory, cfg *config.C
 		// NewDummyTasklet のシグネチャ変更に合わせて引数を渡す
 		return appTasklet.NewDummyTasklet(cfg, repo, properties)
 	})
+	// ★ 追加: ExecutionContextWriterTasklet の登録
+	jobFactory.RegisterComponentBuilder("executionContextWriterTasklet", func(cfg *config.Config, repo job.JobRepository, properties map[string]string) (any, error) {
+		return appTasklet.NewExecutionContextWriterTasklet(cfg, repo, properties)
+	})
 
 	// Step-level listeners の登録
 	jobFactory.RegisterStepExecutionListenerBuilder("loggingStepListener", func(cfg *config.Config) (core.StepExecutionListener, error) {
