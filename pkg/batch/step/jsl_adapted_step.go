@@ -37,6 +37,7 @@ type JSLAdaptedStep struct {
 	itemWriteListeners        []core.ItemWriteListener       // アイテム書き込みリスナー
 	skipListeners             []core.SkipListener            // core.SkipListener を使用
 	retryItemListeners        []core.RetryItemListener       // core.ItemRetryListener を使用
+	chunkListeners            []core.ChunkListener           // ★ 追加: ChunkListener
 	jobRepository             job.JobRepository              // JobRepository を追加 (トランザクション管理のため)
 	executionContextPromotion *core.ExecutionContextPromotion // ★ 追加: ExecutionContextPromotion の設定
 }
@@ -64,6 +65,7 @@ func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 	itemWriteListeners []core.ItemWriteListener, // アイテム書き込みリスナー
 	skipListeners []core.SkipListener, // core.SkipListener を使用
 	retryItemListeners []core.RetryItemListener, // core.ItemRetryListener を使用
+	chunkListeners []core.ChunkListener, // ★ 追加
 	executionContextPromotion *core.ExecutionContextPromotion, // ★ 追加
 ) *JSLAdaptedStep {
 	return &JSLAdaptedStep{
@@ -82,6 +84,7 @@ func NewJSLAdaptedStep( // NewJSLAdaptedStep のシグネチャを修正
 		itemWriteListeners:        itemWriteListeners,
 		skipListeners:             skipListeners,
 		retryItemListeners:        retryItemListeners,
+		chunkListeners:            chunkListeners, // ★ 追加
 		jobRepository:             jobRepository, // JobRepository を設定
 		executionContextPromotion: executionContextPromotion, // ★ 追加
 	}
@@ -115,6 +118,20 @@ func (s *JSLAdaptedStep) notifyBeforeStep(ctx context.Context, stepExecution *co
 func (s *JSLAdaptedStep) notifyAfterStep(ctx context.Context, stepExecution *core.StepExecution) {
 	for _, l := range s.stepListeners {
 		l.AfterStep(ctx, stepExecution)
+	}
+}
+
+// notifyBeforeChunk は登録されている ChunkListener の BeforeChunk メソッドを呼び出します。
+func (s *JSLAdaptedStep) notifyBeforeChunk(ctx context.Context, stepExecution *core.StepExecution) { // ★ 追加
+	for _, l := range s.chunkListeners {
+		l.BeforeChunk(ctx, stepExecution)
+	}
+}
+
+// notifyAfterChunk は登録されている ChunkListener の AfterChunk メソッドを呼び出します。
+func (s *JSLAdaptedStep) notifyAfterChunk(ctx context.Context, stepExecution *core.StepExecution) { // ★ 追加
+	for _, l := range s.chunkListeners {
+		l.AfterChunk(ctx, stepExecution)
 	}
 }
 
@@ -320,6 +337,9 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 		chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
 		eofReached := false
 
+		// チャンク開始前処理の通知
+		s.notifyBeforeChunk(ctx, stepExecution) // ★ 追加
+
 		// トランザクションを開始 (JobRepository から DBConnection を取得)
 		tx, err := s.jobRepository.GetDBConnection().BeginTx(ctx, nil) // ★ 変更
 		if err != nil {
@@ -340,6 +360,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 					stepExecution.MarkAsStopped() // ★ 修正
 					jobExecution.AddFailureException(ctx.Err())
 					tx.Rollback()
+					s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
 					return ctx.Err()
 				default:
 				}
@@ -405,6 +426,7 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 								stepExecution.MarkAsStopped() // ★ 修正
 								jobExecution.AddFailureException(ctx.Err())
 								tx.Rollback()
+								s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
 								return ctx.Err()
 							default:
 							}
@@ -503,7 +525,9 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			} // インナーループ終了
 		} // トランザクション開始成功チェック終了
 
-		// インナーループ終了後の処理
+		// チャンク終了後処理の通知 (エラーの有無に関わらず)
+		s.notifyAfterChunk(ctx, stepExecution) // ★ 追加
+
 		if chunkAttemptError {
 			tx.Rollback() // エラーが発生した場合はロールバック
 			stepExecution.RollbackCount++ // ロールバックカウントをインクリメント

@@ -30,6 +30,7 @@ func ConvertJSLToCoreFlow(
 	itemWriteListenerBuilders map[string]any, // map[string]core.ItemWriteListenerBuilder
 	skipListenerBuilders map[string]any, // map[string]stepListener.SkipListenerBuilder
 	retryItemListenerBuilders map[string]any, // map[string]stepListener.RetryItemListenerBuilder
+	chunkListenerBuilders map[string]any, // ★ 追加: map[string]core.ChunkListenerBuilder
 ) (*core.FlowDefinition, error) { // ★ 変更: db *sql.DB を削除
 	module := "jsl_converter"
 	flowDef := core.NewFlowDefinition(jslFlow.StartElement)
@@ -39,34 +40,30 @@ func ConvertJSLToCoreFlow(
 		return nil, exception.NewBatchError(module, fmt.Sprintf("フローの 'start-element' '%s' が 'elements' に見つかりません", jslFlow.StartElement), nil, false, false)
 	}
 
+	// First pass: Build all steps and decisions
+	// This is necessary because Split elements might reference steps that appear later in the JSL.
+	builtElements := make(map[string]core.FlowElement)
+
 	for id, element := range jslFlow.Elements {
-		// interface{} から具体的な JSL 構造体 (Step または Decision) に変換するために、
-		// 一度 YAML にマーシャルし、再度アンマーシャルする。
-		// これは、YAML unmarshalling が interface{} にマップする際の一般的なパターン。
 		elementBytes, err := yaml.Marshal(element)
 		if err != nil {
 			return nil, exception.NewBatchError(module, fmt.Sprintf("フロー要素 '%s' の再マーシャルに失敗しました", id), err, false, false)
 		}
 
-		// Step としてアンマーシャルを試みる
+		// Try to unmarshal as Step
 		var jslStep Step
 		if err := yaml.Unmarshal(elementBytes, &jslStep); err == nil && (jslStep.Reader.Ref != "" || jslStep.Tasklet.Ref != "") {
-			// Step であると判断
-			jslStep.ID = id // マップのキーからIDを設定
-
-			// ★ 追加: ステップIDがマップのキーと一致するかチェック
+			jslStep.ID = id
 			if jslStep.ID != id {
 				return nil, exception.NewBatchError(module, fmt.Sprintf("ステップ '%s' のIDがマップのキー '%s' と一致しません", jslStep.ID, id), nil, false, false)
 			}
 
 			var coreStep core.Step
 			if jslStep.Chunk != nil {
-				// チャンク指向ステップ
 				if jslStep.Reader.Ref == "" || jslStep.Processor.Ref == "" || jslStep.Writer.Ref == "" {
 					return nil, exception.NewBatchErrorf(module, "チャンクステップ '%s' には reader, processor, writer が全て必要です", id)
 				}
 
-				// ★ 変更: コンポーネントビルダからコンポーネントをインスタンス化し、プロパティを渡す
 				readerBuilder, ok := componentBuilders[jslStep.Reader.Ref]
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "リーダー '%s' のビルダーが見つかりません", jslStep.Reader.Ref)
@@ -210,8 +207,25 @@ func ConvertJSLToCoreFlow(
 					retryItemListeners = append(retryItemListeners, listenerInstance)
 				}
 
+				var chunkListeners []core.ChunkListener // ★ 追加
+				for _, listenerRef := range jslStep.ChunkListeners {
+					builderAny, found := chunkListenerBuilders[listenerRef.Ref]
+					if !found {
+						return nil, exception.NewBatchErrorf(module, "ChunkListener '%s' のビルダーが登録されていません", listenerRef.Ref)
+					}
+					builder, ok := builderAny.(func(*config.Config) (core.ChunkListener, error))
+					if !ok {
+						return nil, exception.NewBatchErrorf(module, "ChunkListener ビルダー '%s' の型が不正です (期待: func(*config.Config) (core.ChunkListener, error), 実際: %s)", listenerRef.Ref, reflect.TypeOf(builderAny))
+					}
+					listenerInstance, err := builder(cfg)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("ChunkListener '%s' のビルドに失敗しました", listenerRef.Ref), err, false, false)
+					}
+					chunkListeners = append(chunkListeners, listenerInstance)
+				}
+
 				var coreECPromotion *core.ExecutionContextPromotion
-				if jslStep.ExecutionContextPromotion != nil { // ★ 追加
+				if jslStep.ExecutionContextPromotion != nil {
 					coreECPromotion = &core.ExecutionContextPromotion{
 						Keys:         jslStep.ExecutionContextPromotion.Keys,
 						JobLevelKeys: jslStep.ExecutionContextPromotion.JobLevelKeys,
@@ -235,26 +249,25 @@ func ConvertJSLToCoreFlow(
 					itemWriteListeners,
 					skipListeners,
 					retryItemListeners,
+					chunkListeners, // ★ 追加
 					coreECPromotion, // ★ 追加
 				)
 				logger.Debugf("チャンクステップ '%s' を構築しました。", id)
 
 			} else if jslStep.Tasklet.Ref != "" {
-				// タスクレット指向ステップ
-				taskletBuilder, ok := componentBuilders[jslStep.Tasklet.Ref] // ★ 変更: componentRegistry から componentBuilders に変更
+				taskletBuilder, ok := componentBuilders[jslStep.Tasklet.Ref]
 				if !ok {
 					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' のビルダーが見つかりません", jslStep.Tasklet.Ref)
 				}
-				taskletInstance, err := taskletBuilder(cfg, jobRepository, jslStep.Tasklet.Properties) // ★ 変更: properties を渡す
+				taskletInstance, err := taskletBuilder(cfg, jobRepository, jslStep.Tasklet.Properties)
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("タスクレット '%s' のビルドに失敗しました", jslStep.Tasklet.Ref), err, false, false)
 				}
-				t, isTasklet := taskletInstance.(core.Tasklet) // step.Tasklet インターフェースに型アサーション
+				t, isTasklet := taskletInstance.(core.Tasklet)
 				if !isTasklet {
 					return nil, exception.NewBatchErrorf(module, "タスクレット '%s' が見つからないか、不正な型です (期待: core.Tasklet, 実際: %s)", jslStep.Tasklet.Ref, reflect.TypeOf(taskletInstance))
 				}
 
-				// ステップレベルリスナーの構築 (チャンクステップと同じ)
 				var stepExecListeners []core.StepExecutionListener
 				for _, listenerRef := range jslStep.Listeners {
 					builderAny, found := stepListenerBuilders[listenerRef.Ref]
@@ -272,8 +285,8 @@ func ConvertJSLToCoreFlow(
 					stepExecListeners = append(stepExecListeners, listenerInstance)
 				}
 
-				var taskletECPromotion *core.ExecutionContextPromotion // ★ 追加
-				if jslStep.ExecutionContextPromotion != nil { // ★ 追加
+				var taskletECPromotion *core.ExecutionContextPromotion
+				if jslStep.ExecutionContextPromotion != nil {
 					taskletECPromotion = &core.ExecutionContextPromotion{
 						Keys:         jslStep.ExecutionContextPromotion.Keys,
 						JobLevelKeys: jslStep.ExecutionContextPromotion.JobLevelKeys,
@@ -292,52 +305,107 @@ func ConvertJSLToCoreFlow(
 			} else {
 				return nil, exception.NewBatchErrorf(module, "ステップ '%s' はチャンクまたはタスクレットのいずれかを定義する必要があります", id)
 			}
+			builtElements[id] = coreStep
+			logger.Debugf("フロー要素 '%s' (Step) を一時的に構築しました。", id)
 
-			err = flowDef.AddElement(id, coreStep)
+		} else {
+			// Try to unmarshal as Decision
+			var jslDecision Decision
+			if err := yaml.Unmarshal(elementBytes, &jslDecision); err == nil && jslDecision.ID != "" {
+				if jslDecision.ID != id {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' のIDがマップのキー '%s' と一致しません", jslDecision.ID, id), nil, false, false)
+				}
+				if len(jslDecision.Transitions) == 0 {
+					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' に遷移ルールが定義されていません", id), nil, false, false)
+				}
+				coreDecision := core.NewSimpleDecision(jslDecision.ID)
+				builtElements[id] = coreDecision
+				logger.Debugf("フロー要素 '%s' (Decision) を一時的に構築しました。", id)
+
+			} else {
+				// Try to unmarshal as Split
+				var jslSplit Split // ★ 追加
+				if err := yaml.Unmarshal(elementBytes, &jslSplit); err == nil && jslSplit.ID != "" && len(jslSplit.Steps) > 0 { // ★ 追加
+					if jslSplit.ID != id {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("Split '%s' のIDがマップのキー '%s' と一致しません", jslSplit.ID, id), nil, false, false)
+					}
+					// Split は後で構築するため、ここでは ID のみを記録
+					builtElements[id] = nil // Placeholder for now
+					logger.Debugf("フロー要素 '%s' (Split) を一時的に認識しました。", id)
+				} else {
+					return nil, exception.NewBatchErrorf(module, "不明なフロー要素の型です: ID '%s', データ: %s", id, string(elementBytes))
+				}
+			}
+		}
+	}
+
+	// Second pass: Add elements to flowDef and resolve Split references
+	for id, element := range jslFlow.Elements {
+		elementBytes, err := yaml.Marshal(element)
+		if err != nil {
+			return nil, exception.NewBatchError(module, fmt.Sprintf("フロー要素 '%s' の再マーシャルに失敗しました", id), err, false, false)
+		}
+
+		// Try to unmarshal as Step
+		var jslStep Step
+		if err := yaml.Unmarshal(elementBytes, &jslStep); err == nil && (jslStep.Reader.Ref != "" || jslStep.Tasklet.Ref != "") {
+			coreElement := builtElements[id] // Retrieve from first pass
+			err = flowDef.AddElement(id, coreElement)
 			if err != nil {
 				return nil, exception.NewBatchError(module, fmt.Sprintf("フローにステップ '%s' の追加に失敗しました", id), err, false, false)
 			}
-
-			// ステップの遷移ルールを追加
 			for _, transition := range jslStep.Transitions {
-				// ★ 追加: 遷移ルールのバリデーション
 				if err := validateTransition(id, transition, jslFlow.Elements); err != nil {
 					return nil, err
 				}
 				flowDef.AddTransitionRule(id, transition.On, transition.To, transition.End, transition.Fail, transition.Stop)
 			}
+			logger.Debugf("ステップ '%s' をフローに追加しました。", id)
 
 		} else {
-			// Decision としてアンマーシャルを試みる
+			// Try to unmarshal as Decision
 			var jslDecision Decision
-			if err := yaml.Unmarshal(elementBytes, &jslDecision); err == nil && jslDecision.ID != "" { // len(jslDecision.Transitions) > 0 は Decision に遷移ルールが必須であることを確認するため、後で追加
-				// ★ 追加: デシジョンIDがマップのキーと一致するかチェック
-				if jslDecision.ID != id {
-					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' のIDがマップのキー '%s' と一致しません", jslDecision.ID, id), nil, false, false)
-				}
-				// ★ 追加: デシジョンに遷移ルールが必須であることを確認
-				if len(jslDecision.Transitions) == 0 {
-					return nil, exception.NewBatchError(module, fmt.Sprintf("デシジョン '%s' に遷移ルールが定義されていません", id), nil, false, false)
-				}
-
-				coreDecision := core.NewSimpleDecision(jslDecision.ID) // SimpleDecision を使用
-				err := flowDef.AddElement(id, coreDecision)
+			if err := yaml.Unmarshal(elementBytes, &jslDecision); err == nil && jslDecision.ID != "" {
+				coreElement := builtElements[id] // Retrieve from first pass
+				err := flowDef.AddElement(id, coreElement)
 				if err != nil {
 					return nil, exception.NewBatchError(module, fmt.Sprintf("フローに Decision '%s' の追加に失敗しました", id), err, false, false)
 				}
-
-				// Decision の遷移ルールを追加
 				for _, transition := range jslDecision.Transitions {
-					// ★ 追加: 遷移ルールのバリデーション
 					if err := validateTransition(id, transition, jslFlow.Elements); err != nil {
 						return nil, err
 					}
 					flowDef.AddTransitionRule(id, transition.On, transition.To, transition.End, transition.Fail, transition.Stop)
 				}
-				logger.Debugf("Decision '%s' を構築しました。", id)
+				logger.Debugf("Decision '%s' をフローに追加しました。", id)
 
 			} else {
-				return nil, exception.NewBatchErrorf(module, "不明なフロー要素の型です: ID '%s', データ: %s", id, string(elementBytes))
+				// Try to unmarshal as Split
+				var jslSplit Split // ★ 追加
+				if err := yaml.Unmarshal(elementBytes, &jslSplit); err == nil && jslSplit.ID != "" && len(jslSplit.Steps) > 0 { // ★ 追加
+					var coreSteps []core.Step
+					for _, stepID := range jslSplit.Steps {
+						s, ok := builtElements[stepID].(core.Step)
+						if !ok {
+							return nil, exception.NewBatchErrorf(module, "Split '%s' で参照されているステップ '%s' が見つからないか、Step型ではありません", jslSplit.ID, stepID)
+						}
+						coreSteps = append(coreSteps, s)
+					}
+					coreSplit := core.NewConcreteSplit(jslSplit.ID, coreSteps) // core.NewConcreteSplit を使用
+					err := flowDef.AddElement(id, coreSplit)
+					if err != nil {
+						return nil, exception.NewBatchError(module, fmt.Sprintf("フローに Split '%s' の追加に失敗しました", id), err, false, false)
+					}
+					for _, transition := range jslSplit.Transitions {
+						if err := validateTransition(id, transition, jslFlow.Elements); err != nil {
+							return nil, err
+						}
+						flowDef.AddTransitionRule(id, transition.On, transition.To, transition.End, transition.Fail, transition.Stop)
+					}
+					logger.Debugf("Split '%s' をフローに追加しました。", id)
+				} else {
+					return nil, exception.NewBatchErrorf(module, "不明なフロー要素の型です: ID '%s', データ: %s", id, string(elementBytes))
+				}
 			}
 		}
 	}

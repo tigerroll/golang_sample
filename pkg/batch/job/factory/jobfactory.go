@@ -7,7 +7,7 @@ import (
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
 	jsl "sample/pkg/batch/job/jsl" // jsl パッケージをインポート
-	jobListener "sample/pkg/batch/job/listener"
+	// jobListener "sample/pkg/batch/job/listener" // Moved to core
 	logger "sample/pkg/batch/util/logger"
 	exception "sample/pkg/batch/util/exception"
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
@@ -31,10 +31,12 @@ type SkipListenerBuilder func(cfg *config.Config) (core.SkipListener, error)
 // RetryItemListenerBuilder は RetryItemListener を生成するための関数型です。
 type RetryItemListenerBuilder func(cfg *config.Config) (core.RetryItemListener, error)
 
+// ChunkListenerBuilder は ChunkListener を生成するための関数型です。
+type ChunkListenerBuilder func(cfg *config.Config) (core.ChunkListener, error) // ★ 追加
 
 // JobListenerBuilder は JobExecutionListener を生成するための関数型です。
 // 依存関係 (config など) を受け取り、生成されたリスナーとエラーを返します。
-type JobListenerBuilder func(cfg *config.Config) (jobListener.JobExecutionListener, error)
+type JobListenerBuilder func(cfg *config.Config) (core.JobExecutionListener, error) // ★ 変更: core.JobExecutionListener を使用
 
 // JobParametersIncrementerBuilder は JobParametersIncrementer を生成するための関数型です。
 type JobParametersIncrementerBuilder func(cfg *config.Config, properties map[string]string) (core.JobParametersIncrementer, error) // ★ 追加
@@ -44,7 +46,7 @@ type JobParametersIncrementerBuilder func(cfg *config.Config, properties map[str
 type JobBuilder func(
 	jobRepository job.JobRepository,
 	cfg *config.Config,
-	listeners []jobListener.JobExecutionListener,
+	listeners []core.JobExecutionListener, // ★ 変更: core.JobExecutionListener を使用
 	flow *core.FlowDefinition,
 ) (core.Job, error)
 
@@ -61,6 +63,7 @@ type JobFactory struct {
 	itemWriteListenerBuilders map[string]ItemWriteListenerBuilder
 	skipListenerBuilders map[string]SkipListenerBuilder
 	retryItemListenerBuilders map[string]RetryItemListenerBuilder
+	chunkListenerBuilders map[string]ChunkListenerBuilder // ★ 追加
 	jobParametersIncrementerBuilders map[string]JobParametersIncrementerBuilder // ★ 追加
 }
 
@@ -79,6 +82,7 @@ func NewJobFactory(cfg *config.Config, repo job.JobRepository) *JobFactory { // 
 		itemWriteListenerBuilders: make(map[string]ItemWriteListenerBuilder),
 		skipListenerBuilders: make(map[string]SkipListenerBuilder),
 		retryItemListenerBuilders: make(map[string]RetryItemListenerBuilder),
+		chunkListenerBuilders: make(map[string]ChunkListenerBuilder), // ★ 追加
 		jobParametersIncrementerBuilders: make(map[string]JobParametersIncrementerBuilder), // ★ 追加
 	}
 	return jf
@@ -140,6 +144,12 @@ func (f *JobFactory) RegisterRetryItemListenerBuilder(name string, builder Retry
 	logger.Debugf("JobFactory: RetryItemListener ビルダー '%s' を登録しました。", name)
 }
 
+// RegisterChunkListenerBuilder は、指定された名前で ChunkListener ビルド関数を登録します。
+func (f *JobFactory) RegisterChunkListenerBuilder(name string, builder ChunkListenerBuilder) { // ★ 追加
+	f.chunkListenerBuilders[name] = builder
+	logger.Debugf("JobFactory: ChunkListener ビルダー '%s' を登録しました。", name)
+}
+
 // RegisterJobParametersIncrementerBuilder は、指定された名前で JobParametersIncrementer ビルド関数を登録します。
 func (f *JobFactory) RegisterJobParametersIncrementerBuilder(name string, builder JobParametersIncrementerBuilder) { // ★ 追加
 	f.jobParametersIncrementerBuilders[name] = builder
@@ -163,7 +173,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		return nil, exception.NewBatchErrorf("job_factory", "指定された Job '%s' のビルダーが登録されていません", jobName)
 	}
 
-	// 4. JSL Flow を core.FlowDefinition に変換
+	// 3. JSL Flow を core.FlowDefinition に変換
 	// jsl.ConvertJSLToCoreFlow に componentBuilders (map[string]component.ComponentBuilder) を渡す
 	// ConvertJSLToCoreFlow に渡すリスナービルダーマップ
 	stepListenerBuilders := make(map[string]any)
@@ -187,8 +197,12 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		skipListenerBuilders[k] = (func(*config.Config) (core.SkipListener, error))(v)
 	}
 	retryItemListenerBuilders := make(map[string]any)
-	for k, v := range f.retryItemListenerBuilders {
+	for k, v := range f.retryItemListenerBuilders { // ★ 修正: f.retryItemListeners から f.retryItemListenerBuilders に変更
 		retryItemListenerBuilders[k] = (func(*config.Config) (core.RetryItemListener, error))(v)
+	}
+	chunkListenerBuilders := make(map[string]any) // ★ 追加
+	for k, v := range f.chunkListenerBuilders {
+		chunkListenerBuilders[k] = (func(*config.Config) (core.ChunkListener, error))(v)
 	}
 
 	// ConvertJSLToCoreFlow に componentBuilders を渡すように変更
@@ -203,13 +217,14 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 		itemWriteListenerBuilders,
 		skipListenerBuilders,
 		retryItemListenerBuilders,
+		chunkListenerBuilders, // ★ 追加
 	)
 	if err != nil {
 		return nil, exception.NewBatchError("job_factory", fmt.Sprintf("JSL ジョブ '%s' のフロー変換に失敗しました", jobName), err, false, false)
 	}
 
-	// 5. JSL 定義から JobExecutionListener をインスタンス化
-	var jobListeners []jobListener.JobExecutionListener
+	// 4. JSL 定義から JobExecutionListener をインスタンス化
+	var jobListeners []core.JobExecutionListener // ★ 変更: core.JobExecutionListener を使用
 	for _, listenerRef := range jslJob.Listeners {
 		builder, found := f.jobListenerBuilders[listenerRef.Ref]
 		if !found {
@@ -225,7 +240,7 @@ func (f *JobFactory) CreateJob(jobName string) (core.Job, error) { // Returns co
 	// デフォルトのリスナーを JSL で指定されたリスナーに追加することも可能
 	// 例: jobListeners = append(jobListeners, joblistener.NewDefaultJobListener())
 
-	// 6. 登録されたジョブビルダーを使用して Job インスタンスを作成
+	// 5. 登録されたジョブビルダーを使用して Job インスタンスを作成
 	jobInstance, err := jobBuilder(
 		f.jobRepository, // JobRepository を渡す
 		f.config,        // Config を渡す

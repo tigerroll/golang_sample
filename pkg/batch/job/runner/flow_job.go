@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync" // ★ 追加: Split の並列実行のため
 	"time"
 
 	"github.com/google/uuid"
 
 	core "sample/pkg/batch/job/core"
-	jobListener "sample/pkg/batch/job/listener"
+	// jobListener "sample/pkg/batch/job/listener" // Moved to core
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
@@ -21,7 +22,7 @@ type FlowJob struct {
 	name          string
 	flow          *core.FlowDefinition // core.FlowDefinition を使用
 	jobRepository job.JobRepository // job.JobRepository に変更
-	jobListeners  []jobListener.JobExecutionListener
+	jobListeners  []core.JobExecutionListener // ★ 変更: core.JobExecutionListener を使用
 	// JobParametersIncrementer は JobLauncher が使用するため、FlowJob には直接持たせない
 }
 
@@ -34,7 +35,7 @@ func NewFlowJob(
 	name string,
 	flow *core.FlowDefinition, // core.FlowDefinition を使用
 	jobRepository job.JobRepository, // job.JobRepository を受け取る
-	jobListeners []jobListener.JobExecutionListener,
+	jobListeners []core.JobExecutionListener, // ★ 変更: core.JobExecutionListener を使用
 ) *FlowJob {
 	return &FlowJob{
 		id:            id,
@@ -91,25 +92,6 @@ func (j *FlowJob) notifyAfterJob(ctx context.Context, jobExecution *core.JobExec
 func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobParameters core.JobParameters) error {
 	logger.Infof("ジョブ '%s' (Execution ID: %s) を始めるよ。", j.name, jobExecution.ID)
 
-	// JobExecution の開始時刻を設定し、状態をマーク
-	// SimpleJobLauncher.Launch で既に STARTED 状態に遷移させているため、ここでは不要
-	// if err := jobExecution.TransitionTo(core.BatchStatusStarted); err != nil {
-	// 	logger.Errorf("ジョブ '%s': JobExecution の状態を STARTED に更新できませんでした: %v", j.name, err)
-	// 	jobExecution.AddFailureException(err)
-	// 	jobExecution.MarkAsFailed(err) // 強制的に失敗状態に
-	// 	return exception.NewBatchError(j.name, "JobExecution の状態更新エラー", err, false, false)
-	// }
-	// jobExecution.StartTime は JobLauncher で設定済み
-
-	// JobExecution の初期状態を保存 (JobLauncher で既に保存済みだが、念のため最新の状態を保存)
-	// ここでの保存は不要。JobLauncher が初期保存と STARTED への更新を担う。
-	// if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
-	// 	logger.Errorf("ジョブ '%s': JobExecution の初期状態の更新に失敗しました: %v", j.name, err)
-	// 	jobExecution.AddFailureException(err)
-	// 	jobExecution.MarkAsFailed(err)
-	// 	return exception.NewBatchError(j.name, "JobExecution の初期状態更新エラー", err, false, false)
-	// }
-
 	// ジョブ実行前処理の通知
 	j.notifyBeforeJob(ctx, jobExecution)
 
@@ -121,11 +103,6 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 		// ジョブ実行後処理の通知
 		j.notifyAfterJob(ctx, jobExecution)
 
-		// 最終的な JobExecution の状態を保存
-		// この更新は JobLauncher の defer で行われるため、ここでの重複は不要
-		// if err := j.jobRepository.UpdateJobExecution(ctx, jobExecution); err != nil {
-		// 	logger.Errorf("ジョブ '%s': JobExecution の最終状態の更新に失敗しました: %v", j.name, err)
-		// }
 		logger.Infof("ジョブ '%s' (Execution ID: %s) が終了したよ。最終ステータス: %s, 終了ステータス: %s",
 			j.name, jobExecution.ID, jobExecution.Status, jobExecution.ExitStatus)
 	}()
@@ -235,6 +212,64 @@ func (j *FlowJob) Run(ctx context.Context, jobExecution *core.JobExecution, jobP
 			} else {
 				logger.Infof("ジョブ '%s': デシジョン '%s' が完了したよ。結果: %s", j.name, decisionName, decisionResult)
 			}
+
+		case core.Split: // ★ 追加: Split の処理
+			splitName := elem.ID()
+			logger.Infof("ジョブ '%s': Split '%s' を実行するよ。並列ステップ数: %d", j.name, splitName, len(elem.Steps()))
+
+			var wg sync.WaitGroup
+			splitErrors := make(chan error, len(elem.Steps()))
+			splitExitStatuses := make(chan core.ExitStatus, len(elem.Steps()))
+
+			for _, s := range elem.Steps() {
+				wg.Add(1)
+				go func(splitStep core.Step) {
+					defer wg.Done()
+					stepName := splitStep.StepName()
+					logger.Infof("ジョブ '%s': Split 内のステップ '%s' を開始するよ。", j.name, stepName)
+
+					// Split内のステップもStepExecutionを管理
+					stepExecutionID := uuid.New().String()
+					splitStepExecution := core.NewStepExecution(stepExecutionID, jobExecution, stepName)
+					jobExecution.AddStepExecution(splitStepExecution) // JobExecutionにStepExecutionを追加
+
+					if err := j.jobRepository.SaveStepExecution(ctx, splitStepExecution); err != nil {
+						logger.Errorf("ジョブ '%s': Split 内の StepExecution (ID: %s) の保存に失敗しました: %v", j.name, splitStepExecution.ID, err)
+						splitErrors <- exception.NewBatchError(j.name, fmt.Sprintf("Split 内の StepExecution '%s' の保存エラー", stepName), err, false, false)
+						splitExitStatuses <- core.ExitStatusFailed
+						return
+					}
+
+					err := splitStep.Execute(ctx, jobExecution, splitStepExecution)
+					if err != nil {
+						logger.Errorf("ジョブ '%s': Split 内のステップ '%s' の実行中にエラーが発生したよ: %v", j.name, stepName, err)
+						splitErrors <- err
+					} else {
+						logger.Infof("ジョブ '%s': Split 内のステップ '%s' が正常に完了したよ。ExitStatus: %s", j.name, stepName, splitStepExecution.ExitStatus)
+					}
+					splitExitStatuses <- splitStepExecution.ExitStatus
+				}(s)
+			}
+			wg.Wait()
+			close(splitErrors)
+			close(splitExitStatuses)
+
+			// Split の結果を集約
+			allStepsCompleted := true
+			for err := range splitErrors {
+				if err != nil {
+					elementErr = errors.Join(elementErr, err) // 全てのエラーを結合
+					allStepsCompleted = false
+				}
+			}
+
+			// Split の ExitStatus を決定 (一つでも失敗があれば FAILED)
+			if elementErr != nil {
+				elementExitStatus = core.ExitStatusFailed
+			} else {
+				elementExitStatus = core.ExitStatusCompleted
+			}
+			logger.Infof("ジョブ '%s': Split '%s' の実行が完了したよ。結果: %s", j.name, splitName, elementExitStatus)
 
 		default:
 			err := exception.NewBatchErrorf(j.name, "不明なフロー要素の型だよ: %T (ID: %s)", elem, currentElementID)

@@ -1,0 +1,19 @@
+id: weather
+name: weather
+description: "Weather data processing job"
+flow:
+  start-element: fetchWeather
+  elements:
+    fetchWeather:
+      id: fetchWeather
+      tasklet:
+        ref: dummyTasklet # Using a dummy tasklet for now
+      transitions:
+        - on: COMPLETED
+          end: true # End the job after this tasklet
+listeners:
+  - ref: loggingJobListener
+incrementer:
+  ref: runIdIncrementer
+  properties:
+    name: run.id

@@ -91,6 +91,20 @@ type StepExecutionListener interface {
 	AfterStep(ctx context.Context, stepExecution *StepExecution)
 }
 
+// ChunkListener はチャンク処理イベントを処理するためのインターフェースです。
+type ChunkListener interface { // ★ 追加
+	BeforeChunk(ctx context.Context, stepExecution *StepExecution)
+	AfterChunk(ctx context.Context, stepExecution *StepExecution)
+}
+
+// JobExecutionListener はジョブ実行イベントを処理するためのインターフェースです。
+type JobExecutionListener interface { // ★ 追加: job_execution_listener.go から移動
+	// BeforeJob はジョブの実行が開始される直前に呼び出されます。
+	BeforeJob(ctx context.Context, jobExecution *JobExecution)
+	// AfterJob はジョブの実行が完了した後に呼び出されます。成功・失敗に関わらず呼び出されます。
+	AfterJob(ctx context.Context, jobExecution *JobExecution)
+}
+
 // --- ここまで追加/移動するインターフェース ---
 
 // ItemReadListener はアイテム読み込みイベントを処理するためのインターフェースです。
@@ -118,6 +132,12 @@ type Decision interface {
 	// Decide メソッドは、ExecutionContext やその他のパラメータに基づいて次の遷移を決定します。
 	Decide(ctx context.Context, jobExecution *JobExecution, jobParameters JobParameters) (ExitStatus, error)
 	DecisionName() string
+	ID() string // FlowElement インターフェースの実装
+}
+
+// Split は複数のステップを並列実行するためのフロー要素のインターフェースです。
+type Split interface { // ★ 追加
+	Steps() []Step
 	ID() string // FlowElement インターフェースの実装
 }
 

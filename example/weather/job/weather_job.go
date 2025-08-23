@@ -10,7 +10,7 @@ import (
 
 	config "sample/pkg/batch/config"
 	core "sample/pkg/batch/job/core"
-	jobListener "sample/pkg/batch/job/listener"
+	// jobListener "sample/pkg/batch/job/listener" // この行を削除
 	"sample/pkg/batch/repository/job" // job リポジトリインターフェースをインポート
 	exception "sample/pkg/batch/util/exception"
 	logger "sample/pkg/batch/util/logger"
@@ -21,7 +21,7 @@ import (
 type WeatherJob struct { // WeatherJob を返す
 	jobRepository job.JobRepository // job.JobRepository に変更
 	config        *config.Config
-	jobListeners  []jobListener.JobExecutionListener
+	jobListeners  []core.JobExecutionListener // core.JobExecutionListener インターフェースを使用
 	flow          *core.FlowDefinition // ★ フロー定義を追加
 }
 
@@ -33,7 +33,7 @@ var _ core.Job = (*WeatherJob)(nil)
 func NewWeatherJob(
 	jobRepository job.JobRepository, // job.JobRepository を受け取る
 	cfg *config.Config,
-	listeners []jobListener.JobExecutionListener, // リスナーリストを受け取るように変更
+	listeners []core.JobExecutionListener, // core.JobExecutionListener インターフェースを使用
 	flow *core.FlowDefinition, // ★ FlowDefinition を追加
 ) *WeatherJob {
 	return &WeatherJob{
