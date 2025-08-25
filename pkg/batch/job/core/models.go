@@ -70,6 +70,15 @@ const (
 	ExitStatusNoOp      ExitStatus = "NO_OP"
 )
 
+// CircuitBreakerState はサーキットブレーカーの状態を表します。
+type CircuitBreakerState string
+
+const (
+	CBStateClosed   CircuitBreakerState = "CLOSED"
+	CBStateOpen     CircuitBreakerState = "OPEN"
+	CBStateHalfOpen CircuitBreakerState = "HALF_OPEN"
+)
+
 // ExecutionContext はジョブやステップの状態を共有するためのキー-値ストアです。
 type ExecutionContext map[string]interface{}
 
@@ -107,6 +116,7 @@ type JobExecution struct {
 	ExecutionContext ExecutionContext
 	CurrentStepName  string
 	CancelFunc       context.CancelFunc
+	RestartCount     int // ★ 追加: 再起動回数
 }
 
 // StepExecution はステップの単一の実行インスタンスを表す構造体です。
@@ -460,6 +470,7 @@ func NewJobExecution(jobInstanceID string, jobName string, params JobParameters)
 		ExecutionContext: NewExecutionContext(),
 		CurrentStepName:  "",
 		CancelFunc:       nil,
+		RestartCount:     0, // ★ 追加: 初期値は0
 	}
 }
 

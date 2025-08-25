@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"time"
+	"sync" // ★ 追加
 
 	"sample/pkg/batch/config"
 	"sample/pkg/batch/database"
@@ -42,6 +43,12 @@ type JSLAdaptedStep struct {
 	jobRepository             job.JobRepository
 	executionContextPromotion *core.ExecutionContextPromotion
 	txManager                 database.TransactionManager
+
+	// ★ 追加: サーキットブレーカーの状態管理フィールド
+	circuitBreakerState    core.CircuitBreakerState
+	lastOpenTime           time.Time
+	consecutiveFailures    int // 連続失敗回数 (サーキットブレーカー用)
+	circuitBreakerMutex    sync.Mutex // 状態変更の同期用
 }
 
 // JSLAdaptedStep が core.Step インターフェースを満たすことを確認します。
@@ -91,6 +98,10 @@ func NewJSLAdaptedStep(
 		jobRepository:             jobRepository,
 		executionContextPromotion: executionContextPromotion,
 		txManager:                 txManager,
+		// ★ 追加: サーキットブレーカーの状態初期化
+		circuitBreakerState:    core.CBStateClosed, // 初期状態はクローズ
+		lastOpenTime:           time.Time{},        // ゼロ値
+		consecutiveFailures:    0,                  // 初期値
 	}
 }
 
@@ -256,6 +267,21 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 	stepExecution.StartTime = time.Now()
 
 	// StepExecution の ExecutionContext から Reader/Writer の状態を復元 (リスタート時)
+	// ★ 追加: サーキットブレーカーの状態を復元
+	if cbStateStr, ok := stepExecution.ExecutionContext.GetString("circuitBreaker.state"); ok {
+		s.circuitBreakerState = core.CircuitBreakerState(cbStateStr)
+	}
+	if lastOpenTimeStr, ok := stepExecution.ExecutionContext.GetString("circuitBreaker.lastOpenTime"); ok {
+		if t, err := time.Parse(time.RFC3339, lastOpenTimeStr); err == nil {
+			s.lastOpenTime = t
+		}
+	}
+	if consecutiveFailures, ok := stepExecution.ExecutionContext.GetInt("circuitBreaker.consecutiveFailures"); ok {
+		s.consecutiveFailures = consecutiveFailures
+	}
+	logger.Debugf("ステップ '%s': サーキットブレーカーの状態を復元したよ: State=%s, LastOpenTime=%v, ConsecutiveFailures=%d",
+		s.name, s.circuitBreakerState, s.lastOpenTime, s.consecutiveFailures)
+
 	if len(stepExecution.ExecutionContext) > 0 {
 		logger.Debugf("ステップ '%s': ExecutionContext から Reader/Writer の状態を復元するよ。", s.name)
 		if readerECVal, ok := stepExecution.ExecutionContext.Get("reader_context"); ok {
@@ -306,6 +332,17 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 			logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
 		}
 
+		// ★ 追加: サーキットブレーカーの状態を StepExecution.ExecutionContext に保存
+		stepExecution.ExecutionContext.Put("circuitBreaker.state", string(s.circuitBreakerState))
+		if !s.lastOpenTime.IsZero() {
+			stepExecution.ExecutionContext.Put("circuitBreaker.lastOpenTime", s.lastOpenTime.Format(time.RFC3339))
+		} else {
+			stepExecution.ExecutionContext.Put("circuitBreaker.lastOpenTime", "") // ゼロ値の場合は空文字列
+		}
+		stepExecution.ExecutionContext.Put("circuitBreaker.consecutiveFailures", s.consecutiveFailures)
+		logger.Debugf("ステップ '%s': サーキットブレーカーの状態を保存したよ: State=%s, LastOpenTime=%v, ConsecutiveFailures=%d",
+			s.name, s.circuitBreakerState, s.lastOpenTime, s.consecutiveFailures)
+
 		// ステップ実行後処理の通知
 		s.notifyAfterStep(ctx, stepExecution)
 
@@ -319,256 +356,74 @@ func (s *JSLAdaptedStep) Execute(ctx context.Context, jobExecution *core.JobExec
 
 // executeDefaultChunkProcessing は一般的なチャンク指向ステップの実行ロジックをカプセル化します。
 // Reader, Processor, Writer を使用し、チャンクレベルのリトライとアイテムレベルのスキップ/リトライを処理します。
-// jobExecution.ExecutionContext への特定のデータ転送は行いません。
 func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution) error {
+	s.circuitBreakerMutex.Lock() // 状態変更の同期
+	defer s.circuitBreakerMutex.Unlock()
+
 	stepRetryConfig := s.stepRetryConfig
-	chunkSize := s.chunkSize
+
+	// ★ 修正: Circuit Breaker Logic
+	switch s.circuitBreakerState {
+	case core.CBStateOpen:
+		resetInterval := time.Duration(stepRetryConfig.CircuitBreakerResetInterval) * time.Second
+		if time.Since(s.lastOpenTime) < resetInterval {
+			logger.Warnf("ステップ '%s': サーキットブレーカーがオープン状態だよ。リセット間隔 (%v) が経過していないため、処理をスキップするよ。", s.name, resetInterval)
+			return exception.NewBatchErrorf(s.name, "サーキットブレーカーがオープン状態です。リセット間隔が経過していません。")
+		}
+		logger.Infof("ステップ '%s': サーキットブレーカーがハーフオープン状態に遷移するよ。リセット間隔 (%v) が経過したよ。", s.name, resetInterval)
+		s.circuitBreakerState = core.CBStateHalfOpen
+		// Fallthrough to Half-Open logic, allowing one attempt
+	case core.CBStateHalfOpen:
+		logger.Infof("ステップ '%s': サーキットブレーカーがハーフオープン状態だよ。1回の試行を許可するよ。", s.name)
+		// Allow one attempt, then decide to close or re-open
+	case core.CBStateClosed:
+		// Proceed as normal
+	}
+	// --- End Circuit Breaker State Check ---
 
 	// CommitInterval が ItemCount と異なる場合、ログを出す (現状は ItemCount と同じ意味で扱われるため)
 	if s.commitInterval > 0 && s.commitInterval != s.chunkSize {
 		logger.Warnf("ステップ '%s': Chunk.CommitInterval (%d) が Chunk.ItemCount (%d) と異なりますが、現在の実装では ItemCount が優先されます。", s.name, s.commitInterval, s.chunkSize)
 	}
 
-	var chunkCount int = 0
+	var overallChunkProcessingErr error
 	var totalReadCount int = 0
 	var totalWriteCount int = 0
-	var consecutiveFailures int = 0 // 連続失敗回数を追跡
+	var chunkCount int = 0
 
-	// チャンク処理全体のリトライループ
+	// チャンク処理全体のリトライループ (これはステップレベルのリトライ)
 	for retryAttempt := 0; retryAttempt < stepRetryConfig.MaxAttempts; retryAttempt++ {
-		logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts)
+		logger.Debugf("ステップ '%s' チャンク処理試行: %d/%d (サーキットブレーカー状態: %s)", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, s.circuitBreakerState)
 
-		processedItemsChunk := make([]any, 0, chunkSize) // 処理済みアイテムを any のスライスとして保持
-		itemCountInChunk := 0
-		chunkAttemptError := false // この試行でエラーが発生したかを示すフラグ
-		eofReached := false
+		// ★ 修正: チャンク処理の内部ロジックをヘルパーメソッドに切り出し
+		chunkAttemptErr := s.processOneChunkAttempt(ctx, jobExecution, stepExecution, retryAttempt, &totalReadCount, &totalWriteCount, &chunkCount)
 
-		// チャンク開始前処理の通知
-		s.notifyBeforeChunk(ctx, stepExecution)
+		if chunkAttemptErr != nil {
+			// この試行が失敗した
+			overallChunkProcessingErr = chunkAttemptErr // 記録するエラー
+			s.consecutiveFailures++                     // ステップの連続失敗回数をインクリメント
 
-		// トランザクションを開始 (JobRepository から DBConnection を取得)
-		tx, err := s.txManager.Begin(ctx, nil)
-		if err != nil {
-			logger.Errorf("ステップ '%s': トランザクションの開始に失敗したよ: %v", s.name, err)
-			stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
-			jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-			chunkAttemptError = true // トランザクション開始失敗もチャンクエラーとして扱う
-			// このエラーはリトライ可能としてマークされているため、次のリトライ試行へ進む
-			// defer のロールバックは不要、ループの最後にロールバックされる
-		}
-
-		// defer のトランザクション処理を修正
-		// defer はループの各イテレーションで実行されるため、tx と chunkAttemptError のポインタを渡す
-		// これにより、各チャンク試行の終わりにトランザクションが適切にコミットまたはロールバックされる
-		defer func(currentTx database.Tx, chunkFailed *bool) {
-			if currentTx == nil { // トランザクションが開始できなかった場合は何もしない
-				return
+			// Circuit Breaker: Half-Open 状態での失敗
+			if s.circuitBreakerState == core.CBStateHalfOpen {
+				logger.Warnf("ステップ '%s': サーキットブレーカーがハーフオープン状態で失敗したよ。オープン状態に戻すよ。", s.name)
+				s.circuitBreakerState = core.CBStateOpen
+				s.lastOpenTime = time.Now()
+				// Half-Open で失敗したら、ステップレベルのリトライはせず、すぐに Circuit Breaker Open エラーを返す
+				return exception.NewBatchErrorf(s.name, "サーキットブレーカーがハーフオープン状態で失敗し、オープン状態に戻りました。")
 			}
-			if *chunkFailed {
-				if rbErr := s.txManager.Rollback(currentTx); rbErr != nil {
-					logger.Errorf("ステップ '%s': トランザクションのロールバック中にエラーが発生したよ: %v", s.name, rbErr)
-				} else {
-					logger.Debugf("ステップ '%s': トランザクションをロールバックしました。", s.name)
-				}
-				stepExecution.RollbackCount++ // ロールバックカウントをインクリメント
-			} else {
-				if cmErr := s.txManager.Commit(currentTx); cmErr != nil {
-					logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, cmErr)
-					stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクションコミットエラー", cmErr, true, false))
-					jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
-					*chunkFailed = true // コミット失敗もチャンクエラーとして扱う
-				} else {
-					logger.Debugf("ステップ '%s': トランザクションをコミットしました。", s.name)
-				}
-				stepExecution.CommitCount++ // コミットカウントをインクリメント
-			}
-		}(tx, &chunkAttemptError)
 
-		if !chunkAttemptError { // トランザクション開始に成功した場合のみ、チャンク処理を続行
-			// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
-			for {
-				select {
-				case <-ctx.Done():
-					logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断するよ: %v", s.name, ctx.Err())
-					stepExecution.MarkAsStopped()
-					jobExecution.AddFailureException(ctx.Err())
-					// defer がロールバックを処理するため、ここでは明示的なロールバックは不要
-					s.notifyAfterChunk(ctx, stepExecution)
-					return ctx.Err()
-				default:
-				}
-
-				// 単一アイテムの読み込みと処理
-				// processSingleItem は Reader/Processor エラーまたは Context キャンセルエラーを返す
-				// 戻り値: processedItem any, eofReached bool, filtered bool, err error
-				processedItem, currentEOFReached, filtered, itemErr := s.processSingleItem(ctx, stepExecution, retryAttempt)
-				totalReadCount++ // 読み込みカウントをインクリメント
-				stepExecution.ReadCount = totalReadCount // StepExecution に反映
-
-				if itemErr != nil {
-					// Reader または Processor でエラーが発生した場合 (スキップ不可/リトライ不可)
-					logger.Errorf("ステップ '%s' アイテム処理でエラーが発生したよ (試行 %d/%d): %v", s.name, retryAttempt+1, stepRetryConfig.MaxAttempts, itemErr)
-					chunkAttemptError = true // この試行はエラー
-					break                    // インナーループを抜ける
-				}
-
-				if currentEOFReached {
-					eofReached = true
-					// EOF に達したが、まだチャンクにアイテムが残っている可能性があるので、
-					// このイテレーションでチャンク処理を試みるためにループを継続
-					// 次の if itemCountInChunk >= chunkSize || eofReached で処理される
-				}
-
-				// processSingleItem が nil アイテムを返した場合 (スキップまたはフィルタリングされた場合)
-				if processedItem == nil {
-					if filtered { // filtered が true の場合のみフィルタリングカウントを増やす
-						stepExecution.FilterCount++
-					}
-					if !eofReached { // EOF でない限り、次のアイテムへ
-						continue
-					}
-					// EOF で processedItem が nil の場合、チャンク処理を試みるためにループを継続
-				}
-
-				// 処理済みアイテムをチャンクに追加
-				if processedItem != nil {
-					// processedItem がスライスの場合、その要素を個々に追加
-					val := reflect.ValueOf(processedItem)
-					if val.Kind() == reflect.Slice {
-						for i := 0; i < val.Len(); i++ {
-							processedItemsChunk = append(processedItemsChunk, val.Index(i).Interface())
-						}
-					} else {
-						// それ以外の場合（単一アイテム）、そのまま追加
-						processedItemsChunk = append(processedItemsChunk, processedItem)
-					}
-					itemCountInChunk = len(processedItemsChunk)
-				}
-
-				// チャンクが満たされたら、または EOF に達したら処理
-				if itemCountInChunk >= chunkSize || eofReached {
-					if len(processedItemsChunk) > 0 { // チャンクにアイテムがある場合のみ書き込み
-						var writeErr error
-						// Writer でデータを書き込み (チャンク全体を一度に書き込む)
-						// Writer のリトライ/スキップロジックをここに実装
-						for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
-							// Context キャンセルチェック
-							select {
-							case <-ctx.Done():
-								logger.Warnf("Context がキャンセルされたため、ステップ '%s' のアイテム書き込みを中断するよ: %v", s.name, ctx.Err())
-								stepExecution.MarkAsStopped()
-								jobExecution.AddFailureException(ctx.Err())
-								// defer がロールバックを処理するため、ここでは明示的なロールバックは不要
-								s.notifyAfterChunk(ctx, stepExecution)
-								return ctx.Err()
-							default:
-							}
-
-							// Writer.Write にトランザクションを渡すように変更
-							writeErr = s.writer.Write(ctx, tx, processedItemsChunk)
-							if writeErr == nil {
-								break // 成功
-							}
-
-							// リトライ可能な例外かチェック
-							if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
-								s.notifyRetryWrite(ctx, processedItemsChunk, writeErr)
-								logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされるよ (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
-								time.Sleep(time.Duration(s.itemRetryConfig.InitialInterval) * time.Millisecond) // リトライ間隔 (ミリ秒)
-							} else {
-								// リトライ不可または最大リトライ回数に達した場合
-								s.notifyItemWriteError(ctx, processedItemsChunk, writeErr)
-								if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
-									// 変更: notifySkipInWrite に processedItemsChunk 全体を渡す
-									s.notifySkipInWrite(ctx, processedItemsChunk, writeErr)
-									stepExecution.SkipWriteCount += len(processedItemsChunk) // Skip count by chunk size
-									logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
-									writeErr = nil // エラーをクリアして続行
-								} else {
-									// スキップもできない場合はエラー
-									logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
-									stepExecution.AddFailureException(writeErr)
-									chunkAttemptError = true // チャンク全体のエラーとする
-									break // このチャンクの処理を中断
-								}
-							}
-						}
-
-						if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
-							logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
-							stepExecution.AddFailureException(writeErr)
-							chunkAttemptError = true
-							break
-						}
-
-						totalWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
-						stepExecution.WriteCount = totalWriteCount // StepExecution に反映
-					}
-
-					if chunkAttemptError {
-						break // インナーループを抜ける
-					}
-
-					// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
-					readerEC, err := s.reader.GetExecutionContext(ctx)
-					if err != nil {
-						logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗したよ: %v", s.name, err)
-						chunkAttemptError = true
-						break
-					}
-					writerEC, err := s.writer.GetExecutionContext(ctx)
-					if err != nil {
-						logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
-						chunkAttemptError = true
-						break
-					}
-					stepExecution.ExecutionContext.Put("reader_context", readerEC)
-					stepExecution.ExecutionContext.Put("writer_context", writerEC)
-
-					// StepExecution を更新してチェックポイントを永続化
-					if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
-						logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗したよ: %v", s.name, err)
-						chunkAttemptError = true // StepExecution の永続化エラーもチャンクエラー
-						break
-					}
-
-					chunkCount++ // チャンク処理成功
-					// チャンクをリセット
-					processedItemsChunk = make([]any, 0, chunkSize)
-					itemCountInChunk = 0
-
-					// EOF に達した場合はループを抜ける
-					if eofReached {
-						logger.Debugf("ステップ '%s' Reader 終端到達。最終チャンク処理完了。", s.name)
-						break
-					}
-				}
-
-				// Reader の終端に達した場合
-				if eofReached {
-					logger.Debugf("ステップ '%s' Reader からデータの終端に達したよ。", s.name)
-					break // インナーループを抜ける
-				}
-			} // インナーループ終了
-		} // トランザクション開始成功チェック終了
-
-		// チャンク終了後処理の通知 (エラーの有無に関わらず)
-		s.notifyAfterChunk(ctx, stepExecution)
-
-		if chunkAttemptError {
-			consecutiveFailures++ // 連続失敗回数をインクリメント
-
-			// 回路遮断器のチェック
-			if consecutiveFailures >= stepRetryConfig.CircuitBreakerThreshold {
-				logger.Errorf("ステップ '%s' 回路遮断器がオープンしたよ。連続失敗回数 (%d) が閾値 (%d) を超えたよ。ステップを終了するよ。", s.name, consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
-				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
+			// Circuit Breaker: Closed 状態での連続失敗
+			if s.consecutiveFailures >= stepRetryConfig.CircuitBreakerThreshold {
+				logger.Errorf("ステップ '%s' サーキットブレーカーがオープンしたよ。連続失敗回数 (%d) が閾値 (%d) を超えたよ。", s.name, s.consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold)
+				s.circuitBreakerState = core.CBStateOpen
+				s.lastOpenTime = time.Now()
+				stepExecution.AddFailureException(exception.NewBatchErrorf(s.name, "回路遮断器オープン: 連続失敗回数 (%d) が閾値 (%d) を超えたよ", s.consecutiveFailures, stepRetryConfig.CircuitBreakerThreshold))
 				jobExecution.AddFailureException(stepExecution.Failures[len(jobExecution.Failures)-1])
 				return exception.NewBatchErrorf(s.name, "回路遮断器オープンによりステップ '%s' が失敗したよ", s.name)
 			}
 
+			// ステップレベルのリトライのための指数バックオフ
 			if retryAttempt < stepRetryConfig.MaxAttempts-1 {
-				// リトライ可能回数が残っている場合
-				// 指数バックオフの計算
 				delay := time.Duration(float64(stepRetryConfig.InitialInterval) * math.Pow(stepRetryConfig.Factor, float64(retryAttempt))) * time.Millisecond
 				if delay > time.Duration(stepRetryConfig.MaxInterval)*time.Millisecond {
 					delay = time.Duration(stepRetryConfig.MaxInterval) * time.Millisecond
@@ -578,23 +433,17 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 				time.Sleep(delay)
 
 				// リトライ前に Reader の ExecutionContext をリセット
-				// 現状は Reader/Writer が内部状態を保持し、SetExecutionContext で復元されるため、
-				// ロールバックされたチャンクのデータは ExecutionContext に追加されない。
-				// Reader の currentIndex はロールバックされたチャンクの開始時点に戻るべきだが、
-				// 現在の Reader 実装では Read が進んでしまうため、SetExecutionContext で明示的に戻す必要がある。
-				// ただし、API呼び出しは毎回行われるため、API呼び出し自体が冪等である必要がある。
-				// ここでは、Reader の SetExecutionContext が呼ばれることで、currentIndex が戻ることを期待する。
 				if readerEC, ok := stepExecution.ExecutionContext.Get("reader_context"); ok {
 					if readerECVal, isEC := readerEC.(core.ExecutionContext); isEC {
 						s.reader.SetExecutionContext(ctx, readerECVal)
 					} else {
 						logger.Warnf("ステップ '%s': リトライ時の Reader の ExecutionContext が予期しない型だよ: %T", s.name, readerEC)
-						s.reader.SetExecutionContext(ctx, core.NewExecutionContext()) // 型が合わない場合は初期化
+						s.reader.SetExecutionContext(ctx, core.NewExecutionContext())
 					}
 				} else {
-					s.reader.SetExecutionContext(ctx, core.NewExecutionContext()) // 初回またはECがない場合は初期状態に
+					s.reader.SetExecutionContext(ctx, core.NewExecutionContext())
 				}
-				s.writer.SetExecutionContext(ctx, core.NewExecutionContext()) // Writerは状態を持たないためクリア
+				s.writer.SetExecutionContext(ctx, core.NewExecutionContext())
 			} else {
 				// 最大リトライ回数に達した場合
 				logger.Errorf("ステップ '%s' チャンク処理が最大リトライ回数 (%d) 失敗したよ。ステップを終了するよ。", s.name, stepRetryConfig.MaxAttempts)
@@ -604,17 +453,238 @@ func (s *JSLAdaptedStep) executeDefaultChunkProcessing(ctx context.Context, jobE
 			}
 		} else {
 			// この試行がエラーなく完了した場合
-			consecutiveFailures = 0 // 成功したので連続失敗回数をリセット
+			s.consecutiveFailures = 0 // 成功したので連続失敗回数をリセット
+
+			// Circuit Breaker: Half-Open 状態での成功
+			if s.circuitBreakerState == core.CBStateHalfOpen {
+				logger.Infof("ステップ '%s': サーキットブレーカーがハーフオープン状態で成功したよ。クローズ状態に戻すよ。", s.name)
+				s.circuitBreakerState = core.CBStateClosed
+				s.lastOpenTime = time.Time{} // リセット
+			}
+
 			logger.Infof("ステップ '%s' チャンク処理ステップが正常に完了したよ。合計チャンク数: %d, 合計読み込みアイテム数: %d, 合計書き込みアイテム数: %d, 合計フィルタリング数: %d",
 				s.name, chunkCount, totalReadCount, totalWriteCount, stepExecution.FilterCount)
 			stepExecution.ReadCount = totalReadCount
 			stepExecution.WriteCount = totalWriteCount
 			stepExecution.MarkAsCompleted()
-			return nil // 正常終了したらループを抜けて nil を返す
+			return nil // 全体として成功
 		}
 	} // リトライループ終了
+
 	// ここに到達するのは、リトライ回数を使い果たして失敗した場合のみ
-	return exception.NewBatchErrorf(s.name, "ステップ '%s' が最大リトライ回数を超えて失敗したよ", s.name)
+	return overallChunkProcessingErr // 最後に記録されたエラーを返す
+}
+
+// processOneChunkAttempt は単一のチャンク処理試行を実行します。
+// 成功した場合は nil を返し、失敗した場合はエラーを返します。
+func (s *JSLAdaptedStep) processOneChunkAttempt(ctx context.Context, jobExecution *core.JobExecution, stepExecution *core.StepExecution, retryAttempt int, totalReadCount, totalWriteCount, chunkCount *int) error {
+	chunkSize := s.chunkSize
+	processedItemsChunk := make([]any, 0, chunkSize)
+	itemCountInChunk := 0
+	chunkAttemptError := false // このチャンク試行でエラーが発生したかを示すフラグ
+	eofReached := false
+
+	// チャンク開始前処理の通知
+	s.notifyBeforeChunk(ctx, stepExecution)
+
+	// トランザクションを開始
+	tx, err := s.txManager.Begin(ctx, nil)
+	if err != nil {
+		logger.Errorf("ステップ '%s': トランザクションの開始に失敗したよ: %v", s.name, err)
+		stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクション開始エラー", err, true, false))
+		jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+		return err // トランザクション開始失敗は即座にエラーを返す
+	}
+
+	// defer のトランザクション処理
+	defer func() {
+		if chunkAttemptError {
+			if rbErr := s.txManager.Rollback(tx); rbErr != nil {
+				logger.Errorf("ステップ '%s': トランザクションのロールバック中にエラーが発生したよ: %v", s.name, rbErr)
+			} else {
+				logger.Debugf("ステップ '%s': トランザクションをロールバックしました。", s.name)
+			}
+			stepExecution.RollbackCount++
+		} else {
+			if cmErr := s.txManager.Commit(tx); cmErr != nil {
+				logger.Errorf("ステップ '%s': トランザクションのコミットに失敗したよ: %v", s.name, cmErr)
+				stepExecution.AddFailureException(exception.NewBatchError(s.name, "トランザクションコミットエラー", cmErr, true, false))
+				jobExecution.AddFailureException(stepExecution.Failures[len(stepExecution.Failures)-1])
+				chunkAttemptError = true // コミット失敗もチャンクエラーとして扱う
+			} else {
+				logger.Debugf("ステップ '%s': トランザクションをコミットしました。", s.name)
+			}
+			stepExecution.CommitCount++
+		}
+		// チャンク終了後処理の通知 (エラーの有無に関わらず)
+		s.notifyAfterChunk(ctx, stepExecution)
+	}()
+
+	// アイテムの読み込み、処理、チャンクへの追加を行うインナーループ
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Warnf("Context がキャンセルされたため、ステップ '%s' のチャンク処理を中断するよ: %v", s.name, ctx.Err())
+			stepExecution.MarkAsStopped()
+			jobExecution.AddFailureException(ctx.Err())
+			chunkAttemptError = true
+			return ctx.Err()
+		default:
+		}
+
+		// 単一アイテムの読み込みと処理
+		processedItem, currentEOFReached, filtered, itemErr := s.processSingleItem(ctx, stepExecution, retryAttempt)
+		*totalReadCount++ // 読み込みカウントをインクリメント
+		stepExecution.ReadCount = *totalReadCount // StepExecution に反映
+
+		if itemErr != nil {
+			// Reader または Processor でエラーが発生した場合 (スキップ不可/リトライ不可)
+			logger.Errorf("ステップ '%s' アイテム処理でエラーが発生したよ (試行 %d/%d): %v", s.name, retryAttempt+1, s.stepRetryConfig.MaxAttempts, itemErr)
+			chunkAttemptError = true // この試行はエラー
+			return itemErr           // アイテム処理エラーはチャンク試行のエラーとして返す
+		}
+
+		if currentEOFReached {
+			eofReached = true
+			// EOF に達したが、まだチャンクにアイテムが残っている可能性があるので、
+			// このイテレーションでチャンク処理を試みるためにループを継続
+			// 次の if itemCountInChunk >= chunkSize || eofReached で処理される
+		}
+
+		// processSingleItem が nil アイテムを返した場合 (スキップまたはフィルタリングされた場合)
+		if processedItem == nil {
+			if filtered { // filtered が true の場合のみフィルタリングカウントを増やす
+				stepExecution.FilterCount++
+			}
+			if !eofReached { // EOF でない限り、次のアイテムへ
+				continue
+			}
+			// EOF で processedItem が nil の場合、チャンク処理を試みるためにループを継続
+		}
+
+		// 処理済みアイテムをチャンクに追加
+		if processedItem != nil {
+			// processedItem がスライスの場合、その要素を個々に追加
+			val := reflect.ValueOf(processedItem)
+			if val.Kind() == reflect.Slice {
+				for i := 0; i < val.Len(); i++ {
+					processedItemsChunk = append(processedItemsChunk, val.Index(i).Interface())
+				}
+			} else {
+				// それ以外の場合（単一アイテム）、そのまま追加
+				processedItemsChunk = append(processedItemsChunk, processedItem)
+			}
+			itemCountInChunk = len(processedItemsChunk)
+		}
+
+		// チャンクが満たされたら、または EOF に達したら処理
+		if itemCountInChunk >= chunkSize || eofReached {
+			if len(processedItemsChunk) > 0 { // チャンクにアイテムがある場合のみ書き込み
+				var writeErr error
+				// Writer でデータを書き込み (チャンク全体を一度に書き込む)
+				// Writer のリトライ/スキップロジックをここに実装
+				for itemRetryAttempt := 0; itemRetryAttempt < s.itemRetryConfig.MaxAttempts; itemRetryAttempt++ {
+					// Context キャンセルチェック
+					select {
+					case <-ctx.Done():
+						logger.Warnf("Context がキャンセルされたため、ステップ '%s' のアイテム書き込みを中断するよ: %v", s.name, ctx.Err())
+						stepExecution.MarkAsStopped()
+						jobExecution.AddFailureException(ctx.Err())
+						chunkAttemptError = true
+						return ctx.Err()
+					default:
+					}
+
+					// Writer.Write にトランザクションを渡すように変更
+					writeErr = s.writer.Write(ctx, tx, processedItemsChunk)
+					if writeErr == nil {
+						break // 成功
+					}
+
+					// リトライ可能な例外かチェック
+					if s.isRetryableException(writeErr, s.itemRetryConfig.RetryableExceptions) && itemRetryAttempt < s.itemRetryConfig.MaxAttempts-1 {
+						s.notifyRetryWrite(ctx, processedItemsChunk, writeErr)
+						logger.Warnf("ステップ '%s' アイテム書き込みエラーがリトライされるよ (試行 %d/%d): %v", s.name, itemRetryAttempt+1, s.itemRetryConfig.MaxAttempts, writeErr)
+						time.Sleep(time.Duration(s.itemRetryConfig.InitialInterval) * time.Millisecond) // リトライ間隔 (ミリ秒)
+					} else {
+						// リトライ不可または最大リトライ回数に達した場合
+						s.notifyItemWriteError(ctx, processedItemsChunk, writeErr)
+						if s.isSkippableException(writeErr, s.itemSkipConfig.SkippableExceptions) && stepExecution.SkipWriteCount < s.itemSkipConfig.SkipLimit {
+							s.notifySkipInWrite(ctx, processedItemsChunk, writeErr)
+							stepExecution.SkipWriteCount += len(processedItemsChunk) // Skip count by chunk size
+							logger.Warnf("ステップ '%s' アイテム書き込みエラーがスキップされたよ (スキップ数: %d/%d): %v", s.name, stepExecution.SkipWriteCount, s.itemSkipConfig.SkipLimit, writeErr)
+							writeErr = nil // エラーをクリアして続行
+						} else {
+							// スキップもできない場合はエラー
+							logger.Errorf("ステップ '%s' Writer error: %v", s.name, writeErr)
+							stepExecution.AddFailureException(writeErr)
+							chunkAttemptError = true // チャンク全体のエラーとする
+							return writeErr          // 書き込みエラーはチャンク試行のエラーとして返す
+						}
+					}
+				}
+
+				if writeErr != nil { // リトライ/スキップ後もエラーが残っている場合
+					logger.Errorf("ステップ '%s' Writer error after retries/skips: %v", s.name, writeErr)
+					stepExecution.AddFailureException(writeErr)
+					chunkAttemptError = true
+					return writeErr
+				}
+
+				*totalWriteCount += len(processedItemsChunk) // 書き込みカウントをインクリメント (成功したアイテム数)
+				stepExecution.WriteCount = *totalWriteCount // StepExecution に反映
+			}
+
+			if chunkAttemptError {
+				return errors.New("chunk processing failed due to item error or write error") // エラーを返す
+			}
+
+			// Reader/Writer の ExecutionContext を取得し、StepExecution に保存
+			readerEC, err := s.reader.GetExecutionContext(ctx)
+			if err != nil {
+				logger.Errorf("ステップ '%s': Reader の ExecutionContext 取得に失敗したよ: %v", s.name, err)
+				chunkAttemptError = true
+				return err
+			}
+			writerEC, err := s.writer.GetExecutionContext(ctx)
+			if err != nil {
+				logger.Errorf("ステップ '%s': Writer の ExecutionContext 取得に失敗したよ: %v", s.name, err)
+				chunkAttemptError = true
+				return err
+			}
+			stepExecution.ExecutionContext.Put("reader_context", readerEC)
+			stepExecution.ExecutionContext.Put("writer_context", writerEC)
+
+			// StepExecution を更新してチェックポイントを永続化
+			if err = s.jobRepository.UpdateStepExecution(ctx, stepExecution); err != nil {
+				logger.Errorf("ステップ '%s': StepExecution の更新 (チェックポイント) に失敗したよ: %v", s.name, err)
+				chunkAttemptError = true // StepExecution の永続化エラーもチャンクエラー
+				return err
+			}
+
+			*chunkCount++ // チャンク処理成功
+			// チャンクをリセット
+			processedItemsChunk = make([]any, 0, chunkSize)
+			itemCountInChunk = 0
+
+			// EOF に達した場合はループを抜ける
+			if eofReached {
+				logger.Debugf("ステップ '%s' Reader 終端到達。最終チャンク処理完了。", s.name)
+				break
+			}
+		}
+
+		// Reader の終端に達した場合
+		if eofReached {
+			logger.Debugf("ステップ '%s' Reader からデータの終端に達したよ。", s.name)
+			break // インナーループを抜ける
+		}
+	} // インナーループ終了
+
+	if chunkAttemptError {
+		return errors.New("chunk processing failed") // チャンク試行が失敗したことを示すエラー
+	}
+	return nil // チャンク試行成功
 }
 
 // processSingleItem は Reader から1アイテム読み込み、Processor で処理します。
