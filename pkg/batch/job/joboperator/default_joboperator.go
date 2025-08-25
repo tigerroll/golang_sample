@@ -3,7 +3,7 @@ package joboperator
 import (
 	"context"
 	"fmt"
-	"time" // time パッケージは現在使用されていないため削除
+	"time"
 
 	core "sample/pkg/batch/job/core" // core パッケージをインポート
 	factory "sample/pkg/batch/job/factory" // JobFactory を使用するために factory パッケージをインポート
@@ -73,11 +73,43 @@ func (o *DefaultJobOperator) Restart(ctx context.Context, executionID string) (*
 	// 4. 新しい JobExecution を作成 (同じ JobInstance に紐づく)
 	// JobParameters は前回の JobExecution から引き継ぎます。
 	newJobExecution := core.NewJobExecution(jobInstance.ID, prevJobExecution.JobName, prevJobExecution.Parameters)
+	newJobExecution.RestartCount = prevJobExecution.RestartCount + 1 // ★ 追加: 再起動回数をインクリメント
 
 	// 5. 前回の ExecutionContext を新しい JobExecution に引き継ぐ
 	// ExecutionContext はジョブの状態を保持するため、再起動時に引き継ぐ必要があります。
 	newJobExecution.ExecutionContext = prevJobExecution.ExecutionContext.Copy()
 	logger.Debugf("JobExecution (ID: %s) の ExecutionContext を新しい JobExecution (ID: %s) に引き継いだよ。", prevJobExecution.ID, newJobExecution.ID)
+
+	// 5.5. 前回の StepExecutions を新しい JobExecution に引き継ぐ
+	// リスタート時には、前回のステップ実行履歴も引き継ぐ必要がある。
+	// 特に、成功したステップの履歴はそのまま引き継ぎ、失敗したステップは再実行の対象となる。
+	for _, prevStepExecution := range prevJobExecution.StepExecutions {
+		// StepExecution のコピーを作成
+		copiedStepExecution := &core.StepExecution{
+			ID:               prevStepExecution.ID, // IDはそのまま引き継ぐ
+			StepName:         prevStepExecution.StepName,
+			JobExecution:     newJobExecution, // 新しい JobExecution に紐付ける
+			StartTime:        prevStepExecution.StartTime,
+			EndTime:          prevStepExecution.EndTime,
+			Status:           prevStepExecution.Status,
+			ExitStatus:       prevStepExecution.ExitStatus,
+			Failures:         prevStepExecution.Failures, // 失敗履歴も引き継ぐ
+			ReadCount:        prevStepExecution.ReadCount,
+			WriteCount:       prevStepExecution.WriteCount,
+			CommitCount:      prevStepExecution.CommitCount,
+			RollbackCount:    prevStepExecution.RollbackCount,
+			FilterCount:      prevStepExecution.FilterCount,
+			SkipReadCount:    prevStepExecution.SkipReadCount,
+			SkipProcessCount: prevStepExecution.SkipProcessCount,
+			SkipWriteCount:   prevStepExecution.SkipWriteCount,
+			ExecutionContext: prevStepExecution.ExecutionContext.Copy(), // ExecutionContextもコピー
+			LastUpdated:      time.Now(), // 更新時刻は現在時刻に
+			Version:          prevStepExecution.Version,
+		}
+		newJobExecution.AddStepExecution(copiedStepExecution)
+		logger.Debugf("JobExecution (ID: %s) に前回の StepExecution (ID: %s, Name: %s, Status: %s) を引き継いだよ。",
+			newJobExecution.ID, copiedStepExecution.ID, copiedStepExecution.StepName, copiedStepExecution.Status)
+	}
 
 	// 6. 再開するステップ名を決定
 	// 失敗または停止したステップから再開します。
